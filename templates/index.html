@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <title>TB3 管理系統</title>
+    <script src="{{ url_for('static', filename='js/eventemitter2.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/easeljs.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/roslib.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/ros2d.min.js') }}"></script>
+
+    <style>
+        body { font-family: sans-serif; background: #1a1a1a; color: white; text-align: center; margin: 0; padding: 20px; }
+        #map { width: 600px; height: 400px; background: #333; margin: 10px auto; border-radius: 10px; border: 2px solid #444; }
+        .btn-panel { background: #2a2a2a; padding: 15px; border-radius: 15px; display: inline-block; margin: 10px; }
+        .mode-btn { padding: 10px 20px; margin: 5px; cursor: pointer; border-radius: 5px; border: none; font-weight: bold; }
+        
+        /* WASD 3x3 矩陣 */
+        .teleop-grid { display: grid; grid-template-columns: repeat(3, 70px); grid-template-rows: repeat(3, 70px); gap: 10px; justify-content: center; margin: 15px auto; }
+        .btn-wasd { width: 70px; height: 70px; background: #444; color: white; border: none; border-radius: 10px; font-size: 20px; font-weight: bold; cursor: pointer; user-select: none; }
+        .btn-wasd:active { background: #ffc107; color: black; }
+        .btn-stop { background: #dc3545; }
+    </style>
+</head>
+<body>
+    <h1>TB3 自動建圖控制中心</h1>
+    <div id="status" style="color: #ffc107; margin-bottom: 10px;">🔴 等待 ROS 連線...</div>
+    
+    <div id="map"></div>
+
+    <div class="btn-panel">
+        <h3>模式切換</h3>
+        <button class="mode-btn" style="background: #007bff; color: white;" onclick="callApi('/start_slam')">🚀 啟動建圖</button>
+        <button class="mode-btn" style="background: #28a745; color: white;" onclick="callApi('/start_explore')">🤖 自動探索</button>
+        <button class="mode-btn" style="background: #dc3545; color: white;" onclick="callApi('/stop_all')">🛑 停止任務</button>
+        <br>
+        <button class="mode-btn" style="background: #17a2b8; color: white;" onclick="downloadMap()">💾 下載地圖</button>
+        <button class="mode-btn" style="background: #6c757d; color: white;" onclick="resetSystem()">🧹 重置系統</button>
+    </div>
+
+    <div class="teleop-grid">
+        <div></div>
+        <button class="btn-wasd" onmousedown="move(0.2, 0)" onmouseup="stop()" ontouchstart="move(0.2, 0)" ontouchend="stop()">W</button>
+        <div></div>
+        <button class="btn-wasd" onmousedown="move(0, 1)" onmouseup="stop()" ontouchstart="move(0, 1)" ontouchend="stop()">A</button>
+        <button class="btn-wasd btn-stop" onclick="stop()">S</button>
+        <button class="btn-wasd" onmousedown="move(0, -1)" onmouseup="stop()" ontouchstart="move(0, -1)" ontouchend="stop()">D</button>
+        <div></div>
+        <button class="btn-wasd" onmousedown="move(-0.2, 0)" onmouseup="stop()" ontouchstart="move(-0.2, 0)" ontouchend="stop()">X</button>
+        <div></div>
+    </div>
+
+    <script>
+        var ros = new ROSLIB.Ros({ url : 'ws://' + window.location.hostname + ':9090' });
+
+        ros.on('connection', () => {
+            document.getElementById('status').innerText = "🟢 已連線至 ROS";
+            document.getElementById('status').style.color = "#28a745";
+        });
+
+        var viewer = new ROS2D.Viewer({ divID : 'map', width : 600, height : 400 });
+        var gridClient = new ROS2D.OccupancyGridClient({
+            ros : ros, rootObject : viewer.scene, continuous: true, compression: 'png'
+        });
+
+        gridClient.on('change', () => {
+            viewer.scaleToDimensions(gridClient.currentGrid.width, gridClient.currentGrid.height);
+            viewer.shift(gridClient.currentGrid.pose.position.x, gridClient.currentGrid.pose.position.y);
+        });
+
+        var cmdVel = new ROSLIB.Topic({ ros: ros, name: '/cmd_vel', messageType: 'geometry_msgs/Twist' });
+
+        function move(l, a) {
+            var t = new ROSLIB.Message({ linear: {x:l, y:0, z:0}, angular: {x:0, y:0, z:a} });
+            cmdVel.publish(t);
+        }
+        function stop() { move(0,0); }
+        function callApi(url) { fetch(url).then(res => res.json()).then(d => alert(d.status)); }
+        function downloadMap() { window.location.href = '/download_map'; }
+        function resetSystem() {
+            if(confirm("確定要清理環境並重置 TB3 嗎？")) {
+                callApi('/reset_system');
+                setTimeout(() => { location.reload(); }, 5000);
+            }
+        }
+    </script>
+</body>
+</html>
