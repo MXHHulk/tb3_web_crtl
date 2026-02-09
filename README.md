@@ -31,3 +31,28 @@ tb3_web_crtl/
 │   └── current_map.pgm # (自動產生) 儲存的地圖檔案
 ├── startup_tb3_web.sh  # 一鍵啟動腳本 (包含環境變數配置)
 └── README.md
+
+
+## 🔧 安裝與部署 (Installation & Deployment)
+
+本專案建議部署於運行 Ubuntu 20.04 (ROS Noetic) 的 Raspberry Pi 4。
+
+### 1. 複製專案與權限設定
+首先將專案複製到你的 catkin 工作空間，並確保啟動腳本具備執行權限：
+```bash
+cd ~/catkin_ws/src
+git clone [https://github.com/MXHHulk/tb3_web_crtl.git](https://github.com/MXHHulk/tb3_web_crtl.git)
+cd tb3_web_crtl
+chmod +x startup_tb3_web.sh
+
+# 安裝通訊橋樑與座標轉發器
+sudo apt-get update
+sudo apt-get install -y ros-noetic-rosbridge-server \
+                       ros-noetic-tf2-web-republisher \
+                       ros-noetic-map-server \
+                       ros-noetic-explore-lite
+
+# 安裝 Flask 後端伺服器
+pip3 install flask
+
+
