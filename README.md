@@ -31,3 +31,40 @@ tb3_web_crtl/
 │   └── current_map.pgm # (自動產生) 儲存的地圖檔案
 ├── startup_tb3_web.sh  # 一鍵啟動腳本 (包含環境變數配置)
 └── README.md
+```
+
+## 🔧 安裝與部署
+
+**1. 複製專案**
+
+```text
+cd ~/catkin_ws/src
+git clone [https://github.com/MXHHulk/tb3_web_crtl.git](https://github.com/MXHHulk/tb3_web_crtl.git)
+cd tb3_web_crtl
+```
+
+**2. 環境需求** 
+
+```text
+# 確保你的 TB3 已經安裝以下套件：
+sudo apt-get install ros-noetic-rosbridge-server ros-noetic-tf2-web-republisher ros-noetic-explore-lite
+pip3 install flask
+```
+**3. 設定自動啟動 (Systemd)**
+
+```text
+# 將專案內的腳本路徑設定至 /etc/systemd/system/tb3_web.service，並執行：
+sudo systemctl daemon-reload
+sudo systemctl enable tb3_web.service
+sudo systemctl start tb3_web.service
+```
+
+## 📖 使用指南
+
+1. 開啟瀏覽器訪問 http://<YOUR_TB3_IP>:5000。
+2. 點擊 啟動建圖，等待地圖出現在畫面上。
+3. 使用 WASD 按鈕手動移動，或點擊 自動探索。
+4. 任務完成後，點擊 下載地圖 保存成果。
+5. 若需開始新任務，點擊 重置系統 清理環境。
+
+
