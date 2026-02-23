@@ -1,0 +1,13 @@
+Description=TB3 Web Controller Service
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+ExecStart=/bin/bash /home/ubuntu/catkin_ws/src/tb3_web_crtl/startup_tb3_web.sh
+WorkingDirectory=/home/ubuntu/catkin_ws/src/tb3_web_crtl
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
