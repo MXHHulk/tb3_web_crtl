@@ -58,7 +58,11 @@ sudo systemctl daemon-reload
 sudo systemctl enable tb3_web.service
 sudo systemctl start tb3_web.service
 ```
-
+```text
+#  關閉自動
+sudo systemctl disable tb3_web.service
+sudo systemctl stop tb3_web.service
+```
 ## 📖 使用指南
 
 1. 開啟瀏覽器訪問 http://<YOUR_TB3_IP>:5000。
