@@ -1,0 +1,24 @@
+canvas {
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+    display: block;
+    margin: 0 auto;
+    background-color: #444;
+}
+
+.card-body {
+    overflow: auto;
+    background-color: #333;
+}
+
+#canvas-map {
+    z-index: 1;
+}
+
+#canvas-coverage {
+    z-index: 2;
+}
+
+#canvas-overlay {
+    z-index: 3;
+}

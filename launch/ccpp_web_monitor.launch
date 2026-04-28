@@ -1,0 +1,17 @@
+<launch>
+  <!-- 1. Rosbridge Server -->
+  <include file="$(find rosbridge_server)/launch/rosbridge_websocket.launch">
+      <arg name="port" value="9090" />
+  </include>
+
+  <!-- 2. Web Server -->
+  <node pkg="turtlebot3_ccpp" type="web_server.py" name="web_server" output="screen">
+      <param name="port" value="8000" />
+  </node>
+
+  <!-- 3. CCPP Manager Node (Static Version) -->
+  <node pkg="turtlebot3_ccpp" type="ccpp_manager.py" name="ccpp_manager" output="screen">
+      <param name="robot_width" value="0.178" />
+      <param name="scan_overlap" value="0.8" />
+  </node>
+</launch>

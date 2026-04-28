@@ -1,0 +1,13 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# ROS build artifacts
+*.log
+devel/
+build/
+
+# Editor
+.vscode/
+*.swp
