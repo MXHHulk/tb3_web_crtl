@@ -3,61 +3,83 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TurtleBot3 CCPP Monitor</title>
+    <title>TurtleBot3 CCPP Monitor Pro</title>
     <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
     <link rel="stylesheet" href="css/style.css">
     <script src="js/libs/eventemitter2.min.js"></script>
     <script src="js/libs/roslib.min.js"></script>
 </head>
 <body class="bg-dark text-light">
-    <nav class="navbar navbar-dark bg-primary">
-        <span class="navbar-brand mb-0 h1">TurtleBot3 CCPP 實體監控系統</span>
-        <div id="status" class="badge badge-danger">未連線</div>
+    <nav class="navbar navbar-dark bg-primary shadow">
+        <span class="navbar-brand mb-0 h1">TB3 CCPP 動態監控系統</span>
+        <div>
+            <span id="status" class="badge badge-danger">未連線</span>
+            <span id="task-state" class="badge badge-warning ml-2">IDLE</span>
+        </div>
     </nav>
+
+    <!-- 地圖控制浮動面板 -->
+    <div id="map-controls" class="btn-group-vertical shadow">
+        <button id="btn-zoom-in" class="btn btn-light" title="放大">+</button>
+        <button id="btn-zoom-out" class="btn btn-light" title="縮小">-</button>
+        <button id="btn-rotate-l" class="btn btn-light" title="左旋">↺</button>
+        <button id="btn-rotate-r" class="btn btn-light" title="右旋">↻</button>
+        <button id="btn-reset" class="btn btn-light" title="重設">⌂</button>
+    </div>
 
     <div class="container-fluid mt-3">
         <div class="row">
-            <div class="col-md-8">
-                <!-- 進度條 -->
-                <div class="progress mb-2" style="height: 25px;">
-                    <div id="overall-progress" class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%;">0%</div>
+            <!-- 左側主地圖視窗 -->
+            <div class="col-md-9">
+                <div class="progress mb-2" style="height: 10px;">
+                    <div id="overall-progress" class="progress-bar progress-bar-striped progress-bar-animated" style="width: 0%;"></div>
                 </div>
                 
-                <div class="card bg-secondary">
-                    <div class="card-header d-flex justify-content-between">
-                        <span>視覺化地圖 (疊層模式)</span>
-                        <small id="map-info">等待地圖數據...</small>
+                <div class="card bg-secondary border-0 shadow">
+                    <div class="card-header py-1 d-flex justify-content-between align-items-center">
+                        <small>即時地圖 (滾輪縮放 / 拖曳平移)</small>
+                        <small id="map-info">等待資料...</small>
                     </div>
-                    <div class="card-body p-0 position-relative" style="overflow: auto; max-height: 75vh; background: #333;">
-                        <canvas id="canvas-map"></canvas>
-                        <canvas id="canvas-coverage" class="position-absolute" style="top: 0; left: 0; pointer-events: none; opacity: 0.5;"></canvas>
-                        <canvas id="canvas-overlay" class="position-absolute" style="top: 0; left: 0; pointer-events: none;"></canvas>
+                    <div id="viewport" class="card-body p-0 position-relative overflow-hidden" style="height: 75vh; background: #222; cursor: crosshair;">
+                        <canvas id="canvas-map" class="map-layer"></canvas>
+                        <canvas id="canvas-coverage" class="map-layer" style="opacity: 0.5;"></canvas>
+                        <canvas id="canvas-overlay" class="map-layer"></canvas>
                     </div>
                 </div>
             </div>
             
-            <div class="col-md-4">
-                <div class="card bg-secondary mb-3">
-                    <div class="card-header">任務控制</div>
+            <!-- 右側資訊面板 -->
+            <div class="col-md-3">
+                <div class="card bg-dark border-secondary mb-3">
+                    <div class="card-header border-secondary">任務控制</div>
                     <div class="card-body">
-                        <button id="btn-start" class="btn btn-success btn-block mb-2">啟動 CCPP 任務</button>
-                        <button id="btn-stop" class="btn btn-danger btn-block mb-3">緊急停止</button>
-                        
-                        <h6>系統圖例</h6>
-                        <ul class="list-group list-group-flush bg-dark text-light small">
-                            <li class="list-group-item bg-dark border-secondary"><span style="color:white">■</span> 原始地圖</li>
-                            <li class="list-group-item bg-dark border-secondary"><span style="color:rgba(0,255,0,0.5)">■</span> 當前目標區域</li>
-                            <li class="list-group-item bg-dark border-secondary"><span style="color:rgba(0,0,255,0.5)">■</span> 已覆蓋區域</li>
-                            <li class="list-group-item bg-dark border-secondary"><span style="color:yellow">●</span> 機器人位置</li>
-                        </ul>
+                        <button id="btn-start" class="btn btn-success btn-block">啟動任務</button>
+                        <button id="btn-stop" class="btn btn-danger btn-block mt-2">緊急停止</button>
+                        <button id="btn-reset-coverage" class="btn btn-warning btn-block mt-2">重新見圖 (清除路徑)</button>
                     </div>
                 </div>
                 
-                <div class="card bg-secondary">
-                    <div class="card-header">機器人狀態</div>
-                    <div class="card-body">
-                        <p>任務狀態: <span id="task-state" class="text-warning">IDLE</span></p>
-                        <p>當前位置: <span id="robot-pos">--</span></p>
+                <div class="card bg-dark border-secondary">
+                    <div class="card-header border-secondary">機器人狀態</div>
+                    <div class="card-body p-2">
+                        <ul class="list-unstyled small">
+                            <li>位置: <b id="robot-pos" class="text-info">--</b></li>
+                            <li>進度: <b id="progress-text" class="text-success">0%</b></li>
+                        </ul>
+                        <hr class="bg-secondary">
+                        <h6>視覺化分層</h6>
+                        <div class="custom-control custom-checkbox small">
+                            <input type="checkbox" class="custom-control-input" id="layer-map" checked>
+                            <label class="custom-control-label" for="layer-map">原始地圖 (White)</label>
+                        </div>
+                        <div class="custom-control custom-checkbox small">
+                            <input type="checkbox" class="custom-control-input" id="layer-coverage" checked>
+                            <label class="custom-control-label" for="layer-coverage">已覆蓋區 (Blue)</label>
+                        </div>
+                        <div class="custom-control custom-checkbox small">
+                            <input type="checkbox" class="custom-control-input" id="layer-target" checked>
+                            <label class="custom-control-label" for="layer-target">當前目標 (Green)</label>
+                        </div>
                     </div>
                 </div>
             </div>

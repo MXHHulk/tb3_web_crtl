@@ -59,6 +59,7 @@ class DynamicCCPPManager:
         # Services
         rospy.Service('/ccpp/start', Trigger, self.handle_start)
         rospy.Service('/ccpp/stop', Trigger, self.handle_stop)
+        rospy.Service('/ccpp/reset_coverage', Trigger, self.handle_reset_coverage)
         rospy.Service('/ccpp/get_task_status', GetTaskStatus, self.handle_status)
         
         # Workers
@@ -213,18 +214,39 @@ class DynamicCCPPManager:
 
     def publish_target_region(self, region_pts):
         if not len(region_pts) or self.map_msg is None: return
+        
+        # 將像素點轉為矩形邊界
+        # region_pts 格式通常為 [[[x, y]], [[x, y]], ...] (OpenCV contour)
+        pts = np.array(region_pts).reshape(-1, 2)
+        x, y, w, h = cv2.boundingRect(pts)
+        
+        # 建立長方形的四個頂點
+        rect_pts = [
+            [x, y], [x + w, y], [x + w, y + h], [x, y + h]
+        ]
+        
         poly = PolygonStamped()
         poly.header.frame_id = "map"
         poly.header.stamp = rospy.Time.now()
         info = self.map_msg.info
-        for pt in region_pts:
+        
+        for pt in rect_pts:
             p = Point32()
-            p.x = pt[0][0] * info.resolution + info.origin.position.x
-            p.y = pt[0][1] * info.resolution + info.origin.position.y
+            p.x = pt[0] * info.resolution + info.origin.position.x
+            p.y = pt[1] * info.resolution + info.origin.position.y
             poly.polygon.points.append(p)
+            
         self.target_pub.publish(poly)
 
     # --- Service Handlers ---
+
+    def handle_reset_coverage(self, req):
+        with self.lock:
+            if self.coverage_array is not None:
+                self.coverage_array.fill(0)
+                rospy.loginfo("Coverage map reset.")
+                self.publish_coverage_map()
+        return TriggerResponse(success=True, message="Coverage map cleared and reset.")
 
     def handle_start(self, req):
         if self.state == "RUNNING":
