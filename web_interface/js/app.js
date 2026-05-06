@@ -75,8 +75,7 @@ document.addEventListener('DOMContentLoaded', () => {
         renderAll();
     });
 
-    const poseTopicAMCL = new ROSLIB.Topic({ ros, name: '/amcl_pose', messageType: 'geometry_msgs/PoseWithCovarianceStamped' });
-    const poseTopicOdom = new ROSLIB.Topic({ ros, name: '/odom', messageType: 'nav_msgs/Odometry' });
+    const poseTopic = new ROSLIB.Topic({ ros, name: '/ccpp/robot_pose', messageType: 'geometry_msgs/PoseStamped' });
 
     const handlePose = (pose) => {
         cachedRobotPose = pose;
@@ -84,15 +83,7 @@ document.addEventListener('DOMContentLoaded', () => {
         renderAll();
     };
 
-    poseTopicAMCL.subscribe((msg) => handlePose(msg.pose.pose));
-    poseTopicOdom.subscribe((msg) => {
-        // 只有在沒有 AMCL 資料時才使用 Odom
-        if (!cachedRobotPose || (Date.now() - lastAmclTime > 5000)) {
-            handlePose(msg.pose.pose);
-        }
-    });
-    let lastAmclTime = 0;
-    poseTopicAMCL.subscribe(() => lastAmclTime = Date.now());
+    poseTopic.subscribe((msg) => handlePose(msg.pose));
 
     const targetTopic = new ROSLIB.Topic({ ros, name: '/ccpp/target_polygon', messageType: 'geometry_msgs/PolygonStamped' });
     targetTopic.subscribe((msg) => {
@@ -127,33 +118,89 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const linearSpeed = 0.22;
     const angularSpeed = 1.0;
+    
+    let teleopTimer = null;
+    let currentLinear = 0;
+    let currentAngular = 0;
 
-    function publishCmdVel(linear, angular) {
-        const twist = new ROSLIB.Message({
-            linear: { x: linear, y: 0.0, z: 0.0 },
-            angular: { x: 0.0, y: 0.0, z: angular }
-        });
-        cmdVelTopic.publish(twist);
+    function startPublishing(linear, angular) {
+        currentLinear = linear;
+        currentAngular = angular;
+        if (!teleopTimer) {
+            teleopTimer = setInterval(() => {
+                const twist = new ROSLIB.Message({
+                    linear: { x: currentLinear, y: 0.0, z: 0.0 },
+                    angular: { x: 0.0, y: 0.0, z: currentAngular }
+                });
+                cmdVelTopic.publish(twist);
+            }, 100); // 10Hz
+        }
     }
 
-    document.getElementById('btn-teleop-w').onclick = () => publishCmdVel(linearSpeed, 0);
-    document.getElementById('btn-teleop-x').onclick = () => publishCmdVel(-linearSpeed, 0);
-    document.getElementById('btn-teleop-a').onclick = () => publishCmdVel(0, angularSpeed);
-    document.getElementById('btn-teleop-d').onclick = () => publishCmdVel(0, -angularSpeed);
-    document.getElementById('btn-teleop-s').onclick = () => publishCmdVel(0, 0);
-
-    // Keyboard Teleop Support
-    window.addEventListener('keydown', (e) => {
-        // 避免在輸入框中按鍵時觸發 (目前網頁沒有輸入框，但保持良好習慣)
-        if (e.target.tagName.toLowerCase() === 'input' || e.target.tagName.toLowerCase() === 'textarea') return;
-        
-        switch(e.key.toLowerCase()) {
-            case 'w': publishCmdVel(linearSpeed, 0); break;
-            case 'x': publishCmdVel(-linearSpeed, 0); break;
-            case 'a': publishCmdVel(0, angularSpeed); break;
-            case 'd': publishCmdVel(0, -angularSpeed); break;
-            case 's': publishCmdVel(0, 0); break;
+    function stopPublishing() {
+        currentLinear = 0;
+        currentAngular = 0;
+        if (teleopTimer) {
+            clearInterval(teleopTimer);
+            teleopTimer = null;
+            const twist = new ROSLIB.Message({
+                linear: { x: 0.0, y: 0.0, z: 0.0 },
+                angular: { x: 0.0, y: 0.0, z: 0.0 }
+            });
+            cmdVelTopic.publish(twist);
         }
+    }
+
+    // 滑鼠控制
+    const bindBtn = (id, lin, ang) => {
+        const btn = document.getElementById(id);
+        if (!btn) return;
+        btn.onmousedown = () => startPublishing(lin, ang);
+        btn.onmouseup = stopPublishing;
+        btn.onmouseleave = stopPublishing;
+        
+        btn.ontouchstart = (e) => { e.preventDefault(); startPublishing(lin, ang); };
+        btn.ontouchend = (e) => { e.preventDefault(); stopPublishing(); };
+    };
+
+    bindBtn('btn-teleop-w', linearSpeed, 0);
+    bindBtn('btn-teleop-x', -linearSpeed, 0);
+    bindBtn('btn-teleop-a', 0, angularSpeed);
+    bindBtn('btn-teleop-d', 0, -angularSpeed);
+    
+    const stopBtn = document.getElementById('btn-teleop-s');
+    if (stopBtn) stopBtn.onclick = stopPublishing;
+
+    // 鍵盤控制
+    const keyState = {};
+    window.addEventListener('keydown', (e) => {
+        if (e.target.tagName.toLowerCase() === 'input' || e.target.tagName.toLowerCase() === 'textarea') return;
+        const key = e.key.toLowerCase();
+        if (keyState[key]) return; // 避免持續按壓重複觸發
+        keyState[key] = true;
+        
+        let lin = 0, ang = 0;
+        if (keyState['w']) lin = linearSpeed;
+        else if (keyState['x']) lin = -linearSpeed;
+        if (keyState['a']) ang = angularSpeed;
+        else if (keyState['d']) ang = -angularSpeed;
+        
+        if (lin !== 0 || ang !== 0) startPublishing(lin, ang);
+        else if (key === 's') stopPublishing();
+    });
+
+    window.addEventListener('keyup', (e) => {
+        const key = e.key.toLowerCase();
+        keyState[key] = false;
+        
+        let lin = 0, ang = 0;
+        if (keyState['w']) lin = linearSpeed;
+        else if (keyState['x']) lin = -linearSpeed;
+        if (keyState['a']) ang = angularSpeed;
+        else if (keyState['d']) ang = -angularSpeed;
+
+        if (lin === 0 && ang === 0) stopPublishing();
+        else startPublishing(lin, ang);
     });
 
     // 圖層切換

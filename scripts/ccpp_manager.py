@@ -6,6 +6,7 @@ import queue
 import cv2
 import os
 import sys
+import tf
 
 # Ensure ROS Python paths are correct
 script_dir = os.path.dirname(os.path.realpath(__file__))
@@ -13,7 +14,7 @@ if script_dir not in sys.path:
     sys.path.insert(0, script_dir)
 
 from nav_msgs.msg import OccupancyGrid
-from geometry_msgs.msg import PolygonStamped, Point32, PoseWithCovarianceStamped
+from geometry_msgs.msg import PolygonStamped, Point32, PoseWithCovarianceStamped, PoseStamped
 from std_msgs.msg import Float32
 from std_srvs.srv import Trigger, TriggerResponse
 from turtlebot3_ccpp.srv import GetTaskStatus, GetTaskStatusResponse
@@ -51,10 +52,15 @@ class DynamicCCPPManager:
         self.progress_pub = rospy.Publisher('/ccpp/task_progress', Float32, queue_size=1)
         self.target_pub = rospy.Publisher('/ccpp/target_polygon', PolygonStamped, queue_size=1)
         self.coverage_pub = rospy.Publisher('/ccpp/coverage_map', OccupancyGrid, queue_size=1)
+        self.robot_pose_pub = rospy.Publisher('/ccpp/robot_pose', PoseStamped, queue_size=1)
+        
+        # TF Listener
+        self.tf_listener = tf.TransformListener()
         
         # Subscribers
         rospy.Subscriber('/map', OccupancyGrid, self.map_callback)
-        rospy.Subscriber('/amcl_pose', PoseWithCovarianceStamped, self.pose_callback)
+        # Replaced /amcl_pose with TF-based pose publisher for universal compatibility
+        rospy.Timer(rospy.Duration(0.1), self.pose_timer_callback)
         
         # Services
         rospy.Service('/ccpp/start', Trigger, self.handle_start)
@@ -73,6 +79,26 @@ class DynamicCCPPManager:
         rospy.loginfo("Dynamic CCPP Manager Initialized.")
 
     # --- Callbacks ---
+
+    def pose_timer_callback(self, event):
+        try:
+            (trans, rot) = self.tf_listener.lookupTransform('/map', '/base_footprint', rospy.Time(0))
+            pose_msg = PoseStamped()
+            pose_msg.header.frame_id = 'map'
+            pose_msg.header.stamp = rospy.Time.now()
+            pose_msg.pose.position.x = trans[0]
+            pose_msg.pose.position.y = trans[1]
+            pose_msg.pose.position.z = trans[2]
+            pose_msg.pose.orientation.x = rot[0]
+            pose_msg.pose.orientation.y = rot[1]
+            pose_msg.pose.orientation.z = rot[2]
+            pose_msg.pose.orientation.w = rot[3]
+            self.robot_pose_pub.publish(pose_msg)
+            
+            self.robot_pose = pose_msg.pose
+            self.update_coverage()
+        except (tf.LookupException, tf.ConnectivityException, tf.ExtrapolationException):
+            pass
 
     def pose_callback(self, msg):
         self.robot_pose = msg.pose.pose
