@@ -52,10 +52,25 @@
             <div class="col-md-3">
                 <div class="card bg-dark border-secondary mb-3">
                     <div class="card-header border-secondary">任務控制</div>
-                    <div class="card-body">
-                        <button id="btn-start" class="btn btn-success btn-block">啟動任務</button>
-                        <button id="btn-stop" class="btn btn-danger btn-block mt-2">緊急停止</button>
-                        <button id="btn-reset-coverage" class="btn btn-warning btn-block mt-2">重新見圖 (清除路徑)</button>
+                    <div class="card-body p-2">
+                        <button id="btn-start" class="btn btn-success btn-block mb-1">啟動任務</button>
+                        <button id="btn-stop" class="btn btn-danger btn-block mb-1">緊急停止</button>
+                        <button id="btn-reset-coverage" class="btn btn-warning btn-block">重新見圖 (清除路徑)</button>
+                    </div>
+                </div>
+
+                <div class="card bg-dark border-secondary mb-3">
+                    <div class="card-header border-secondary">手動控制 (Teleop)</div>
+                    <div class="card-body text-center p-2">
+                        <div class="btn-group-vertical w-100">
+                            <button id="btn-teleop-w" class="btn btn-secondary mb-1">前進 (W)</button>
+                            <div class="d-flex justify-content-between mb-1">
+                                <button id="btn-teleop-a" class="btn btn-secondary flex-fill mr-1">左轉 (A)</button>
+                                <button id="btn-teleop-s" class="btn btn-danger flex-fill mx-1">停止 (S)</button>
+                                <button id="btn-teleop-d" class="btn btn-secondary flex-fill ml-1">右轉 (D)</button>
+                            </div>
+                            <button id="btn-teleop-x" class="btn btn-secondary">後退 (X)</button>
+                        </div>
                     </div>
                 </div>
                 

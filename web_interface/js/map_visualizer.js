@@ -132,8 +132,8 @@ function drawOverlay(_, ctx) {
         ctx.fill();
         ctx.strokeStyle = 'white';
         ctx.stroke();
-        // 畫方向箭頭
-        ctx.rotate(getYawFromQuat(cachedRobotPose.orientation));
+        // 畫方向箭頭 (Canvas Y 軸朝下，因此角度需取負值)
+        ctx.rotate(-getYawFromQuat(cachedRobotPose.orientation));
         ctx.beginPath();
         ctx.moveTo(0, 0);
         ctx.lineTo(15 / Camera.scale, 0);

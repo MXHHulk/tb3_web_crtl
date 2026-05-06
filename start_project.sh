@@ -21,24 +21,30 @@ cleanup() {
 # 捕捉 SIGINT (Ctrl+C)
 trap cleanup SIGINT
 
+# 0. 啟動 ROS Master (roscore)
+echo "[0/4] 正在啟動 ROS Master (roscore)..."
+roscore &
+# 等待 roscore 完全啟動
+sleep 5
+
 # 1. 啟動 bringup
 echo "[1/4] 正在啟動 Bringup (turtlebot3_robot.launch)..."
-roslaunch turtlebot3_bringup turtlebot3_robot.launch &
-sleep 5
+roslaunch --wait turtlebot3_bringup turtlebot3_robot.launch &
+sleep 3
 
 # 2. 啟動 SLAM (gmapping)
 echo "[2/4] 正在啟動 SLAM Gmapping (turtlebot3_slam.launch)..."
-roslaunch turtlebot3_slam turtlebot3_slam.launch slam_methods:=gmapping open_rviz:=false &
-sleep 4
+roslaunch --wait turtlebot3_slam turtlebot3_slam.launch slam_methods:=gmapping open_rviz:=false &
+sleep 3
 
 # 3. 啟動 Navigation (move_base)
 echo "[3/4] 正在啟動 Navigation (move_base.launch)..."
-roslaunch turtlebot3_navigation move_base.launch open_rviz:=false &
-sleep 4
+roslaunch --wait turtlebot3_navigation move_base.launch open_rviz:=false &
+sleep 3
 
 # 4. 啟動 CCPP Web Monitor
 echo "[4/4] 正在啟動 CCPP Web Monitor (ccpp_web_monitor.launch)..."
-roslaunch turtlebot3_ccpp ccpp_web_monitor.launch &
+roslaunch --wait turtlebot3_ccpp ccpp_web_monitor.launch &
 
 echo "======================================"
 echo "所有節點已在背景啟動完成！"

@@ -118,6 +118,44 @@ document.addEventListener('DOMContentLoaded', () => {
         renderAll(); 
     };
 
+    // Teleop Control
+    const cmdVelTopic = new ROSLIB.Topic({
+        ros: ros,
+        name: '/cmd_vel',
+        messageType: 'geometry_msgs/Twist'
+    });
+
+    const linearSpeed = 0.22;
+    const angularSpeed = 1.0;
+
+    function publishCmdVel(linear, angular) {
+        const twist = new ROSLIB.Message({
+            linear: { x: linear, y: 0.0, z: 0.0 },
+            angular: { x: 0.0, y: 0.0, z: angular }
+        });
+        cmdVelTopic.publish(twist);
+    }
+
+    document.getElementById('btn-teleop-w').onclick = () => publishCmdVel(linearSpeed, 0);
+    document.getElementById('btn-teleop-x').onclick = () => publishCmdVel(-linearSpeed, 0);
+    document.getElementById('btn-teleop-a').onclick = () => publishCmdVel(0, angularSpeed);
+    document.getElementById('btn-teleop-d').onclick = () => publishCmdVel(0, -angularSpeed);
+    document.getElementById('btn-teleop-s').onclick = () => publishCmdVel(0, 0);
+
+    // Keyboard Teleop Support
+    window.addEventListener('keydown', (e) => {
+        // 避免在輸入框中按鍵時觸發 (目前網頁沒有輸入框，但保持良好習慣)
+        if (e.target.tagName.toLowerCase() === 'input' || e.target.tagName.toLowerCase() === 'textarea') return;
+        
+        switch(e.key.toLowerCase()) {
+            case 'w': publishCmdVel(linearSpeed, 0); break;
+            case 'x': publishCmdVel(-linearSpeed, 0); break;
+            case 'a': publishCmdVel(0, angularSpeed); break;
+            case 'd': publishCmdVel(0, -angularSpeed); break;
+            case 's': publishCmdVel(0, 0); break;
+        }
+    });
+
     // 圖層切換
     ['layer-map', 'layer-coverage', 'layer-target'].forEach(id => {
         document.getElementById(id).onchange = renderAll;
