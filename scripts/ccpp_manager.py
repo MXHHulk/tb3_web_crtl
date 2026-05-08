@@ -48,6 +48,7 @@ class DynamicCCPPManager:
         self.progress_pub = rospy.Publisher('/ccpp/task_progress', Float32, queue_size=1)
         self.target_pub = rospy.Publisher('/ccpp/target_polygon', PolygonStamped, queue_size=1)
         self.coverage_pub = rospy.Publisher('/ccpp/coverage_map', OccupancyGrid, queue_size=1)
+        self.processed_map_pub = rospy.Publisher('/ccpp/processed_map', OccupancyGrid, queue_size=1, latch=True)
         self.robot_pose_pub = rospy.Publisher('/ccpp/robot_pose', PoseStamped, queue_size=1)
         
         self.tf_listener = tf.TransformListener()
@@ -94,6 +95,27 @@ class DynamicCCPPManager:
             self.map_msg = msg
             if self.coverage_array is None or self.coverage_array.shape != (msg.info.height, msg.info.width):
                 self.coverage_array = np.zeros((msg.info.height, msg.info.width), dtype=np.uint8)
+            
+            # 發佈去毛邊後的「演算法視角」地圖
+            self.publish_processed_map()
+
+    def publish_processed_map(self):
+        if self.map_msg is None: return
+        
+        cleaned = preprocess_map(self.map_msg.data, self.map_msg.info.width, self.map_msg.info.height)
+        
+        msg = OccupancyGrid()
+        msg.header.stamp = rospy.Time.now()
+        msg.header.frame_id = "map"
+        msg.info = self.map_msg.info
+        
+        # 轉換 0/255 為 ROS Occupancy Grid 標準 (0=空地, 100=障礙物)
+        data = np.zeros_like(cleaned, dtype=np.int8)
+        data[cleaned == 0] = 100 # 障礙物
+        data[cleaned == 255] = 0 # 空地
+        
+        msg.data = data.flatten().tolist()
+        self.processed_map_pub.publish(msg)
 
     # --- Core Logic ---
 

@@ -17,7 +17,7 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        ['canvas-map', 'canvas-coverage', 'canvas-overlay'].forEach(id => {
+        ['canvas-map', 'canvas-processed', 'canvas-coverage', 'canvas-overlay'].forEach(id => {
             const canvas = document.getElementById(id);
             if (canvas) {
                 canvas.width = width;
@@ -72,6 +72,13 @@ document.addEventListener('DOMContentLoaded', () => {
     coverageTopic.subscribe((msg) => {
         msg.info.origin.position.z = 999; // 標記為覆蓋圖層
         cachedCoverageMsg = msg;
+        renderAll();
+    });
+
+    const processedMapTopic = new ROSLIB.Topic({ ros, name: '/ccpp/processed_map', messageType: 'nav_msgs/OccupancyGrid' });
+    processedMapTopic.subscribe((msg) => {
+        msg.info.origin.position.z = 500; // 標記為中間層
+        cachedProcessedMapMsg = msg;
         renderAll();
     });
 

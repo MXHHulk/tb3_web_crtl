@@ -24,6 +24,7 @@ const Camera = {
 };
 
 let cachedMapMsg = null;
+let cachedProcessedMapMsg = null;
 let cachedCoverageMsg = null;
 let cachedRobotPose = null;
 let cachedTargetPolygon = null;
@@ -31,12 +32,14 @@ let cachedTargetPolygon = null;
 function renderAll() {
     const layers = [
         { id: 'canvas-map', drawer: drawMapBase, data: cachedMapMsg, visible: document.getElementById('layer-map').checked },
+        { id: 'canvas-processed', drawer: drawMapBase, data: cachedProcessedMapMsg, visible: document.getElementById('layer-processed').checked },
         { id: 'canvas-coverage', drawer: drawMapBase, data: cachedCoverageMsg, visible: document.getElementById('layer-coverage').checked },
         { id: 'canvas-overlay', drawer: drawOverlay, data: null, visible: true }
     ];
 
     layers.forEach(layer => {
         const canvas = document.getElementById(layer.id);
+        if (!canvas) return;
         const ctx = canvas.getContext('2d');
         if (layer.visible && layer.data) {
             Camera.apply(ctx);
@@ -65,7 +68,8 @@ function drawMapBase(msg, ctx) {
     const oCtx = offscreen.getContext('2d');
     const imgData = oCtx.createImageData(width, height);
     
-    const isCoverage = (msg.info.origin.position.z === 999); // 密技：用 Z 分辨地圖類型
+    const isCoverage = (msg.info.origin.position.z === 999); 
+    const isProcessed = (msg.info.origin.position.z === 500); 
     
     for (let i = 0; i < msg.data.length; i++) {
         const val = msg.data[i];
@@ -78,11 +82,12 @@ function drawMapBase(msg, ctx) {
         } else if (val === 100) { 
             if (isCoverage) { 
                 r = 0; g = 100; b = 255; a = 180; // 已覆蓋 (半透明藍)
+            } else if (isProcessed) {
+                r = 255; g = 100; b = 0; a = 200; // 去毛邊後的障礙物 (橘紅色)
             } else { 
-                r = g = b = 0; // 障礙物 (黑)
+                r = g = b = 0; // 原始障礙物 (黑)
             }
         } else {
-            // 處理 1-99 之間的數值 (可能有些地圖會給中間值)
             const brightness = 200 - (val * 2);
             r = g = b = Math.max(0, brightness);
         }
@@ -96,8 +101,6 @@ function drawMapBase(msg, ctx) {
         imgData.data[idx+3] = a;
     }
     oCtx.putImageData(imgData, 0, 0);
-    
-    // 將座標原點移到地圖中心進行繪製
     ctx.drawImage(offscreen, -width/2, -height/2);
 }
 
@@ -125,14 +128,12 @@ function drawOverlay(_, ctx) {
         const p = worldToCanvas(cachedRobotPose.position.x, cachedRobotPose.position.y, info);
         ctx.save();
         ctx.translate(p.x, p.y);
-        // 畫圓圈
         ctx.beginPath();
         ctx.arc(0, 0, 8 / Camera.scale, 0, Math.PI * 2);
         ctx.fillStyle = 'yellow';
         ctx.fill();
         ctx.strokeStyle = 'white';
         ctx.stroke();
-        // 畫方向箭頭 (Canvas Y 軸朝下，因此角度需取負值)
         ctx.rotate(-getYawFromQuat(cachedRobotPose.orientation));
         ctx.beginPath();
         ctx.moveTo(0, 0);

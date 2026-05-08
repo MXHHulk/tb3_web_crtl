@@ -42,6 +42,7 @@
                     </div>
                     <div id="viewport" class="card-body p-0 position-relative overflow-hidden" style="height: 75vh; background: #222; cursor: crosshair;">
                         <canvas id="canvas-map" class="map-layer"></canvas>
+                        <canvas id="canvas-processed" class="map-layer" style="opacity: 0.7;"></canvas>
                         <canvas id="canvas-coverage" class="map-layer" style="opacity: 0.5;"></canvas>
                         <canvas id="canvas-overlay" class="map-layer"></canvas>
                     </div>
@@ -86,6 +87,10 @@
                         <div class="custom-control custom-checkbox small">
                             <input type="checkbox" class="custom-control-input" id="layer-map" checked>
                             <label class="custom-control-label" for="layer-map">原始地圖 (White)</label>
+                        </div>
+                        <div class="custom-control custom-checkbox small">
+                            <input type="checkbox" class="custom-control-input" id="layer-processed">
+                            <label class="custom-control-label" for="layer-processed">去毛邊地圖 (Algorithm View)</label>
                         </div>
                         <div class="custom-control custom-checkbox small">
                             <input type="checkbox" class="custom-control-input" id="layer-coverage" checked>
