@@ -290,10 +290,10 @@ class DynamicCCPPManager:
 
     def handle_status(self, req):
         res = GetTaskStatusResponse()
+        res.state = self.state
+        res.overall_progress = self.progress
         res.success = True
-        # Note: Some fields are simplified for the dynamic version
-        # You might want to populate total_regions based on the last planning result
-        return GetTaskStatusResponse(success=True) # ROS will automatically pack the response object
+        return res
 
 if __name__ == '__main__':
     try:

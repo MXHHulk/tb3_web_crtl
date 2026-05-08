@@ -237,6 +237,44 @@ document.addEventListener('DOMContentLoaded', () => {
     const startSrv = new ROSLIB.Service({ ros, name: '/ccpp/start', serviceType: 'std_srvs/Trigger' });
     const stopSrv = new ROSLIB.Service({ ros, name: '/ccpp/stop', serviceType: 'std_srvs/Trigger' });
     const resetSrv = new ROSLIB.Service({ ros, name: '/ccpp/reset_coverage', serviceType: 'std_srvs/Trigger' });
+    const statusSrv = new ROSLIB.Service({ ros, name: '/ccpp/get_task_status', serviceType: 'turtlebot3_ccpp/GetTaskStatus' });
+
+    let currentTaskState = 'IDLE';
+
+    // 輪詢狀態
+    setInterval(() => {
+        if (!ros.isConnected) return;
+        statusSrv.callService(new ROSLIB.ServiceRequest(), (res) => {
+            currentTaskState = res.state;
+            const badge = document.getElementById('task-state');
+            if (badge) {
+                badge.innerText = res.state;
+                badge.className = `badge ${res.state === 'RUNNING' ? 'badge-success' : 'badge-warning'} ml-2`;
+            }
+        });
+    }, 1000);
+
+    function startPublishing(linear, angular) {
+        // [解決衝突] 如果正在執行自動任務，則先停止它
+        if (currentTaskState === 'RUNNING') {
+            console.log('Detect manual control, stopping auto task...');
+            stopSrv.callService(new ROSLIB.ServiceRequest(), (res) => {
+                console.log('Auto task stopped for manual override');
+            });
+        }
+
+        currentLinear = linear;
+        currentAngular = angular;
+        if (!teleopTimer) {
+            teleopTimer = setInterval(() => {
+                const twist = new ROSLIB.Message({
+                    linear: { x: currentLinear, y: 0.0, z: 0.0 },
+                    angular: { x: 0.0, y: 0.0, z: currentAngular }
+                });
+                cmdVelTopic.publish(twist);
+            }, 100); // 10Hz
+        }
+    }
 
     document.getElementById('btn-start').onclick = () => {
         startSrv.callService(new ROSLIB.ServiceRequest(), (res) => { alert(res.message); });
