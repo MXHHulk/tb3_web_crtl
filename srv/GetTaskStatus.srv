@@ -1,8 +1,10 @@
+# Request (empty)
+---
+# Response
 string state          # IDLE / RUNNING / PAUSED / COMPLETED / ERROR
 float32 overall_progress   # 0.0 ~ 1.0
 int32 total_regions
 int32 completed_regions
 int32 current_region_id
 float32 current_region_progress
----
 bool success
