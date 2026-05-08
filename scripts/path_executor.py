@@ -1,25 +1,23 @@
 #!/usr/bin/env python3
 import rospy
 import actionlib
+import math
 from move_base_msgs.msg import MoveBaseAction, MoveBaseGoal
 from actionlib_msgs.msg import GoalStatus
+from tf.transformations import quaternion_from_euler
  
 class PathExecutor:
-    def __init__(self, timeout=30.0):
+    def __init__(self, timeout=20.0): # 縮短超時時間，快速放棄無效點
         self.client  = actionlib.SimpleActionClient('move_base', MoveBaseAction)
         self.timeout = timeout
         self.is_running = False
  
         rospy.loginfo("Waiting for move_base action server...")
-        # [修正 1] 加入 timeout 避免永久卡住（等待最多 30 秒）
-        connected = self.client.wait_for_server(rospy.Duration(30.0))
+        connected = self.client.wait_for_server(rospy.Duration(5.0))
         if connected:
             rospy.loginfo("move_base action server connected.")
-        else:
-            rospy.logwarn("move_base action server not available within 30s. "
-                          "Goals will be sent when server comes online.")
  
-    def execute_point(self, x, y):
+    def execute_point(self, x, y, yaw=None):
         if not self.is_running:
             return False
  
@@ -28,19 +26,27 @@ class PathExecutor:
         goal.target_pose.header.stamp     = rospy.Time.now()
         goal.target_pose.pose.position.x  = x
         goal.target_pose.pose.position.y  = y
-        goal.target_pose.pose.orientation.w = 1.0
+        
+        if yaw is not None:
+            q = quaternion_from_euler(0, 0, yaw)
+            goal.target_pose.pose.orientation.x = q[0]
+            goal.target_pose.pose.orientation.y = q[1]
+            goal.target_pose.pose.orientation.z = q[2]
+            goal.target_pose.pose.orientation.w = q[3]
+        else:
+            goal.target_pose.pose.orientation.w = 1.0
  
         self.client.send_goal(goal)
         finished = self.client.wait_for_result(rospy.Duration(self.timeout))
  
         if not finished:
-            rospy.logwarn("Goal (%.2f, %.2f) timed out after %.1fs.", x, y, self.timeout)
+            rospy.logwarn("Goal execution timed out, skipping to next.")
             self.client.cancel_goal()
             return False
  
         state = self.client.get_state()
         if state != GoalStatus.SUCCEEDED:
-            rospy.logwarn("Goal (%.2f, %.2f) failed with state: %d", x, y, state)
+            rospy.logwarn(f"Goal failed (status {state}), skipping to next.")
             return False
  
         return True

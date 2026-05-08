@@ -1,7 +1,7 @@
 # Request (empty)
 ---
 # Response
-string state          # IDLE / RUNNING / PAUSED / COMPLETED / ERROR
+string task_state     # IDLE / RUNNING / PAUSED / COMPLETED / ERROR
 float32 overall_progress   # 0.0 ~ 1.0
 int32 total_regions
 int32 completed_regions

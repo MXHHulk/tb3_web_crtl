@@ -21,6 +21,14 @@ cleanup() {
 # 捕捉 SIGINT (Ctrl+C)
 trap cleanup SIGINT
 
+# 新增：啟動前先清理舊的程序，確保是「重新啟動」
+echo "正在清理舊的 ROS 程序以進行重新啟動..."
+pkill -f ros || true
+pkill -f ccpp || true
+pkill -f move_base || true
+pkill -f gmapping || true
+sleep 2
+
 # 0. 啟動 ROS Master (roscore)
 echo "[0/4] 正在啟動 ROS Master (roscore)..."
 roscore &
