@@ -130,20 +130,6 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentLinear = 0;
     let currentAngular = 0;
 
-    function startPublishing(linear, angular) {
-        currentLinear = linear;
-        currentAngular = angular;
-        if (!teleopTimer) {
-            teleopTimer = setInterval(() => {
-                const twist = new ROSLIB.Message({
-                    linear: { x: currentLinear, y: 0.0, z: 0.0 },
-                    angular: { x: 0.0, y: 0.0, z: currentAngular }
-                });
-                cmdVelTopic.publish(twist);
-            }, 100); // 10Hz
-        }
-    }
-
     function stopPublishing() {
         currentLinear = 0;
         currentAngular = 0;
@@ -252,18 +238,19 @@ document.addEventListener('DOMContentLoaded', () => {
     setInterval(() => {
         if (!ros.isConnected) return;
         statusSrv.callService(new ROSLIB.ServiceRequest(), (res) => {
-            currentTaskState = res.state;
+            currentTaskState = res.task_state;
             const badge = document.getElementById('task-state');
             if (badge) {
-                badge.innerText = res.state;
-                badge.className = `badge ${res.state === 'RUNNING' ? 'badge-success' : 'badge-warning'} ml-2`;
+                badge.innerText = currentTaskState;
+                const isRunning = currentTaskState === 'EXPLORING' || currentTaskState === 'COVERING';
+                badge.className = `badge ${isRunning ? 'badge-success' : 'badge-warning'} ml-2`;
             }
         });
     }, 1000);
 
     function startPublishing(linear, angular) {
         // [解決衝突] 如果正在執行自動任務，則先停止它
-        if (currentTaskState === 'RUNNING') {
+        if (currentTaskState === 'EXPLORING' || currentTaskState === 'COVERING') {
             console.log('Detect manual control, stopping auto task...');
             stopSrv.callService(new ROSLIB.ServiceRequest(), (res) => {
                 console.log('Auto task stopped for manual override');
