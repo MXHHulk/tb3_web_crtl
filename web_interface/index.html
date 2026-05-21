@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<!--
+檔案名稱：index.html (監控系統主網頁)
+檔案類型：HTML5 / 前端介面描述檔
+
+核心功能：
+1. 建立監控系統的 UI 骨架，包含頂部導覽列、中央地圖區與右側控制面板。
+2. 整合 Bootstrap 框架與自定義樣式，實現暗色模式 (Dark Mode) 佈局。
+3. 透過多層 Canvas 疊加技術，實現地圖、清掃軌跡與機器人位姿的實時視覺化。
+
+頁面佈局：
+  ┌─────────────────────────────────────────────────────┐
+  │  Navbar：系統名稱 | ROS連線狀態 | 任務狀態           │
+  ├──────────────────────────────────┬──────────────────┤
+  │  進度條                          │                  │
+  │  ┌────────────────────────────┐  │  任務控制        │
+  │  │         地圖視窗           │  │  (啟動/停止/重置) │
+  │  │  [canvas-map]              │  ├──────────────────┤
+  │  │  [canvas-processed]        │  │  手動遙控        │
+  │  │  [canvas-coverage]         │  │  (W/A/S/D)       │
+  │  │  [canvas-overlay]          │  ├──────────────────┤
+  │  └────────────────────────────┘  │  機器人狀態      │
+  │  (col-md-9)                      │  + 圖層切換      │
+  └──────────────────────────────────┴──────────────────┘
+                                       (col-md-3)
+
+通訊說明：
+- 依賴 rosbridge_suite 提供的 WebSocket 介面 (port 9090)。
+- 載入 roslib.js 與自定義的 app.js、map_visualizer.js 驅動後端邏輯。
+-->
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TurtleBot3 CCPP Monitor Pro</title>
+
+    <!-- Bootstrap 4.5.2：提供響應式格線系統、按鈕、卡片等基礎 UI 元件 -->
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <!-- 自定義樣式：暗色模式、地圖畫布、控制按鈕等特定樣式 -->
+    <link rel="stylesheet" href="css/style.css">
+
+    <!-- EventEmitter2：ROSLIB.js 的底層事件系統依賴 -->
+    <script src="js/libs/eventemitter2.min.js"></script>
+    <!-- ROSLIB.js：ROS 官方 JavaScript 客戶端，提供 Topic/Service/Action 等介面 -->
+    <script src="js/libs/roslib.min.js"></script>
+</head>
+
+<body class="bg-dark text-light">
+
+    <!-- ===================================================================
+         頂部導覽列：顯示系統名稱與即時狀態標籤
+    =================================================================== -->
+    <nav class="navbar navbar-dark bg-primary shadow">
+        <span class="navbar-brand mb-0 h1">TB3 CCPP 動態監控系統</span>
+        <div>
+            <!-- ROS 連線狀態：由 app.js 根據 WebSocket 事件動態更新 -->
+            <!-- 初始值：紅色「未連線」；連線成功後變綠色「已連線」 -->
+            <span id="status" class="badge badge-danger">未連線</span>
+
+            <!-- 任務狀態：由 app.js 每秒輪詢 /ccpp/get_task_status 服務更新 -->
+            <!-- 可能的值：IDLE (黃) / EXPLORING (綠) / COVERING (綠) -->
+            <span id="task-state" class="badge badge-warning ml-2">IDLE</span>
+        </div>
+    </nav>
+
+    <!-- ===================================================================
+         地圖縮放/旋轉控制面板 (Fixed 定位，永遠懸浮在左上角)
+         這些按鈕透過 app.js 修改 Camera 物件的 scale/rotation 屬性
+    =================================================================== -->
+    <div id="map-controls" class="btn-group-vertical shadow">
+        <button id="btn-zoom-in"   class="btn btn-light" title="放大">+</button>
+        <button id="btn-zoom-out"  class="btn btn-light" title="縮小">-</button>
+        <button id="btn-rotate-l"  class="btn btn-light" title="左旋">↺</button>
+        <button id="btn-rotate-r"  class="btn btn-light" title="右旋">↻</button>
+        <button id="btn-reset"     class="btn btn-light" title="重設視角">⌂</button>
+    </div>
+
+    <div class="container-fluid mt-3">
+        <div class="row">
+
+            <!-- ===================================================================
+                 左側：進度條 + 地圖視窗 (佔 9/12 欄)
+            =================================================================== -->
+            <div class="col-md-9">
+
+                <!-- 整體清掃進度條：由 app.js 訂閱 /ccpp/task_progress 更新寬度 -->
+                <div class="progress mb-2" style="height: 10px;">
+                    <div id="overall-progress"
+                         class="progress-bar progress-bar-striped progress-bar-animated"
+                         style="width: 0%;">
+                    </div>
+                </div>
+
+                <!-- 地圖卡片容器 -->
+                <div class="card bg-secondary border-0 shadow">
+                    <div class="card-header py-1 d-flex justify-content-between align-items-center">
+                        <small>即時地圖 (滾輪縮放 / 拖曳平移)</small>
+                        <!-- 地圖解析度資訊：由 app.js 訂閱 /map 後填入 -->
+                        <small id="map-info">等待資料...</small>
+                    </div>
+
+                    <!-- 地圖視窗 (Viewport)：
+                         - position: relative + overflow: hidden：限制畫布不超出邊框
+                         - cursor: crosshair：提示使用者可在此區域互動
+                         - 高度設為視窗高度的 75%，確保各種螢幕尺寸都有良好顯示
+                    -->
+                    <div id="viewport"
+                         class="card-body p-0 position-relative overflow-hidden"
+                         style="height: 75vh; background: #222; cursor: crosshair;">
+
+                        <!-- 底層：SLAM 原始地圖 (黑/灰/白)
+                             由 /map topic 驅動，subscription 在 app.js 中設定 -->
+                        <canvas id="canvas-map" class="map-layer"></canvas>
+
+                        <!-- 中層：演算法視角處理後地圖 (橘紅障礙物)
+                             由 /ccpp/processed_map 驅動，opacity=0.7 使底層地圖微透 -->
+                        <canvas id="canvas-processed" class="map-layer" style="opacity: 0.7;"></canvas>
+
+                        <!-- 中層：已清掃覆蓋軌跡 (半透明藍色)
+                             由 /ccpp/coverage_map 驅動，opacity=0.5 讓覆蓋區半透明疊加 -->
+                        <canvas id="canvas-coverage" class="map-layer" style="opacity: 0.5;"></canvas>
+
+                        <!-- 頂層：機器人圖示 + 目標多邊形 (永遠顯示)
+                             不設 opacity，此層元素需要清晰可見 -->
+                        <canvas id="canvas-overlay" class="map-layer"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ===================================================================
+                 右側：控制面板 (佔 3/12 欄)
+            =================================================================== -->
+            <div class="col-md-3">
+
+                <!-- 任務控制卡片：呼叫 ROS Service 啟動/停止/重置自動任務 -->
+                <div class="card bg-dark border-secondary mb-3">
+                    <div class="card-header border-secondary">任務控制</div>
+                    <div class="card-body p-2">
+                        <!-- 啟動：觸發 /ccpp/start，ccpp_manager 進入 EXPLORING 狀態 -->
+                        <button id="btn-start"          class="btn btn-success btn-block mb-1">啟動任務</button>
+                        <!-- 停止：觸發 /ccpp/stop，ccpp_manager 回到 IDLE 狀態 -->
+                        <button id="btn-stop"           class="btn btn-danger btn-block mb-1">緊急停止</button>
+                        <!-- 重置：觸發 /ccpp/reset_coverage，清除覆蓋紀錄並重啟整個系統 -->
+                        <button id="btn-reset-coverage" class="btn btn-warning btn-block">重新見圖 (清除路徑)</button>
+                    </div>
+                </div>
+
+                <!-- 手動遙控面板 (Teleop)：
+                     按住按鈕持續發送 /cmd_vel (geometry_msgs/Twist)
+                     支援滑鼠、觸控與鍵盤 (W/A/S/D/X) 三種輸入方式
+                -->
+                <div class="card bg-dark border-secondary mb-3">
+                    <div class="card-header border-secondary">手動控制 (Teleop)</div>
+                    <div class="card-body text-center p-2">
+                        <div class="btn-group-vertical w-100">
+                            <!-- 前進：linear.x = +0.22 m/s -->
+                            <button id="btn-teleop-w" class="btn btn-secondary mb-1">前進 (W)</button>
+                            <div class="d-flex justify-content-between mb-1">
+                                <!-- 左轉：angular.z = +1.0 rad/s -->
+                                <button id="btn-teleop-a" class="btn btn-secondary flex-fill mr-1">左轉 (A)</button>
+                                <!-- 停止：發送全零 Twist -->
+                                <button id="btn-teleop-s" class="btn btn-danger flex-fill mx-1">停止 (S)</button>
+                                <!-- 右轉：angular.z = -1.0 rad/s -->
+                                <button id="btn-teleop-d" class="btn btn-secondary flex-fill ml-1">右轉 (D)</button>
+                            </div>
+                            <!-- 後退：linear.x = -0.22 m/s -->
+                            <button id="btn-teleop-x" class="btn btn-secondary">後退 (X)</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 狀態資訊 + 圖層切換卡片 -->
+                <div class="card bg-dark border-secondary">
+                    <div class="card-header border-secondary">機器人狀態</div>
+                    <div class="card-body p-2">
+                        <ul class="list-unstyled small">
+                            <!-- 機器人座標：由 /ccpp/robot_pose topic 更新 -->
+                            <li>位置: <b id="robot-pos" class="text-info">--</b></li>
+                            <!-- 清掃進度：由 /ccpp/task_progress topic 更新 -->
+                            <li>進度: <b id="progress-text" class="text-success">0%</b></li>
+                        </ul>
+
+                        <hr class="bg-secondary">
+
+                        <!-- 地圖圖層顯示/隱藏開關
+                             勾選狀態變更會觸發 renderAll()，即時更新畫面
+                        -->
+                        <h6>視覺化分層開關</h6>
+
+                        <!-- layer-map：控制 canvas-map 的顯示，預設開啟 -->
+                        <div class="custom-control custom-checkbox small">
+                            <input type="checkbox" class="custom-control-input" id="layer-map" checked>
+                            <label class="custom-control-label" for="layer-map">原始地圖 (White)</label>
+                        </div>
+
+                        <!-- layer-processed：控制 canvas-processed，預設關閉 (調試用) -->
+                        <div class="custom-control custom-checkbox small">
+                            <input type="checkbox" class="custom-control-input" id="layer-processed">
+                            <label class="custom-control-label" for="layer-processed">去毛邊地圖 (Algorithm View)</label>
+                        </div>
+
+                        <!-- layer-coverage：控制 canvas-coverage，預設開啟 -->
+                        <div class="custom-control custom-checkbox small">
+                            <input type="checkbox" class="custom-control-input" id="layer-coverage" checked>
+                            <label class="custom-control-label" for="layer-coverage">已覆蓋區 (Blue)</label>
+                        </div>
+
+                        <!-- layer-target：控制 canvas-overlay 上的目標多邊形，預設開啟 -->
+                        <div class="custom-control custom-checkbox small">
+                            <input type="checkbox" class="custom-control-input" id="layer-target" checked>
+                            <label class="custom-control-label" for="layer-target">當前目標 (Green)</label>
+                        </div>
+                    </div>
+                </div>
+
+            </div><!-- /col-md-3 -->
+        </div><!-- /row -->
+    </div><!-- /container-fluid -->
+
+    <!-- 業務邏輯腳本載入順序：
+         1. map_visualizer.js 先載入，定義 Camera 物件與全域快取變數
+         2. app.js 後載入，依賴上面定義的 Camera、renderAll 等函數
+    -->
+    <script src="js/map_visualizer.js"></script>
+    <script src="js/app.js"></script>
+
+</body>
+</html>

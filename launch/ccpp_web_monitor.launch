@@ -1,0 +1,65 @@
+<launch>
+  <!--
+    檔案名稱：ccpp_web_monitor.launch
+    檔案類型：ROS Launch 設定檔
+
+    核心功能：
+    一次性啟動 CCPP 系統所需的三個 ROS 節點：
+      1. rosbridge_server  → 提供 WebSocket 橋接，讓瀏覽器能與 ROS 通訊
+      2. web_server.py     → 提供 HTTP 靜態網頁服務，讓瀏覽器能下載前端檔案
+      3. ccpp_manager.py   → 執行 CCPP 覆蓋路徑規劃的核心邏輯節點
+
+    使用方式：
+      roslaunch turtlebot3_ccpp ccpp_web_monitor.launch
+
+    依賴關係：
+      此 launch 檔假設以下節點已在外部啟動：
+      - roscore
+      - turtlebot3_bringup  (提供 /scan, /odom, TF)
+      - turtlebot3_slam      (提供 /map topic)
+      - turtlebot3_navigation (提供 move_base action server)
+  -->
+
+  <!-- =========================================================
+       節點 1：Rosbridge WebSocket Server
+       功能：在 port 9090 建立 WebSocket 伺服器，作為 ROS 與瀏覽器之間的橋樑。
+             瀏覽器中的 roslib.js 透過此橋樑訂閱 Topic、呼叫 Service。
+       來源：turtlebot3_ccpp 依賴的 rosbridge_suite package。
+  ========================================================= -->
+  <include file="$(find rosbridge_server)/launch/rosbridge_websocket.launch">
+      <!-- port：WebSocket 監聽埠號，與 app.js 中 'ws://<ip>:9090' 對應 -->
+      <arg name="port" value="9090" />
+  </include>
+
+  <!-- =========================================================
+       節點 2：Web Server
+       功能：在 port 8000 提供靜態 HTTP 服務，讓瀏覽器能存取 web_interface/ 目錄。
+             使用 Python 內建的 SimpleHTTPRequestHandler，無需 Nginx/Apache。
+       type：對應 scripts/web_server.py
+       output="screen"：將節點的 rospy.loginfo 輸出到終端機（方便看 IP 位址提示）
+  ========================================================= -->
+  <node pkg="turtlebot3_ccpp" type="web_server.py" name="web_server" output="screen">
+      <!-- port：HTTP 伺服器監聽埠號，使用者在瀏覽器輸入 http://<IP>:8000 訪問 -->
+      <param name="port" value="8000" />
+  </node>
+
+  <!-- =========================================================
+       節點 3：CCPP Manager (核心任務大腦)
+       功能：執行全覆蓋路徑規劃 (CCPP)，協調地圖處理、路徑生成與導航執行。
+       type：對應 scripts/ccpp_manager.py
+       output="screen"：顯示任務狀態、導航成功/失敗等除錯訊息
+  ========================================================= -->
+  <node pkg="turtlebot3_ccpp" type="ccpp_manager.py" name="ccpp_manager" output="screen">
+
+      <!-- robot_width：機器人的有效清掃寬度 (m)
+           設為 0.16 (略小於 TB3 實體寬度 0.178m)，增加掃描重疊度以補償 SLAM 誤差 -->
+      <param name="robot_width" value="0.16" />
+
+      <!-- scan_overlap：相鄰掃描線的重疊率 (0.0 ~ 1.0)
+           0.85 表示 85% 重疊，step_size = 0.16 × 0.85 ≈ 0.136m
+           重疊率越高，清掃越徹底但路徑越長（耗時越多） -->
+      <param name="scan_overlap" value="0.85" />
+
+  </node>
+
+</launch>
