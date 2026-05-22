@@ -86,9 +86,9 @@ class DynamicCCPPManager:
         # 重疊率越高，路徑越密集，清掃越徹底但效率越低
         self.overlap = rospy.get_param('~scan_overlap', 0.8)
 
-        # 實際步進距離 = 機器人寬度 × 重疊率
-        # 例如：0.178 × 0.8 = 0.1424m，每條掃描線間距約 14cm
-        self.step_size = self.robot_width * self.overlap
+        # 實際步進距離：重疊率越高，間距越小
+        # 例如：overlap=0.8 → 間距 = 0.178 × (1-0.8) = 0.0356m，每條掃描線間距約 3.6cm
+        self.step_size = self.robot_width * (1.0 - self.overlap)
 
         # =====================================================================
         # 狀態變數
@@ -388,6 +388,9 @@ class DynamicCCPPManager:
             if self.state == "IDLE":
                 break
 
+            # 依已完成點位比例更新整體進度，供網頁進度條即時顯示
+            self.progress = (i + 1) / len(path_px)
+
             pt = path_px[i]
             world_pt = self.pixel_to_world(pt[0], pt[1])  # 像素座標 → 世界座標
 
@@ -397,7 +400,8 @@ class DynamicCCPPManager:
                 (world_pt[0] - self.robot_pose.position.x) ** 2 +
                 (world_pt[1] - self.robot_pose.position.y) ** 2
             )
-            if dist < 0.2:
+            # 門檻降至 0.05m，避免跳過間距僅約 0.035m 的相鄰掃描線起點
+            if dist < 0.05:
                 continue
 
             # 計算朝向：讓機器人在前往當前點時，面朝下一個路徑點的方向
