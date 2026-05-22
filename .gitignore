@@ -3,13 +3,3 @@ __pycache__/
 *.pyc
 *.pyo
 
-# ROS 建置產物
-build/
-devel/
-install/
-*.log
-logs/
-
-# 系統雜項
-.DS_Store
-Thumbs.db
