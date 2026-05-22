@@ -7,11 +7,12 @@
 
 核心功能：
 1. 分析二值化地圖中的封閉空地，將其分割為獨立的清掃區域。
-2. 對區域邊界進行多邊形簡化 (Polygon Approximation)，用於後續路徑規劃。
+2. 以最小外接矩形 (Minimum Area Rectangle) 描述區域邊界，取代凸包逼近，
+   使牛耕式路徑生成的掃描線長度一致、視覺上呈現整齊的平行 Z 字型。
 3. 根據距離權重尋找最適合的探索點。
 
 關鍵依賴：
-- cv2 (OpenCV): 用於輪廓偵測與矩計算 (Moments)
+- cv2 (OpenCV): 用於輪廓偵測、矩計算 (Moments) 與最小外接矩形
 - numpy: 用於數據處理
 
 輸入地圖說明：
@@ -27,10 +28,9 @@ def detect_regions(binary_img, min_area_px=200):
     """
     從地圖中識別並提取各個待清理的封閉區域。
 
-    使用 OpenCV 的輪廓偵測找出白色連通區域，並為每個區域計算：
-    - 邊界輪廓 (用於 boustrophedon 路徑生成)
-    - 簡化多邊形 (用於可視化與區域判斷)
-    - 質心座標 (用於距離排序)
+    使用 OpenCV 的輪廓偵測找出白色連通區域，並以最小外接矩形 (Minimum Area
+    Rectangle) 描述每個區域，取代原本的凸包 + 多邊形逼近做法。矩形頂點傳入
+    boustrophedon 路徑生成器後，可確保每條掃描線等長、路徑呈現整齊 Z 字型。
 
     Args:
         binary_img:   二值化地圖影像 (255=待清理空地, 0=不可走)
@@ -38,7 +38,7 @@ def detect_regions(binary_img, min_area_px=200):
 
     Returns:
         regions: 按面積降序排列的區域字典列表，每個字典包含：
-                 {contour, approx, area, center, is_quad}
+                 {contour, rect_box, angle, area, center, is_rect}
     """
     # --- 輪廓偵測 ---
     # RETR_EXTERNAL：只找最外層輪廓，不追蹤巢狀輪廓 (避免重複處理同一區域)
@@ -48,48 +48,52 @@ def detect_regions(binary_img, min_area_px=200):
     regions = []
     for cnt in contours:
         # --- 面積過濾 ---
-        # 計算輪廓圍繞的像素面積
-        # 過濾掉 SLAM 建圖雜訊產生的破碎小白點，避免浪費導航資源
         area = cv2.contourArea(cnt)
         if area < min_area_px:
             continue
 
-        # --- 凸包處理 ---
-        # 計算輪廓的凸包 (Convex Hull)：去除輪廓上向內凹陷的部分
-        # 目的：確保區域邊界是向外凸出的，讓牛耕式路徑計算的交點更穩定
-        # 凹陷的角落容易造成掃描線交點計算異常
-        hull = cv2.convexHull(cnt)
+        # --- 最小外接矩形 (Minimum Area Rectangle) ---
+        # rect = ((cx, cy), (w, h), angle)
+        #   (cx, cy) : 矩形中心的像素座標
+        #   (w, h)   : 矩形的寬與高 (w 對應 angle 方向的邊)
+        #   angle    : 矩形主軸與 X 軸的夾角 (度)，範圍 (-90, 0]
+        # cv2.boxPoints 將上述參數轉換為四個角點座標 (4x2 float32)
+        rect = cv2.minAreaRect(cnt)
+        box = cv2.boxPoints(rect)
+        box = np.int0(box)  # 轉為整數像素座標
 
-        # --- Douglas-Peucker 多邊形簡化 ---
-        # 將凸包頂點數量精簡，移除不必要的中間點
-        # epsilon = 周長的 2%：容許偏差越大，簡化越激進 (頂點越少)
-        # 簡化後的頂點數決定 is_quad 判斷，也使視覺化邊框更簡潔
-        epsilon = 0.02 * cv2.arcLength(hull, True)
-        approx = cv2.approxPolyDP(hull, epsilon, True)
+        rect_w, rect_h = rect[1]
+        rect_area = rect_w * rect_h
+
+        # --- 矩形相似度判斷 ---
+        # 比較輪廓實際面積與最小外接矩形面積的比值
+        # 比值接近 1.0 表示原始形狀已非常接近矩形；低於 0.75 表示有明顯凹陷
+        is_rect = (area / rect_area) > 0.75 if rect_area > 0 else False
+
+        # --- 主軸角度 ---
+        # 直接取用 minAreaRect 輸出的角度，供路徑規劃器決定掃描方向
+        angle = rect[2]
 
         # --- 質心計算 (幾何矩) ---
-        # 使用 OpenCV 的影像矩 (Image Moments) 計算區域的重心座標
-        # m00 = 面積，m10/m01 = 分別對 x 和 y 的一階矩
-        # 質心公式：cx = m10/m00，cy = m01/m00
         M = cv2.moments(cnt)
         if M["m00"] != 0:
             cx = int(M["m10"] / M["m00"])
             cy = int(M["m01"] / M["m00"])
         else:
-            # 面積極小或退化輪廓時 m00 為 0，改用第一個頂點作為參考點
-            cx, cy = approx[0][0]
+            # 退化輪廓時改用矩形中心
+            cx, cy = int(rect[0][0]), int(rect[0][1])
 
         # --- 打包區域資訊 ---
         regions.append({
-            'contour': cnt,           # 原始像素輪廓 → 傳給 generate_boustrophedon_path()
-            'approx': approx,         # 簡化後的多邊形頂點 → 傳給 publish_target_region()
-            'area': area,             # 像素面積 → 用於排序優先順序
-            'center': (cx, cy),       # 質心像素座標 → 可用於距離計算
-            'is_quad': 4 <= len(approx) <= 6  # True 表示近似矩形/六邊形，形狀規則性較高
+            'contour': cnt,      # 原始像素輪廓 (保留供面積計算等用途)
+            'rect_box': box,     # 最小外接矩形的四個頂點 (4x2) → 傳給路徑規劃與可視化
+            'angle': angle,      # 矩形主軸偏角 (度) → 可供路徑規劃器直接使用
+            'area': area,        # 輪廓實際像素面積 → 用於排序與門檻判斷
+            'center': (cx, cy),  # 質心像素座標 → 可用於距離計算
+            'is_rect': is_rect,  # True 表示形狀接近矩形 (面積比 > 0.75)
         })
 
     # 按面積由大到小排序，確保 main_loop 優先清理最大的主要房間
-    # regions[0] 永遠是面積最大的待清理區域
     regions.sort(key=lambda x: x['area'], reverse=True)
 
     return regions

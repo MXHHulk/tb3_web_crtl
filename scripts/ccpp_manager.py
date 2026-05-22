@@ -371,15 +371,15 @@ class DynamicCCPPManager:
             region_info: 來自 detect_regions() 的區域資訊字典
                          {contour, approx, area, center, is_quad}
         """
-        # 發布目標多邊形邊界至網頁，顯示綠色框線
-        self.publish_target_region(region_info['approx'])
+        # 發布最小外接矩形邊界至網頁，顯示綠色框線
+        self.publish_target_region(region_info['rect_box'])
 
         # 將世界座標的步進距離轉換為像素單位
         # 例如：step_size=0.14m, resolution=0.05m/px → step_px=2.8px
         step_px = self.step_size / self.map_msg.info.resolution
 
-        # 呼叫覆蓋路徑規劃器，生成 Z 字型路徑點 (像素座標)
-        path_px = generate_boustrophedon_path(region_info['contour'], step_px)
+        # 以矩形頂點生成牛耕式路徑：矩形的規則邊界確保掃描線等長、路徑平行
+        path_px = generate_boustrophedon_path(region_info['rect_box'], step_px)
 
         failed_count = 0  # 連續失敗計數器
 
@@ -481,25 +481,25 @@ class DynamicCCPPManager:
         msg.data = data.flatten().tolist()
         self.coverage_pub.publish(msg)
 
-    def publish_target_region(self, approx_pts):
+    def publish_target_region(self, box_pts):
         """
-        將待清理區域的多邊形邊界頂點 (像素座標) 轉換為 ROS 訊息格式並發布。
+        將待清理區域的矩形頂點 (像素座標) 轉換為 ROS 訊息格式並發布。
         網頁前端訂閱後，會在地圖上以綠色外框顯示當前清掃區域。
 
         Args:
-            approx_pts: 多邊形頂點的像素座標陣列 (來自 approxPolyDP)
+            box_pts: 最小外接矩形的四個頂點，來自 cv2.boxPoints，形狀為 (4, 2)
         """
-        if not len(approx_pts) or self.map_msg is None:
+        if not len(box_pts) or self.map_msg is None:
             return
 
         poly = PolygonStamped()
         poly.header.frame_id = "map"
         poly.header.stamp = rospy.Time.now()
 
-        # 將每個像素頂點轉換為世界座標後加入多邊形訊息
-        for pt in approx_pts:
+        # boxPoints 輸出的結構是 (4, 2)，每個 pt 直接是 [x, y]
+        for pt in box_pts:
             p = Point32()
-            world_pt = self.pixel_to_world(pt[0][0], pt[0][1])  # approxPolyDP 的結構是 Nx1x2
+            world_pt = self.pixel_to_world(int(pt[0]), int(pt[1]))
             p.x, p.y = world_pt[0], world_pt[1]
             poly.polygon.points.append(p)
 
