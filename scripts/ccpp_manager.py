@@ -334,7 +334,7 @@ class DynamicCCPPManager:
                 # 發現有足夠大的待清理區域 (> 400px，依解析度約 1m²)
                 # 切換至 COVERING 狀態並執行牛耕路徑
                 self.state = "COVERING"
-                self.execute_coverage(regions[0])  # 傳入面積最大的區域
+                self.execute_coverage(regions[0], cleaned_map)  # 傳入面積最大的區域與清潔地圖
             else:
                 # 無待清理區域，嘗試探索未知空間 (Frontier Exploration)
                 frontier_map = get_frontier_map(self.map_msg.data, self.map_msg.info.width, self.map_msg.info.height)
@@ -360,7 +360,7 @@ class DynamicCCPPManager:
             # 每次決策後短暫休眠，避免 CPU 高佔用
             rospy.sleep(1.0)
 
-    def execute_coverage(self, region_info):
+    def execute_coverage(self, region_info, cleaned_map):
         """
         針對特定區域生成牛耕式路徑並驅動機器人逐點執行。
 
@@ -369,7 +369,9 @@ class DynamicCCPPManager:
 
         Args:
             region_info: 來自 detect_regions() 的區域資訊字典
-                         {contour, approx, area, center, is_quad}
+                         {contour, rect_box, angle, area, center, is_rect}
+            cleaned_map: 由 preprocess_map() 產生的二值化地圖 (255=可走, 0=障礙)
+                         用於在發送導航點前過濾落在障礙物內的路徑點
         """
         # 發布最小外接矩形邊界至網頁，顯示綠色框線
         self.publish_target_region(region_info['rect_box'])
@@ -378,8 +380,9 @@ class DynamicCCPPManager:
         # 例如：step_size=0.14m, resolution=0.05m/px → step_px=2.8px
         step_px = self.step_size / self.map_msg.info.resolution
 
-        # 以矩形頂點生成牛耕式路徑：矩形的規則邊界確保掃描線等長、路徑平行
-        path_px = generate_boustrophedon_path(region_info['rect_box'], step_px)
+        # 以矩形頂點生成牛耕式路徑；同時傳入原始輪廓供路徑生成器裁剪超出房間的掃描線
+        path_px = generate_boustrophedon_path(region_info['rect_box'], step_px,
+                                              contour=region_info['contour'])
 
         failed_count = 0  # 連續失敗計數器
 
@@ -402,6 +405,16 @@ class DynamicCCPPManager:
             )
             # 門檻降至 0.05m，避免跳過間距僅約 0.035m 的相鄰掃描線起點
             if dist < 0.05:
+                continue
+
+            # 路徑點合法性檢查：確認目標像素位於可行走空地 (cleaned_map 值 255)
+            # 當 minAreaRect 超出實際房間邊界時，部分路徑點可能落在障礙物或安全邊距內
+            px_check, py_check = self.world_to_pixel(world_pt[0], world_pt[1])
+            if (py_check < 0 or py_check >= cleaned_map.shape[0] or
+                    px_check < 0 or px_check >= cleaned_map.shape[1]):
+                continue
+            if cleaned_map[py_check, px_check] == 0:
+                rospy.logwarn_throttle(2.0, "Waypoint in obstacle or safety margin, skipping.")
                 continue
 
             # 計算朝向：讓機器人在前往當前點時，面朝下一個路徑點的方向

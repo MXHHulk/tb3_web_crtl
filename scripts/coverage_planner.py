@@ -26,7 +26,7 @@ import numpy as np
 import cv2
 
 
-def generate_boustrophedon_path(poly_pts, step_size_px):
+def generate_boustrophedon_path(poly_pts, step_size_px, contour=None):
     """
     輸入多邊形輪廓頂點與步進像素，生成完整的牛耕式覆蓋路徑點序列。
 
@@ -35,12 +35,16 @@ def generate_boustrophedon_path(poly_pts, step_size_px):
       2. 旋轉座標系讓主方向對齊 X 軸
       3. 在旋轉後的 Y 方向以 step_size 間距生成水平掃描線
       4. 計算每條掃描線與多邊形邊界的交點，取最左最右端點
+         若傳入 contour，同時計算與原始輪廓的交點，取兩者中更緊的邊界
+         (避免 minAreaRect 超出實際房間邊界產生無效路徑點)
       5. 交替正反方向串接所有線段端點
       6. 旋轉回原始座標系
 
     Args:
-        poly_pts:      多邊形輪廓頂點 (來自 cv2.findContours，shape: Nx1x2 或 Nx2)
+        poly_pts:      多邊形輪廓頂點 (來自 cv2.boxPoints，shape: Nx1x2 或 Nx2)
         step_size_px:  掃描線間距 (像素)，由 step_size / resolution 計算而來
+        contour:       原始偵測輪廓 (來自 cv2.findContours，shape: Nx1x2)，可選。
+                       提供後用於限制掃描線不超出實際可走區域邊界。
 
     Returns:
         list of [x, y]: 路徑點的像素座標列表，依照執行順序排列
@@ -78,6 +82,12 @@ def generate_boustrophedon_path(poly_pts, step_size_px):
     min_x, min_y = np.min(rotated_pts, axis=0)
     max_x, max_y = np.max(rotated_pts, axis=0)
 
+    # 將原始輪廓旋轉至相同座標系，用於後續緊界裁剪
+    rotated_contour = None
+    if contour is not None:
+        cnt_pts = contour.reshape(-1, 2).astype(float)
+        rotated_contour = np.dot(cnt_pts, R.T)
+
     # --- Step 3: 生成掃描線並求交點 (Zig-Zag) ---
     path_rotated = []
     reverse = False  # 掃描方向旗標：False=左→右，True=右→左
@@ -88,7 +98,7 @@ def generate_boustrophedon_path(poly_pts, step_size_px):
 
     # 沿旋轉後的 Y 軸方向，以 step_size_px 為間距逐行掃描
     for y in np.arange(min_y + padding, max_y - padding, step_size_px):
-        # 計算當前掃描線 y 與多邊形每條邊的交點
+        # 計算當前掃描線 y 與矩形每條邊的交點
         intersections = []
         for i in range(len(rotated_pts)):
             p1 = rotated_pts[i]
@@ -103,16 +113,41 @@ def generate_boustrophedon_path(poly_pts, step_size_px):
                 intersections.append(x_int)
 
         # 至少要有兩個交點 (一入一出) 才能形成有效的掃描線段
-        if len(intersections) >= 2:
-            intersections.sort()  # 排序確保 [0] 是最左，[-1] 是最右
-            # 取最左和最右的交點作為這行掃描線的起點與終點
-            line = [(intersections[0], y), (intersections[-1], y)]
+        if len(intersections) < 2:
+            continue
 
-            # 交替反轉方向，實現 Z 字型的「牛耕式」路徑
-            if reverse:
-                line.reverse()  # 這行從右掃到左
-            path_rotated.extend(line)  # 將兩個端點加入路徑序列
-            reverse = not reverse  # 下一行切換方向
+        intersections.sort()  # 排序確保 [0] 是最左，[-1] 是最右
+        x_left = intersections[0]
+        x_right = intersections[-1]
+
+        # 若提供原始輪廓，計算掃描線與輪廓的交點並取更緊的邊界
+        # 這能裁剪 minAreaRect 超出實際房間的部分，避免導航點落在牆外
+        if rotated_contour is not None:
+            cnt_intersections = []
+            for i in range(len(rotated_contour)):
+                p1 = rotated_contour[i]
+                p2 = rotated_contour[(i + 1) % len(rotated_contour)]
+                if (p1[1] <= y < p2[1]) or (p2[1] <= y < p1[1]):
+                    x_int = p1[0] + (y - p1[1]) * (p2[0] - p1[0]) / (p2[1] - p1[1])
+                    cnt_intersections.append(x_int)
+
+            if len(cnt_intersections) >= 2:
+                cnt_intersections.sort()
+                # 取兩者中更靠內的邊界 (pointPolygonTest 的等效邊界裁剪)
+                x_left = max(x_left, cnt_intersections[0])
+                x_right = min(x_right, cnt_intersections[-1])
+
+        # 若裁剪後邊界無效 (全部在輪廓外)，跳過此掃描線
+        if x_left >= x_right:
+            continue
+
+        line = [(x_left, y), (x_right, y)]
+
+        # 交替反轉方向，實現 Z 字型的「牛耕式」路徑
+        if reverse:
+            line.reverse()  # 這行從右掃到左
+        path_rotated.extend(line)  # 將兩個端點加入路徑序列
+        reverse = not reverse  # 下一行切換方向
 
     # --- Step 4: 路徑點逆旋轉回原始座標系 ---
     if not path_rotated:

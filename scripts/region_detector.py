@@ -106,6 +106,10 @@ def find_best_frontier(frontier_img, robot_px_pos):
     策略：選擇距離機器人最近的 Frontier 塊的質心作為下一個導航目標。
     選擇最近點（而非最大點）的原因：減少長途空跑，讓探索更有效率。
 
+    目標點安全處理：對 Frontier 圖進行侵蝕 (Erode) 後再偵測輪廓，
+    確保回傳的質心落在已知空地內部，而非剛好在空地與未知區域的交界線上，
+    防止機器人衝入 SLAM 尚未建圖的黑色/灰色區域。
+
     Args:
         frontier_img:  由 map_processor.get_frontier_map() 產生的二值化前沿圖
         robot_px_pos:  機器人目前在像素座標系中的位置 (px_x, px_y)
@@ -113,8 +117,13 @@ def find_best_frontier(frontier_img, robot_px_pos):
     Returns:
         best_pt: 最近 Frontier 塊的質心像素座標 (cx, cy)，若無則回傳 None
     """
+    # 侵蝕 Frontier 圖使目標點向內縮，遠離空地與未知區域的邊界
+    # iterations=2 搭配 3x3 核心 ≈ 向內縮約 3px (依 0.05m/px 解析度約 15cm)
+    kernel = np.ones((3, 3), np.uint8)
+    safe_frontier = cv2.erode(frontier_img, kernel, iterations=2)
+
     # 偵測所有前沿「塊」的輪廓，每個連通的白色區域就是一個 Frontier cluster
-    contours, _ = cv2.findContours(frontier_img, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    contours, _ = cv2.findContours(safe_frontier, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
     best_pt = None
     min_dist = float('inf')  # 初始為無限大，方便後續比較
