@@ -306,9 +306,11 @@ class DynamicCCPPManager:
         核心決策循環：在背景執行緒中持續運行，判斷當前應執行清掃還是探索。
 
         決策優先順序：
-          1. 若有面積 > 400px 的待清理區域 → COVERING (牛耕式清掃)
-          2. 若無待清理區域但有 Frontier   → EXPLORING (前往邊界探索)
-          3. 若兩者皆無                     → IDLE (任務完成)
+          1. 若有面積 > 400px 的待清理子區域 → COVERING
+             detect_regions 已執行 Cellular Decomposition；
+             所有子區域依距離排序後一次性執行完畢再重新評估。
+          2. 若無待清理區域但有 Frontier     → EXPLORING (前往邊界探索)
+          3. 若兩者皆無                       → IDLE (任務完成)
         """
         while not rospy.is_shutdown():
             # 系統在 IDLE 狀態、或地圖/位置資料尚未就緒時，持續等待
@@ -331,10 +333,26 @@ class DynamicCCPPManager:
 
             # ---- 分支判斷 ----
             if regions and regions[0]['area'] > 400:
-                # 發現有足夠大的待清理區域 (> 400px，依解析度約 1m²)
-                # 切換至 COVERING 狀態並執行牛耕路徑
                 self.state = "COVERING"
-                self.execute_coverage(regions[0], cleaned_map)  # 傳入面積最大的區域與清潔地圖
+
+                # 依距離機器人由近到遠排序所有有效子區域，形成覆蓋任務隊列
+                # detect_regions 已完成 Cellular Decomposition，每個元素是矩形子區域
+                robot_px = self.world_to_pixel(
+                    self.robot_pose.position.x, self.robot_pose.position.y)
+                coverage_queue = sorted(
+                    [r for r in regions if r['area'] > 400],
+                    key=lambda r: math.sqrt(
+                        (r['center'][0] - robot_px[0]) ** 2 +
+                        (r['center'][1] - robot_px[1]) ** 2
+                    )
+                )
+                rospy.loginfo(f"COVERING: {len(coverage_queue)} sub-region(s) queued, nearest first.")
+
+                # 依序執行覆蓋任務；Stop 指令會將 state 設回 IDLE 中斷迴圈
+                for region in coverage_queue:
+                    if self.state == "IDLE":
+                        break
+                    self.execute_coverage(region, cleaned_map)
             else:
                 # 無待清理區域，嘗試探索未知空間 (Frontier Exploration)
                 frontier_map = get_frontier_map(self.map_msg.data, self.map_msg.info.width, self.map_msg.info.height)

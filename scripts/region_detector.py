@@ -7,13 +7,15 @@
 
 核心功能：
 1. 分析二值化地圖中的封閉空地，將其分割為獨立的清掃區域。
-2. 以最小外接矩形 (Minimum Area Rectangle) 描述區域邊界，取代凸包逼近，
-   使牛耕式路徑生成的掃描線長度一致、視覺上呈現整齊的平行 Z 字型。
-3. 根據距離權重尋找最適合的探索點。
+2. 對非凸 (concave) 區域執行 Cellular Decomposition：
+   利用 convexityDefects 找出最深凹陷點，以水平或垂直切線遞迴分割，
+   直到每個子區域的 minAreaRect 面積比 >= 0.85（接近矩形）為止。
+3. 以最小外接矩形 (minAreaRect) 描述每個子區域，確保牛耕路徑掃描線等長整齊。
+4. 根據距離權重尋找最適合的探索點。
 
 關鍵依賴：
-- cv2 (OpenCV): 用於輪廓偵測、矩計算 (Moments) 與最小外接矩形
-- numpy: 用於數據處理
+- cv2 (OpenCV): 輪廓偵測、凸缺陷分析、矩計算、最小外接矩形
+- numpy: 數據處理
 
 輸入地圖說明：
   接收來自 map_processor.preprocess_map() 的輸出 (pending_map)
@@ -24,13 +26,149 @@ import cv2
 import numpy as np
 
 
+# ---------------------------------------------------------------------------
+# Cellular Decomposition helpers
+# ---------------------------------------------------------------------------
+
+def _rect_ratio(contour):
+    """Return contour area / minAreaRect area (0~1); 1.0 = perfect rectangle."""
+    area = cv2.contourArea(contour)
+    rect = cv2.minAreaRect(contour)
+    rect_area = rect[1][0] * rect[1][1]
+    return area / rect_area if rect_area > 0 else 0.0
+
+
+def _find_deepest_concave_point(contour):
+    """
+    Return the pixel coordinate of the deepest convexity-defect point, or None
+    if the contour is already convex or too small for defect analysis.
+
+    Uses cv2.convexityDefects which is more reliable than cross-product methods
+    for noisy, pixel-level contours from a SLAM occupancy grid.
+    """
+    if cv2.isContourConvex(contour) or len(contour) < 4:
+        return None
+    hull_idx = cv2.convexHull(contour, returnPoints=False)
+    if hull_idx is None or len(hull_idx) < 3:
+        return None
+    try:
+        defects = cv2.convexityDefects(contour, hull_idx)
+    except cv2.error:
+        return None
+    if defects is None:
+        return None
+    best_depth, best_pt = 0, None
+    for d in defects:
+        _s, _e, f, depth = d[0]
+        if depth > best_depth:
+            best_depth = depth
+            best_pt = tuple(contour[f][0])
+    return best_pt
+
+
+def _split_contour_region(binary_img, contour, split_point):
+    """
+    Attempt to split a region at split_point using both a horizontal line
+    (y = split_point[1]) and a vertical line (x = split_point[0]).
+
+    For each candidate axis, the contour mask is cut and the largest sub-
+    contour on each side is found.  The split whose combined rectangularity
+    score is highest is returned as (cnt_a, cnt_b), or None if no valid
+    split was found (e.g. one side would be too small).
+    """
+    h, w = binary_img.shape
+    x0, y0 = int(split_point[0]), int(split_point[1])
+
+    # Build a filled mask of just this contour, clipped to free space
+    base = np.zeros((h, w), dtype=np.uint8)
+    cv2.drawContours(base, [contour], 0, 255, -1)
+    base = cv2.bitwise_and(base, binary_img)
+
+    best_score, best_pair = -1.0, None
+
+    # Try horizontal split at y0, then vertical split at x0
+    for y_cut, x_cut in [(y0, None), (None, x0)]:
+        ma, mb = base.copy(), base.copy()
+        if y_cut is not None and 0 < y_cut < h:
+            ma[y_cut:, :] = 0   # keep top
+            mb[:y_cut, :] = 0   # keep bottom
+        elif x_cut is not None and 0 < x_cut < w:
+            ma[:, x_cut:] = 0   # keep left
+            mb[:, :x_cut] = 0   # keep right
+        else:
+            continue
+
+        cnts_a, _ = cv2.findContours(ma, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        cnts_b, _ = cv2.findContours(mb, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        if not cnts_a or not cnts_b:
+            continue
+
+        ca = max(cnts_a, key=cv2.contourArea)
+        cb = max(cnts_b, key=cv2.contourArea)
+        # Both halves must be large enough to be worth processing
+        if cv2.contourArea(ca) < 200 or cv2.contourArea(cb) < 200:
+            continue
+
+        score = _rect_ratio(ca) + _rect_ratio(cb)
+        if score > best_score:
+            best_score, best_pair = score, (ca, cb)
+
+    return best_pair
+
+
+def decompose_region(binary_img, contour, min_area=200, max_depth=3):
+    """
+    Recursively decompose a (possibly concave) region into approximately
+    rectangular cells using axis-aligned sweep-line cuts.
+
+    Algorithm:
+      1. If rect_ratio >= 0.85 or already convex  → return [contour] as-is.
+      2. Find the deepest convexity-defect point (most pronounced concavity).
+      3. Try horizontal and vertical cuts at that point; pick the split whose
+         combined rectangularity score is higher.
+      4. Recurse on each half (up to max_depth levels).
+
+    Args:
+        binary_img: pending_map used to clip masks to valid free space
+        contour:    contour of the region to decompose (pixel coordinates)
+        min_area:   cells smaller than this are dropped
+        max_depth:  recursion limit to prevent infinite loops on edge cases
+
+    Returns:
+        List of contours — one per rectangular cell
+    """
+    if max_depth == 0 or cv2.contourArea(contour) < min_area * 2:
+        return [contour]
+
+    if _rect_ratio(contour) >= 0.85:
+        return [contour]
+
+    split_pt = _find_deepest_concave_point(contour)
+    if split_pt is None:
+        return [contour]
+
+    pair = _split_contour_region(binary_img, contour, split_pt)
+    if pair is None:
+        return [contour]
+
+    ca, cb = pair
+    cells = []
+    cells.extend(decompose_region(binary_img, ca, min_area, max_depth - 1))
+    cells.extend(decompose_region(binary_img, cb, min_area, max_depth - 1))
+    return cells
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
 def detect_regions(binary_img, min_area_px=200):
     """
     從地圖中識別並提取各個待清理的封閉區域。
 
-    使用 OpenCV 的輪廓偵測找出白色連通區域，並以最小外接矩形 (Minimum Area
-    Rectangle) 描述每個區域，取代原本的凸包 + 多邊形逼近做法。矩形頂點傳入
-    boustrophedon 路徑生成器後，可確保每條掃描線等長、路徑呈現整齊 Z 字型。
+    對每個原始輪廓呼叫 decompose_region()：
+    - 若輪廓已接近矩形 (rect_ratio >= 0.85) 則直接使用。
+    - 否則以 Cellular Decomposition 遞迴切割為多個子矩形後再分別建立 region dict。
 
     Args:
         binary_img:   二值化地圖影像 (255=待清理空地, 0=不可走)
@@ -40,62 +178,47 @@ def detect_regions(binary_img, min_area_px=200):
         regions: 按面積降序排列的區域字典列表，每個字典包含：
                  {contour, rect_box, angle, area, center, is_rect}
     """
-    # --- 輪廓偵測 ---
-    # RETR_EXTERNAL：只找最外層輪廓，不追蹤巢狀輪廓 (避免重複處理同一區域)
-    # CHAIN_APPROX_SIMPLE：壓縮水平/垂直直線段，只儲存端點，節省記憶體
     contours, _ = cv2.findContours(binary_img, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-    regions = []
+    # Decompose each raw contour into rectangular cells before building region dicts
+    all_cells = []
     for cnt in contours:
-        # --- 面積過濾 ---
+        if cv2.contourArea(cnt) < min_area_px:
+            continue
+        all_cells.extend(decompose_region(binary_img, cnt, min_area=min_area_px))
+
+    regions = []
+    for cnt in all_cells:
         area = cv2.contourArea(cnt)
         if area < min_area_px:
             continue
 
-        # --- 最小外接矩形 (Minimum Area Rectangle) ---
-        # rect = ((cx, cy), (w, h), angle)
-        #   (cx, cy) : 矩形中心的像素座標
-        #   (w, h)   : 矩形的寬與高 (w 對應 angle 方向的邊)
-        #   angle    : 矩形主軸與 X 軸的夾角 (度)，範圍 (-90, 0]
-        # cv2.boxPoints 將上述參數轉換為四個角點座標 (4x2 float32)
         rect = cv2.minAreaRect(cnt)
         box = cv2.boxPoints(rect)
-        box = np.int0(box)  # 轉為整數像素座標
+        box = np.int0(box)
 
         rect_w, rect_h = rect[1]
         rect_area = rect_w * rect_h
-
-        # --- 矩形相似度判斷 ---
-        # 比較輪廓實際面積與最小外接矩形面積的比值
-        # 比值接近 1.0 表示原始形狀已非常接近矩形；低於 0.75 表示有明顯凹陷
         is_rect = (area / rect_area) > 0.75 if rect_area > 0 else False
-
-        # --- 主軸角度 ---
-        # 直接取用 minAreaRect 輸出的角度，供路徑規劃器決定掃描方向
         angle = rect[2]
 
-        # --- 質心計算 (幾何矩) ---
         M = cv2.moments(cnt)
         if M["m00"] != 0:
             cx = int(M["m10"] / M["m00"])
             cy = int(M["m01"] / M["m00"])
         else:
-            # 退化輪廓時改用矩形中心
             cx, cy = int(rect[0][0]), int(rect[0][1])
 
-        # --- 打包區域資訊 ---
         regions.append({
-            'contour': cnt,      # 原始像素輪廓 (保留供面積計算等用途)
-            'rect_box': box,     # 最小外接矩形的四個頂點 (4x2) → 傳給路徑規劃與可視化
-            'angle': angle,      # 矩形主軸偏角 (度) → 可供路徑規劃器直接使用
-            'area': area,        # 輪廓實際像素面積 → 用於排序與門檻判斷
-            'center': (cx, cy),  # 質心像素座標 → 可用於距離計算
-            'is_rect': is_rect,  # True 表示形狀接近矩形 (面積比 > 0.75)
+            'contour': cnt,
+            'rect_box': box,
+            'angle': angle,
+            'area': area,
+            'center': (cx, cy),
+            'is_rect': is_rect,
         })
 
-    # 按面積由大到小排序，確保 main_loop 優先清理最大的主要房間
     regions.sort(key=lambda x: x['area'], reverse=True)
-
     return regions
 
 
