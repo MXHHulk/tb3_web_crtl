@@ -74,12 +74,13 @@
             justify-content: center;
             overflow: hidden;
             padding: 10px;
+            min-height: 0;   /* 讓 flex child 可縮小到 0 */
         }
 
         #map-canvas {
-            max-width: 100%;
-            max-height: 100%;
+            display: block;
             image-rendering: pixelated;
+            /* 寬高由 JS 動態設定，保持地圖長寬比填滿可用空間 */
         }
 
         #waiting {
@@ -129,8 +130,22 @@ LAYERS.forEach(layer => {
 // ── Canvas & 狀態 ─────────────────────────────────────────────────────────────
 const canvas     = document.getElementById('map-canvas');
 const ctx        = canvas.getContext('2d');
+const mainEl     = document.querySelector('main');
 const imgCache   = {};   // layer.id → HTMLImageElement
 let   robotState = { pos: null, path: [] };
+
+/** 讓 canvas CSS 尺寸等比例填滿 main 容器（canvas 內部解析度不變）。 */
+function fitCanvas() {
+    const mapW = canvas.width, mapH = canvas.height;
+    if (!mapW || !mapH) return;
+    const availW = mainEl.clientWidth  - 20;
+    const availH = mainEl.clientHeight - 20;
+    const scale  = Math.min(availW / mapW, availH / mapH);
+    canvas.style.width  = Math.round(mapW * scale) + 'px';
+    canvas.style.height = Math.round(mapH * scale) + 'px';
+}
+
+window.addEventListener('resize', fitCanvas);
 
 // ── 工具函式 ──────────────────────────────────────────────────────────────────
 function hexToRgb(hex) {
@@ -178,6 +193,7 @@ function draw() {
     const W = origImg.naturalWidth, H = origImg.naturalHeight;
     if (canvas.width !== W || canvas.height !== H) {
         canvas.width = W; canvas.height = H;
+        fitCanvas();
     }
 
     ctx.clearRect(0, 0, W, H);
