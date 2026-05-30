@@ -192,7 +192,8 @@ def get_robot_state():
             'wy': round(pos_w['y'], 2),
             'yaw_deg': round(math.degrees(pos_w['yaw']), 1),
         },
-        'path': path_px,
+        'path':       path_px,
+        'resolution': meta['resolution'],   # 前端換算點大小用
     })
 
 

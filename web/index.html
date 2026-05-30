@@ -261,12 +261,14 @@ function drawPath(path, color) {
 }
 
 function drawRobot(px, py, color) {
+    // TurtleBot3 實體半徑 0.105 m，換算成地圖像素後才符合真實比例
+    const radius = Math.max(1, 0.105 / (robotState.resolution || 0.05));
     ctx.save();
     ctx.shadowColor = color;
-    ctx.shadowBlur  = 10;
+    ctx.shadowBlur  = 6;
     ctx.fillStyle   = color;
     ctx.beginPath();
-    ctx.arc(px, py, 5, 0, 2 * Math.PI);
+    ctx.arc(px, py, radius, 0, 2 * Math.PI);
     ctx.fill();
     ctx.restore();
 }
