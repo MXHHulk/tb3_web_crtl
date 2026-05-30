@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>TB3 地圖監控</title>
+    <style>
+        body {
+            margin: 0;
+            background: #111;
+            color: #eee;
+            font-family: sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+        }
+        h1  { font-size: 1rem; margin-bottom: 12px; color: #aaa; }
+        img { max-width: 95vw; max-height: 80vh; image-rendering: pixelated; border: 1px solid #444; }
+        p   { margin-top: 10px; font-size: 0.8rem; color: #666; }
+    </style>
+</head>
+<body>
+    <h1 id="title">TB3 即時地圖</h1>
+    <img id="map" src="/map.png" alt="等待地圖...">
+    <p id="info">載入中...</p>
+
+    <script>
+        const img  = document.getElementById('map');
+        const info = document.getElementById('info');
+
+        img.onload  = () => info.textContent = '最後更新：' + new Date().toLocaleTimeString('zh-TW');
+        img.onerror = () => info.textContent = '等待 SLAM 啟動中...';
+
+        // 每 2 秒重新抓一次地圖（?t= 防止瀏覽器快取）
+        setInterval(() => {
+            img.src = '/map.png?t=' + Date.now();
+        }, 2000);
+    </script>
+</body>
+</html>

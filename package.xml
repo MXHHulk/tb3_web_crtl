@@ -2,28 +2,17 @@
 <package format="2">
     <name>turtlebot3_ccpp</name>
     <version>0.1.0</version>
-    <description>TurtleBot3 Flask 地圖即時監控系統</description>
+    <description>TurtleBot3 Flask 地圖即時監控</description>
     <maintainer email="hulk71777@gmail.com">MXHHulk</maintainer>
     <license>MIT</license>
 
     <buildtool_depend>catkin</buildtool_depend>
 
-    <!-- ROS 依賴 -->
-    <build_depend>rospy</build_depend>
-    <build_depend>nav_msgs</build_depend>
-    <build_depend>std_msgs</build_depend>
-    <build_depend>message_generation</build_depend>
-
     <exec_depend>rospy</exec_depend>
     <exec_depend>nav_msgs</exec_depend>
-    <exec_depend>std_msgs</exec_depend>
-    <exec_depend>message_runtime</exec_depend>
 
     <!--
-        Python pip 依賴（非 ROS catkin，需手動安裝）：
-          pip3 install flask>=2.0 Pillow>=9.0
-        numpy 通常已隨 ROS Noetic 安裝，無需額外安裝。
+        pip3 install flask Pillow
+        numpy 已隨 ROS 安裝
     -->
-
-    <export></export>
 </package>

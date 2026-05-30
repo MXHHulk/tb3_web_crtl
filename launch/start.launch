@@ -1,0 +1,28 @@
+<launch>
+    <!-- 使用方式：roslaunch turtlebot3_ccpp start.launch -->
+    <!-- 換型號：  roslaunch turtlebot3_ccpp start.launch model:=waffle -->
+
+    <arg name="model" default="burger" />
+    <arg name="port"  default="8080"   />
+
+    <!-- 設定 TB3 型號環境變數（等同 export TURTLEBOT3_MODEL=burger）-->
+    <env name="TURTLEBOT3_MODEL" value="$(arg model)" />
+
+    <!-- 1. 硬體驅動 -->
+    <include file="$(find turtlebot3_bringup)/launch/turtlebot3_robot.launch" />
+
+    <!-- 2. SLAM 建圖（發布 /map） -->
+    <include file="$(find turtlebot3_slam)/launch/turtlebot3_slam.launch">
+        <arg name="slam_methods" value="gmapping" />
+        <arg name="open_rviz"    value="false"    />
+    </include>
+
+    <!-- 3. Flask 地圖網頁伺服器 -->
+    <node pkg="turtlebot3_ccpp"
+          type="map_server.py"
+          name="map_server"
+          output="screen">
+        <param name="port" value="$(arg port)" />
+    </node>
+
+</launch>
