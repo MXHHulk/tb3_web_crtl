@@ -149,10 +149,17 @@ def boustrophedon(free, res, ox, oy):
     """
     h, w  = free.shape
     step  = max(1, round(COV_SPACING / res))  # 掃描線格距
+
+    # 找出實際有可走格的行範圍，從第一行開始掃描（避免邊緣遺漏）
+    free_rows = np.where(np.any(free, axis=1))[0]
+    if len(free_rows) == 0:
+        return []
+    row_min, row_max = int(free_rows[0]), int(free_rows[-1])
+
     pts   = []
     l2r   = True   # 當前掃描方向
 
-    for row in range(step // 2, h, step):
+    for row in range(row_min, row_max + 1, step):
         # 找這一行所有連續可走區段
         segs, start = [], None
         for col in range(w):
@@ -324,9 +331,12 @@ def coverage_start():
     if not meta or raw.get('data') is None:
         return jsonify({'ok': False, 'msg': '地圖尚未就緒'})
 
-    # 侵蝕出安全可走區域
-    r    = max(1, round(COV_MARGIN / meta['resolution']))
-    free = binary_erosion(raw['data'] == 0, np.ones((2*r+1, 2*r+1), dtype=bool))
+    # 可走區域與網頁膨脹地圖顯示一致：
+    #   空地（data==0）且不在膨脹後障礙物範圍內
+    # → 規劃路徑會完整覆蓋網頁白色（可走）區域
+    obs      = raw['data'] == 100
+    safe_obs = binary_dilation(obs, np.ones((3, 3), dtype=bool), iterations=MORPH_ITER)
+    free     = (raw['data'] == 0) & ~safe_obs
 
     pts = boustrophedon(free, meta['resolution'], meta['origin_x'], meta['origin_y'])
     if not pts:
