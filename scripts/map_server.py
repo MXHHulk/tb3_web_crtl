@@ -14,6 +14,13 @@ from PIL import Image
 from scipy.ndimage import binary_dilation, binary_erosion
 
 try:
+    import actionlib
+    from move_base_msgs.msg import MoveBaseAction, MoveBaseGoal
+    _HAS_MB = True
+except ImportError:
+    _HAS_MB = False
+
+try:
     PKG = rospkg.RosPack().get_path('turtlebot3_ccpp')
 except rospkg.ResourceNotFound:
     PKG = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
@@ -38,6 +45,16 @@ STRUCT     = np.ones((3, 3), dtype=bool)
 MORPH_ITER = 3
 CROP_PAD   = 10
 
+# ── 覆蓋路徑相關 ──────────────────────────────────────────────────────────────
+COV_LINE = 0.3    # 掃描線間距（公尺）= 機器人直徑
+COV_EROD = 0.15   # 侵蝕半徑（公尺）= 機器人半徑
+
+cov_lock   = threading.Lock()
+cov_status = {'state': 'idle', 'done': 0, 'total': 0, 'msg': ''}
+cov_path_w = []          # 覆蓋路徑（世界座標）
+cov_thread = None
+map_raw    = None        # 最新地圖原始資料（供規劃用）
+
 
 def _to_png(arr):
     buf = io.BytesIO()
@@ -57,6 +74,80 @@ def _crop_box(known, h, w):
     return r0, r1, c0, c1
 
 
+def _boustrophedon(free, res, ox, oy):
+    """牛耕式掃描：回傳世界座標路點列表 [(x,y), ...]。"""
+    h, w  = free.shape
+    step  = max(1, round(COV_LINE / res))
+    pts, l2r = [], True
+
+    for row in range(step // 2, h, step):
+        segs, s0 = [], None
+        for c in range(w):
+            if free[row, c] and s0 is None:
+                s0 = c
+            elif not free[row, c] and s0 is not None:
+                segs.append((s0, c - 1)); s0 = None
+        if s0 is not None:
+            segs.append((s0, w - 1))
+        if not segs:
+            continue
+        if not l2r:
+            segs = [(e, s) for s, e in reversed(segs)]
+        for s, e in segs:
+            for c in ([s, e] if s != e else [s]):
+                pts.append((ox + c * res, oy + row * res))
+        l2r = not l2r
+    return pts
+
+
+def _run_coverage():
+    """在獨立執行緒中依序把路點送給 move_base。"""
+    global cov_status
+
+    if not _HAS_MB:
+        with cov_lock:
+            cov_status.update(state='error', msg='缺少 move_base_msgs，請安裝')
+        return
+
+    client = actionlib.SimpleActionClient('move_base', MoveBaseAction)
+    if not client.wait_for_server(rospy.Duration(5.0)):
+        with cov_lock:
+            cov_status.update(state='error', msg='move_base 未回應（逾時 5 秒）')
+        return
+
+    with cov_lock:
+        path = list(cov_path_w)
+        fid  = map_raw['frame_id'] if map_raw else 'map'
+        cov_status.update(state='running', total=len(path), done=0, msg='')
+
+    for i, (x, y) in enumerate(path):
+        with cov_lock:
+            if cov_status['state'] != 'running':
+                client.cancel_goal()
+                return
+            cov_status['done'] = i
+
+        goal = MoveBaseGoal()
+        goal.target_pose.header.frame_id = fid
+        goal.target_pose.header.stamp    = rospy.Time.now()
+        goal.target_pose.pose.position.x = x
+        goal.target_pose.pose.position.y = y
+        goal.target_pose.pose.orientation.w = 1.0
+
+        client.send_goal(goal)
+        while not rospy.is_shutdown():
+            with cov_lock:
+                if cov_status['state'] != 'running':
+                    client.cancel_goal()
+                    return
+            if client.wait_for_result(rospy.Duration(0.5)):
+                break   # 到達目標，繼續下一個
+
+    with cov_lock:
+        if cov_status['state'] == 'running':
+            cov_status.update(state='done', done=len(path))
+
+
 def _world_to_px(wx, wy, meta):
     """世界座標 → 裁切後圖片像素座標（Y 已翻轉，對應 canvas 座標系）。"""
     px = (wx - meta['origin_x']) / meta['resolution'] - meta['c0']
@@ -65,7 +156,7 @@ def _world_to_px(wx, wy, meta):
 
 
 def map_callback(msg):
-    global map_png, map_eroded, map_dilated, map_meta
+    global map_png, map_eroded, map_dilated, map_meta, map_raw
 
     w, h = msg.info.width, msg.info.height
     if w == 0 or h == 0:
@@ -104,6 +195,11 @@ def map_callback(msg):
             'r0': r0, 'c0': c0,
             'crop_h': r1 - r0,
             'crop_w': c1 - c0,
+        }
+        map_raw = {
+            'data':     data,          # int16 (h, w)，供覆蓋規劃使用
+            'h': h, 'w': w,
+            'frame_id': msg.header.frame_id or 'map',
         }
 
 
@@ -197,11 +293,70 @@ def get_robot_state():
     })
 
 
+@app.route('/coverage/start', methods=['POST'])
+def coverage_start():
+    global cov_thread, cov_path_w, cov_status
+
+    with cov_lock:
+        if cov_status['state'] == 'running':
+            return jsonify({'ok': False, 'msg': '已在執行中'})
+
+    with map_lock:
+        meta = dict(map_meta)
+        raw  = dict(map_raw) if map_raw else None
+
+    if raw is None or not meta:
+        return jsonify({'ok': False, 'msg': '地圖尚未就緒'})
+
+    # 侵蝕可走區域，保持安全距離
+    free = raw['data'] == 0
+    r    = max(1, round(COV_EROD / meta['resolution']))
+    free = binary_erosion(free, structure=np.ones((2*r+1, 2*r+1), dtype=bool))
+
+    pts = _boustrophedon(free, meta['resolution'], meta['origin_x'], meta['origin_y'])
+    if not pts:
+        return jsonify({'ok': False, 'msg': '無法規劃路徑，地圖可能尚未完成'})
+
+    with cov_lock:
+        cov_path_w[:] = pts
+        cov_status.update(state='idle', done=0, total=len(pts), msg='')
+
+    cov_thread = threading.Thread(target=_run_coverage, daemon=True)
+    cov_thread.start()
+    return jsonify({'ok': True, 'total': len(pts)})
+
+
+@app.route('/coverage/stop', methods=['POST'])
+def coverage_stop():
+    with cov_lock:
+        if cov_status['state'] == 'running':
+            cov_status['state'] = 'stopped'
+    return jsonify({'ok': True})
+
+
+@app.route('/coverage/status')
+def coverage_status_route():
+    with cov_lock:
+        st   = dict(cov_status)
+        path = list(cov_path_w)
+
+    with map_lock:
+        meta = dict(map_meta)
+
+    st['path_px'] = (
+        [list(_world_to_px(x, y, meta)) for x, y in path] if meta else []
+    )
+    return jsonify(st)
+
+
 # ── 主函式 ────────────────────────────────────────────────────────────────────
 
 def main():
     rospy.init_node('map_server')
     port = rospy.get_param('~port', 8080)
+
+    if not _HAS_MB:
+        rospy.logwarn('move_base_msgs 未安裝，/coverage/start 功能停用')
 
     rospy.Subscriber('/map',  OccupancyGrid, map_callback,  queue_size=1)
     rospy.Subscriber('/odom', Odometry,      odom_callback, queue_size=10)
