@@ -13,63 +13,89 @@
             margin: 0;
             padding: 20px;
         }
-        .container {
-            max-width: 1000px;
-            margin: auto;
+        h1 { margin-bottom: 4px; }
+        .subtitle { color: #bdc3c7; font-size: 0.85em; margin-bottom: 20px; }
+
+        /* 三張地圖並排 */
+        .maps {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+        .map-card {
             background: #34495e;
-            padding: 20px;
             border-radius: 10px;
+            padding: 14px;
             box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+            min-width: 260px;
+            flex: 1;
+            max-width: 380px;
         }
-        h1 { margin-bottom: 10px; }
-        .map-wrapper {
-            background-color: #7f8c8d;
-            padding: 10px;
-            border-radius: 5px;
-            display: inline-block;
-            margin-top: 20px;
+        .map-card h2 {
+            font-size: 0.95em;
+            margin: 0 0 6px 0;
+            color: #ecf0f1;
         }
-        #map-img {
-            max-width: 100%;
-            display: block;
-            border: 2px solid #ecf0f1;
+        .map-card p {
+            font-size: 0.75em;
+            color: #95a5a6;
+            margin: 0 0 10px 0;
+        }
+        .map-card img {
+            width: 100%;
+            image-rendering: pixelated;
+            border: 2px solid #7f8c8d;
+            border-radius: 4px;
+            background: #1a252f;
+            min-height: 120px;
         }
         .status {
-            margin-top: 15px;
-            font-size: 0.9em;
+            margin-top: 16px;
+            font-size: 0.85em;
             color: #bdc3c7;
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>TurtleBot3 即時地圖監控</h1>
-        <p>這份地圖是由 Flask 伺服器直接發佈的即時影像</p>
-        
-        <div class="map-wrapper">
-            <img id="map-img" src="/map.png" alt="正在載入地圖...">
+    <h1>TurtleBot3 即時地圖監控</h1>
+    <p class="subtitle">每 1 秒自動刷新 ‧ 同網域任何設備均可存取</p>
+
+    <div class="maps">
+
+        <div class="map-card">
+            <h2>原始地圖</h2>
+            <p>直接來自 /map topic</p>
+            <img id="img-orig" src="/map.png" alt="載入中...">
         </div>
 
-        <div class="status">
-            最後更新時間: <span id="time">--:--:--</span>
+        <div class="map-card">
+            <h2>侵蝕（Erosion）</h2>
+            <p>障礙物向內縮小，去除細小雜訊</p>
+            <img id="img-eroded" src="/map_eroded.png" alt="載入中...">
         </div>
+
+        <div class="map-card">
+            <h2>膨脹（Dilation）</h2>
+            <p>障礙物向外擴大，增加安全邊距</p>
+            <img id="img-dilated" src="/map_dilated.png" alt="載入中...">
+        </div>
+
+    </div>
+
+    <div class="status">
+        最後更新時間：<span id="time">--:--:--</span>
     </div>
 
     <script>
-        const img = document.getElementById('map-img');
-        const timeSpan = document.getElementById('time');
-
-        // 每隔 1 秒更新一次圖片
-        setInterval(() => {
-            const now = new Date();
-            // 在網址後方加上 timestamp 參數，強制瀏覽器不快取
-            img.src = "/map.png?t=" + now.getTime();
-            timeSpan.innerText = now.toLocaleTimeString();
-        }, 1000);
-
-        img.onerror = function() {
-            console.log("地圖尚未準備好，重試中...");
-        };
+        function refresh() {
+            const t = Date.now();
+            document.getElementById('img-orig').src    = '/map.png?t='         + t;
+            document.getElementById('img-eroded').src  = '/map_eroded.png?t='  + t;
+            document.getElementById('img-dilated').src = '/map_dilated.png?t=' + t;
+            document.getElementById('time').textContent = new Date().toLocaleTimeString('zh-TW');
+        }
+        setInterval(refresh, 1000);
     </script>
 </body>
 </html>
