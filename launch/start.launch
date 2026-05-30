@@ -5,23 +5,50 @@
     <arg name="model" default="burger" />
     <arg name="port"  default="8080"   />
 
-    <!-- 設定 TB3 型號環境變數（等同 export TURTLEBOT3_MODEL=burger）-->
+    <!-- 設定 TB3 型號環境變數 -->
     <env name="TURTLEBOT3_MODEL" value="$(arg model)" />
 
     <!-- 1. 硬體驅動 -->
     <include file="$(find turtlebot3_bringup)/launch/turtlebot3_robot.launch" />
 
-    <!-- 2. SLAM 建圖（發布 /map） -->
+    <!-- 2. SLAM 建圖（gmapping 同時發布 /map 與 map→odom TF，供 move_base 定位用）-->
     <include file="$(find turtlebot3_slam)/launch/turtlebot3_slam.launch">
         <arg name="slam_methods" value="gmapping" />
         <arg name="open_rviz"    value="false"    />
     </include>
 
-    <!-- 3. Flask 地圖網頁伺服器 -->
-    <node pkg="turtlebot3_ccpp"
-          type="map_server.py"
-          name="map_server"
-          output="screen">
+    <!-- 3. move_base 導航規劃
+         直接沿用 turtlebot3_navigation 的 param 檔，不需額外設定。
+         SLAM 已提供定位（TF）與地圖（/map），move_base 可直接使用。 -->
+    <node pkg="move_base" type="move_base" name="move_base"
+          respawn="false" output="screen">
+        <param name="base_local_planner" value="dwa_local_planner/DWAPlannerROS" />
+
+        <!-- 障礙物偵測共用參數（分別套用到全域與局部 costmap）-->
+        <rosparam file="$(find turtlebot3_navigation)/param/costmap_common_params_$(arg model).yaml"
+                  command="load" ns="global_costmap" />
+        <rosparam file="$(find turtlebot3_navigation)/param/costmap_common_params_$(arg model).yaml"
+                  command="load" ns="local_costmap" />
+
+        <!-- 全域地圖（static_map: true → 訂閱 /map，即 SLAM 輸出）-->
+        <rosparam file="$(find turtlebot3_navigation)/param/global_costmap_params.yaml"
+                  command="load" />
+
+        <!-- 局部地圖（跟隨機器人移動的小範圍感知）-->
+        <rosparam file="$(find turtlebot3_navigation)/param/local_costmap_params.yaml"
+                  command="load" />
+
+        <!-- move_base 本體參數（goal tolerance 等）-->
+        <rosparam file="$(find turtlebot3_navigation)/param/move_base_params.yaml"
+                  command="load" />
+
+        <!-- DWA 局部路徑規劃器參數（速度、加速度上限）-->
+        <rosparam file="$(find turtlebot3_navigation)/param/dwa_local_planner_params_$(arg model).yaml"
+                  command="load" />
+    </node>
+
+    <!-- 4. Flask 地圖網頁伺服器 + 覆蓋路徑執行 -->
+    <node pkg="turtlebot3_ccpp" type="map_server.py" name="map_server" output="screen">
         <param name="port" value="$(arg port)" />
     </node>
 
