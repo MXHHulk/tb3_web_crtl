@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
-import io
-import math
-import os
-import socket
-import threading
+"""
+TurtleBot3 地圖伺服器
+  - 訂閱 /map  → 提供原始 / 侵蝕 / 膨脹地圖 PNG
+  - 訂閱 /odom → 提供機器人位置與軌跡
+  - /coverage/start|stop|status → 牛耕式路徑規劃 + move_base 執行
+"""
+import io, math, os, socket, threading
 
 import numpy as np
-import rospkg
-import rospy
+import rospkg, rospy
 from flask import Flask, Response, jsonify, send_file
 from nav_msgs.msg import OccupancyGrid, Odometry
 from PIL import Image
@@ -16,9 +17,9 @@ from scipy.ndimage import binary_dilation, binary_erosion
 try:
     import actionlib
     from move_base_msgs.msg import MoveBaseAction, MoveBaseGoal
-    _HAS_MB = True
+    HAS_MB = True
 except ImportError:
-    _HAS_MB = False
+    HAS_MB = False
 
 try:
     PKG = rospkg.RosPack().get_path('turtlebot3_ccpp')
@@ -27,275 +28,290 @@ except rospkg.ResourceNotFound:
 
 app = Flask(__name__)
 
-# ── 地圖 PNG bytes ────────────────────────────────────────────────────────────
-map_png     = None
-map_eroded  = None
-map_dilated = None
-map_lock    = threading.Lock()
-map_meta    = {}   # resolution, origin_x/y, r0, c0, crop_h, crop_w
+# ════════════════════════════════════════════════════════
+#  可調參數
+# ════════════════════════════════════════════════════════
+MORPH_ITER   = 3     # 形態學運算次數
+CROP_PAD     = 10    # 地圖裁切邊距（格）
+COV_SPACING  = 0.3   # 牛耕掃描線間距（公尺） ≈ 機器人直徑
+COV_MARGIN   = 0.15  # 障礙物安全邊距（公尺） ≈ 機器人半徑
 
-# ── 機器人狀態（世界座標儲存，轉換時才換成像素）────────────────────────────────
-robot_lock       = threading.Lock()
-robot_pos_world  = {'x': None, 'y': None, 'yaw': 0.0}
-robot_path_world = []          # list of [world_x, world_y]
-MAX_PATH_PTS     = 10000
-MIN_DIST_SQ      = 0.01        # 點與點最小間距 0.1 m
+# ════════════════════════════════════════════════════════
+#  共享狀態
+# ════════════════════════════════════════════════════════
+map_lock = threading.Lock()
+map_png = map_eroded = map_dilated = None
+map_meta = {}   # resolution, origin_x/y, r0, c0, crop_h
+map_data = {}   # data(np array), h, w, frame_id  ← 供覆蓋規劃用
 
-STRUCT     = np.ones((3, 3), dtype=bool)
-MORPH_ITER = 3
-CROP_PAD   = 10
-
-# ── 覆蓋路徑相關 ──────────────────────────────────────────────────────────────
-COV_LINE = 0.3    # 掃描線間距（公尺）= 機器人直徑
-COV_EROD = 0.15   # 侵蝕半徑（公尺）= 機器人半徑
+robot_lock = threading.Lock()
+robot_pos  = {'x': None, 'y': None, 'yaw': 0.0}   # 世界座標
+robot_path = []   # [[wx, wy], ...]
 
 cov_lock   = threading.Lock()
 cov_status = {'state': 'idle', 'done': 0, 'total': 0, 'msg': ''}
-cov_path_w = []          # 覆蓋路徑（世界座標）
-cov_thread = None
-map_raw    = None        # 最新地圖原始資料（供規劃用）
+cov_path   = []   # [(wx, wy), ...]  世界座標
 
 
+# ════════════════════════════════════════════════════════
+#  地圖處理
+# ════════════════════════════════════════════════════════
 def _to_png(arr):
     buf = io.BytesIO()
     Image.fromarray(np.flipud(arr), 'L').save(buf, format='PNG')
     return buf.getvalue()
 
 
-def _crop_box(known, h, w):
-    rows = np.any(known, axis=1)
-    cols = np.any(known, axis=0)
-    if not rows.any():
+def _crop(known, h, w):
+    """找出已知格子的最小矩形（加邊距）。"""
+    r = np.any(known, axis=1)
+    c = np.any(known, axis=0)
+    if not r.any():
         return 0, h, 0, w
-    r0 = max(np.argmax(rows) - CROP_PAD, 0)
-    r1 = min(h - np.argmax(rows[::-1]) + CROP_PAD, h)
-    c0 = max(np.argmax(cols) - CROP_PAD, 0)
-    c1 = min(w - np.argmax(cols[::-1]) + CROP_PAD, w)
+    r0 = max(np.argmax(r)          - CROP_PAD, 0)
+    r1 = min(h - np.argmax(r[::-1]) + CROP_PAD, h)
+    c0 = max(np.argmax(c)          - CROP_PAD, 0)
+    c1 = min(w - np.argmax(c[::-1]) + CROP_PAD, w)
     return r0, r1, c0, c1
 
 
-def _boustrophedon(free, res, ox, oy):
-    """牛耕式掃描：回傳世界座標路點列表 [(x,y), ...]。"""
-    h, w  = free.shape
-    step  = max(1, round(COV_LINE / res))
-    pts, l2r = [], True
-
-    for row in range(step // 2, h, step):
-        segs, s0 = [], None
-        for c in range(w):
-            if free[row, c] and s0 is None:
-                s0 = c
-            elif not free[row, c] and s0 is not None:
-                segs.append((s0, c - 1)); s0 = None
-        if s0 is not None:
-            segs.append((s0, w - 1))
-        if not segs:
-            continue
-        if not l2r:
-            segs = [(e, s) for s, e in reversed(segs)]
-        for s, e in segs:
-            for c in ([s, e] if s != e else [s]):
-                pts.append((ox + c * res, oy + row * res))
-        l2r = not l2r
-    return pts
-
-
-def _run_coverage():
-    """在獨立執行緒中依序把路點送給 move_base。"""
-    global cov_status
-
-    if not _HAS_MB:
-        with cov_lock:
-            cov_status.update(state='error', msg='缺少 move_base_msgs，請安裝')
-        return
-
-    client = actionlib.SimpleActionClient('move_base', MoveBaseAction)
-    if not client.wait_for_server(rospy.Duration(5.0)):
-        with cov_lock:
-            cov_status.update(state='error', msg='move_base 未回應（逾時 5 秒）')
-        return
-
-    with cov_lock:
-        path = list(cov_path_w)
-        fid  = map_raw['frame_id'] if map_raw else 'map'
-        cov_status.update(state='running', total=len(path), done=0, msg='')
-
-    for i, (x, y) in enumerate(path):
-        with cov_lock:
-            if cov_status['state'] != 'running':
-                client.cancel_goal()
-                return
-            cov_status['done'] = i
-
-        goal = MoveBaseGoal()
-        goal.target_pose.header.frame_id = fid
-        goal.target_pose.header.stamp    = rospy.Time.now()
-        goal.target_pose.pose.position.x = x
-        goal.target_pose.pose.position.y = y
-        goal.target_pose.pose.orientation.w = 1.0
-
-        client.send_goal(goal)
-        while not rospy.is_shutdown():
-            with cov_lock:
-                if cov_status['state'] != 'running':
-                    client.cancel_goal()
-                    return
-            if client.wait_for_result(rospy.Duration(0.5)):
-                break   # 到達目標，繼續下一個
-
-    with cov_lock:
-        if cov_status['state'] == 'running':
-            cov_status.update(state='done', done=len(path))
-
-
-def _world_to_px(wx, wy, meta):
-    """世界座標 → 裁切後圖片像素座標（Y 已翻轉，對應 canvas 座標系）。"""
-    px = (wx - meta['origin_x']) / meta['resolution'] - meta['c0']
-    py = meta['crop_h'] - ((wy - meta['origin_y']) / meta['resolution'] - meta['r0'])
-    return round(px, 1), round(py, 1)
-
-
 def map_callback(msg):
-    global map_png, map_eroded, map_dilated, map_meta, map_raw
+    global map_png, map_eroded, map_dilated, map_meta, map_data
 
     w, h = msg.info.width, msg.info.height
     if w == 0 or h == 0:
         return
 
-    data = np.array(msg.data, dtype=np.int8).reshape((h, w)).astype(np.int16)
+    data  = np.array(msg.data, dtype=np.int8).reshape((h, w)).astype(np.int16)
+    known = data >= 0
+    obs   = data == 100
+    free  = data == 0
+    kern  = np.ones((3, 3), dtype=bool)
 
-    known    = data >= 0
-    obstacle = data == 100
-    free     = data == 0
-
+    # 原始地圖灰階
     gray = np.full((h, w), 128, dtype=np.uint8)
     gray[known] = np.clip(255 - data[known] * 255 // 100, 0, 255).astype(np.uint8)
 
-    eroded_obs  = binary_erosion(obstacle,  structure=STRUCT, iterations=MORPH_ITER)
-    dilated_obs = binary_dilation(obstacle, structure=STRUCT, iterations=MORPH_ITER)
-
+    # 侵蝕地圖（障礙縮小）
     gray_e = np.full((h, w), 128, dtype=np.uint8)
-    gray_e[free]       = 255
-    gray_e[eroded_obs] = 0
+    gray_e[free] = 255
+    gray_e[binary_erosion(obs, kern, MORPH_ITER)] = 0
 
+    # 膨脹地圖（障礙擴大）
     gray_d = np.full((h, w), 128, dtype=np.uint8)
-    gray_d[free]        = 255
-    gray_d[dilated_obs] = 0
+    gray_d[free] = 255
+    gray_d[binary_dilation(obs, kern, MORPH_ITER)] = 0
 
-    r0, r1, c0, c1 = _crop_box(known, h, w)
+    r0, r1, c0, c1 = _crop(known, h, w)
 
     with map_lock:
         map_png     = _to_png(gray[r0:r1, c0:c1])
         map_eroded  = _to_png(gray_e[r0:r1, c0:c1])
         map_dilated = _to_png(gray_d[r0:r1, c0:c1])
-        map_meta = {
-            'resolution': msg.info.resolution,
-            'origin_x':   msg.info.origin.position.x,
-            'origin_y':   msg.info.origin.position.y,
-            'r0': r0, 'c0': c0,
-            'crop_h': r1 - r0,
-            'crop_w': c1 - c0,
-        }
-        map_raw = {
-            'data':     data,          # int16 (h, w)，供覆蓋規劃使用
-            'h': h, 'w': w,
-            'frame_id': msg.header.frame_id or 'map',
-        }
+        map_meta = dict(
+            resolution = msg.info.resolution,
+            origin_x   = msg.info.origin.position.x,
+            origin_y   = msg.info.origin.position.y,
+            r0=r0, c0=c0, crop_h=r1-r0,
+        )
+        map_data = dict(
+            data     = data,
+            h=h, w=w,
+            frame_id = msg.header.frame_id or 'map',
+        )
 
 
 def odom_callback(msg):
-    global robot_pos_world, robot_path_world
-
-    rx  = msg.pose.pose.position.x
-    ry  = msg.pose.pose.position.y
-    q   = msg.pose.pose.orientation
-    yaw = math.atan2(2 * (q.w * q.z + q.x * q.y),
-                     1 - 2 * (q.y * q.y + q.z * q.z))
+    rx = msg.pose.pose.position.x
+    ry = msg.pose.pose.position.y
+    q  = msg.pose.pose.orientation
+    yaw = math.atan2(2*(q.w*q.z + q.x*q.y), 1 - 2*(q.y**2 + q.z**2))
 
     with robot_lock:
-        robot_pos_world.update(x=rx, y=ry, yaw=yaw)
-        path = robot_path_world
-        if not path:
-            path.append([rx, ry])
+        robot_pos.update(x=rx, y=ry, yaw=yaw)
+        if not robot_path:
+            robot_path.append([rx, ry])
         else:
-            dx, dy = rx - path[-1][0], ry - path[-1][1]
-            if dx * dx + dy * dy >= MIN_DIST_SQ:
-                path.append([rx, ry])
-                if len(path) > MAX_PATH_PTS:
-                    path.pop(0)
+            dx, dy = rx - robot_path[-1][0], ry - robot_path[-1][1]
+            if dx*dx + dy*dy >= 0.01:   # 每 0.1 m 記一點
+                robot_path.append([rx, ry])
+                if len(robot_path) > 10000:
+                    robot_path.pop(0)
 
 
-# ── Flask 路由 ────────────────────────────────────────────────────────────────
+# ════════════════════════════════════════════════════════
+#  牛耕式路徑規劃
+# ════════════════════════════════════════════════════════
+def boustrophedon(free, res, ox, oy):
+    """
+    在可走格（free=True）上計算牛耕路點。
+    回傳世界座標列表 [(x, y), ...]。
+    """
+    h, w  = free.shape
+    step  = max(1, round(COV_SPACING / res))  # 掃描線格距
+    pts   = []
+    l2r   = True   # 當前掃描方向
 
-def _serve(png_bytes):
-    if png_bytes is None:
-        return Response('等待地圖資料...', status=503)
-    resp = send_file(io.BytesIO(png_bytes), mimetype='image/png')
-    resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    for row in range(step // 2, h, step):
+        # 找這一行所有連續可走區段
+        segs, start = [], None
+        for col in range(w):
+            if free[row, col] and start is None:
+                start = col
+            elif not free[row, col] and start is not None:
+                segs.append((start, col - 1))
+                start = None
+        if start is not None:
+            segs.append((start, w - 1))
+
+        if not segs:
+            continue
+
+        # 右→左時，區段倒序且每段端點互換
+        if not l2r:
+            segs = [(e, s) for s, e in reversed(segs)]
+
+        for s, e in segs:
+            for col in ([s, e] if s != e else [s]):
+                pts.append((ox + col * res, oy + row * res))
+
+        l2r = not l2r
+
+    return pts
+
+
+# ════════════════════════════════════════════════════════
+#  move_base 執行執行緒
+# ════════════════════════════════════════════════════════
+def _yaw_to_quat(yaw):
+    """偏航角 → 四元數 (z, w)。"""
+    return math.sin(yaw / 2), math.cos(yaw / 2)
+
+
+def run_coverage():
+    """依序把路點送給 move_base，可隨時被 stop 中斷。"""
+    if not HAS_MB:
+        with cov_lock:
+            cov_status.update(state='error', msg='未安裝 move_base_msgs')
+        return
+
+    client = actionlib.SimpleActionClient('move_base', MoveBaseAction)
+    if not client.wait_for_server(rospy.Duration(5.0)):
+        with cov_lock:
+            cov_status.update(state='error', msg='move_base 未啟動（等待 5 秒逾時）')
+        return
+
+    with cov_lock:
+        path  = list(cov_path)
+        fid   = map_data.get('frame_id', 'map')
+        cov_status.update(state='running', total=len(path), done=0, msg='')
+
+    n = len(path)
+    for i, (x, y) in enumerate(path):
+
+        # 停止檢查
+        with cov_lock:
+            if cov_status['state'] != 'running':
+                client.cancel_all_goals()
+                return
+            cov_status['done'] = i
+
+        # 朝向：面向下一個路點（最後一點保持原方向）
+        if i + 1 < n:
+            nx, ny = path[i + 1]
+            yaw = math.atan2(ny - y, nx - x)
+        else:
+            yaw = 0.0
+        qz, qw = _yaw_to_quat(yaw)
+
+        # 送出目標
+        goal = MoveBaseGoal()
+        goal.target_pose.header.frame_id    = fid
+        goal.target_pose.header.stamp       = rospy.Time.now()
+        goal.target_pose.pose.position.x    = x
+        goal.target_pose.pose.position.y    = y
+        goal.target_pose.pose.orientation.z = qz
+        goal.target_pose.pose.orientation.w = qw
+        client.send_goal(goal)
+
+        # 等待到達，每 0.5 秒檢查一次停止訊號
+        while not rospy.is_shutdown():
+            with cov_lock:
+                if cov_status['state'] != 'running':
+                    client.cancel_all_goals()
+                    return
+            if client.wait_for_result(rospy.Duration(0.5)):
+                break
+
+    with cov_lock:
+        if cov_status['state'] == 'running':
+            cov_status.update(state='done', done=n)
+
+
+# ════════════════════════════════════════════════════════
+#  座標轉換（世界 → 裁切後圖片像素）
+# ════════════════════════════════════════════════════════
+def world_to_px(wx, wy, meta):
+    px = (wx - meta['origin_x']) / meta['resolution'] - meta['c0']
+    py = meta['crop_h'] - ((wy - meta['origin_y']) / meta['resolution'] - meta['r0'])
+    return round(px, 1), round(py, 1)
+
+
+# ════════════════════════════════════════════════════════
+#  Flask 路由
+# ════════════════════════════════════════════════════════
+def _serve_png(data):
+    if data is None:
+        return Response('等待地圖...', status=503)
+    resp = send_file(io.BytesIO(data), mimetype='image/png')
+    resp.headers['Cache-Control'] = 'no-store'
     return resp
 
 
 @app.route('/')
 def index():
     p = os.path.join(PKG, 'web', 'index.html')
-    if not os.path.exists(p):
-        return '<h3>找不到 web/index.html</h3>', 404
-    with open(p, encoding='utf-8') as f:
-        return f.read()
-
+    return open(p, encoding='utf-8').read() if os.path.exists(p) else ('找不到 index.html', 404)
 
 @app.route('/map.png')
 def get_map():
-    with map_lock:
-        data = map_png
-    return _serve(data)
-
+    with map_lock: d = map_png
+    return _serve_png(d)
 
 @app.route('/map_eroded.png')
 def get_map_eroded():
-    with map_lock:
-        data = map_eroded
-    return _serve(data)
-
+    with map_lock: d = map_eroded
+    return _serve_png(d)
 
 @app.route('/map_dilated.png')
 def get_map_dilated():
-    with map_lock:
-        data = map_dilated
-    return _serve(data)
+    with map_lock: d = map_dilated
+    return _serve_png(d)
 
 
 @app.route('/robot_state')
 def get_robot_state():
-    with map_lock:
-        meta = dict(map_meta)
-    with robot_lock:
-        pos_w  = dict(robot_pos_world)
-        path_w = list(robot_path_world)
+    with map_lock:   meta = dict(map_meta)
+    with robot_lock: pos  = dict(robot_pos); path_w = list(robot_path)
 
-    if not meta or pos_w['x'] is None:
-        return jsonify({'pos': None, 'path': []})
+    if not meta or pos['x'] is None:
+        return jsonify({'pos': None, 'path': [], 'resolution': 0.05})
 
-    px, py    = _world_to_px(pos_w['x'], pos_w['y'], meta)
-    img_angle = -pos_w['yaw']   # canvas Y 軸反向，所以角度也要取反
-
-    path_px = [list(_world_to_px(p[0], p[1], meta)) for p in path_w]
-
+    px, py = world_to_px(pos['x'], pos['y'], meta)
     return jsonify({
         'pos': {
-            'x': px, 'y': py, 'angle': img_angle,
-            'wx': round(pos_w['x'], 2),
-            'wy': round(pos_w['y'], 2),
-            'yaw_deg': round(math.degrees(pos_w['yaw']), 1),
+            'x': px, 'y': py,
+            'wx': round(pos['x'], 2), 'wy': round(pos['y'], 2),
+            'yaw_deg': round(math.degrees(pos['yaw']), 1),
         },
-        'path':       path_px,
-        'resolution': meta['resolution'],   # 前端換算點大小用
+        'path':       [list(world_to_px(p[0], p[1], meta)) for p in path_w],
+        'resolution': meta['resolution'],
     })
 
 
 @app.route('/coverage/start', methods=['POST'])
 def coverage_start():
-    global cov_thread, cov_path_w, cov_status
+    global cov_path
 
     with cov_lock:
         if cov_status['state'] == 'running':
@@ -303,26 +319,24 @@ def coverage_start():
 
     with map_lock:
         meta = dict(map_meta)
-        raw  = dict(map_raw) if map_raw else None
+        raw  = dict(map_data)
 
-    if raw is None or not meta:
+    if not meta or raw.get('data') is None:
         return jsonify({'ok': False, 'msg': '地圖尚未就緒'})
 
-    # 侵蝕可走區域，保持安全距離
-    free = raw['data'] == 0
-    r    = max(1, round(COV_EROD / meta['resolution']))
-    free = binary_erosion(free, structure=np.ones((2*r+1, 2*r+1), dtype=bool))
+    # 侵蝕出安全可走區域
+    r    = max(1, round(COV_MARGIN / meta['resolution']))
+    free = binary_erosion(raw['data'] == 0, np.ones((2*r+1, 2*r+1), dtype=bool))
 
-    pts = _boustrophedon(free, meta['resolution'], meta['origin_x'], meta['origin_y'])
+    pts = boustrophedon(free, meta['resolution'], meta['origin_x'], meta['origin_y'])
     if not pts:
-        return jsonify({'ok': False, 'msg': '無法規劃路徑，地圖可能尚未完成'})
+        return jsonify({'ok': False, 'msg': '無可走路徑，地圖可能不完整'})
 
     with cov_lock:
-        cov_path_w[:] = pts
+        cov_path[:] = pts
         cov_status.update(state='idle', done=0, total=len(pts), msg='')
 
-    cov_thread = threading.Thread(target=_run_coverage, daemon=True)
-    cov_thread.start()
+    threading.Thread(target=run_coverage, daemon=True).start()
     return jsonify({'ok': True, 'total': len(pts)})
 
 
@@ -335,28 +349,23 @@ def coverage_stop():
 
 
 @app.route('/coverage/status')
-def coverage_status_route():
-    with cov_lock:
-        st   = dict(cov_status)
-        path = list(cov_path_w)
+def coverage_status():
+    with cov_lock:   st = dict(cov_status); path_w = list(cov_path)
+    with map_lock:   meta = dict(map_meta)
 
-    with map_lock:
-        meta = dict(map_meta)
-
-    st['path_px'] = (
-        [list(_world_to_px(x, y, meta)) for x, y in path] if meta else []
-    )
+    st['path_px'] = [list(world_to_px(x, y, meta)) for x, y in path_w] if meta else []
     return jsonify(st)
 
 
-# ── 主函式 ────────────────────────────────────────────────────────────────────
-
+# ════════════════════════════════════════════════════════
+#  主函式
+# ════════════════════════════════════════════════════════
 def main():
     rospy.init_node('map_server')
     port = rospy.get_param('~port', 8080)
 
-    if not _HAS_MB:
-        rospy.logwarn('move_base_msgs 未安裝，/coverage/start 功能停用')
+    if not HAS_MB:
+        rospy.logwarn('未安裝 move_base_msgs，覆蓋執行功能不可用')
 
     rospy.Subscriber('/map',  OccupancyGrid, map_callback,  queue_size=1)
     rospy.Subscriber('/odom', Odometry,      odom_callback, queue_size=10)
@@ -365,15 +374,12 @@ def main():
         ip = socket.gethostbyname(socket.gethostname())
     except socket.gaierror:
         ip = '127.0.0.1'
-
-    rospy.loginfo(f'地圖伺服器已啟動 → http://{ip}:{port}')
+    rospy.loginfo(f'地圖伺服器 → http://{ip}:{port}')
 
     threading.Thread(
-        target=lambda: app.run(host='0.0.0.0', port=port,
-                               threaded=True, use_reloader=False),
+        target=lambda: app.run(host='0.0.0.0', port=port, threaded=True, use_reloader=False),
         daemon=True,
     ).start()
-
     rospy.spin()
 
 
