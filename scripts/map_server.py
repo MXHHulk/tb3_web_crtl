@@ -11,7 +11,7 @@ from flask import Flask, Response, send_file
 from nav_msgs.msg import OccupancyGrid
 from PIL import Image
 
-# ── 找到 package 根目錄（用 rospkg，不用寫死路徑）────────────────────────────
+# ── 找到 package 根目錄 ─────────────────────────────────────────────────────
 try:
     PKG = rospkg.RosPack().get_path('turtlebot3_ccpp')
 except rospkg.ResourceNotFound:
@@ -52,7 +52,10 @@ def map_callback(msg):
 @app.route('/')
 def index():
     """回傳監控頁面。"""
-    with open(os.path.join(PKG, 'web', 'index.html'), encoding='utf-8') as f:
+    index_path = os.path.join(PKG, 'web', 'index.html')
+    if not os.path.exists(index_path):
+        return "<h3>Index page not found. 請確認是否已建立 web/index.html</h3>", 404
+    with open(index_path, encoding='utf-8') as f:
         return f.read()
 
 
@@ -65,7 +68,8 @@ def get_map():
         data = map_png
 
     resp = send_file(io.BytesIO(data), mimetype='image/png')
-    resp.headers['Cache-Control'] = 'no-store'
+    # 關閉快取，確保前端拿到的是最新圖
+    resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
     return resp
 
 
