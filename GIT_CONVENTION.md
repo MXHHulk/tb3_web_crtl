@@ -43,25 +43,18 @@ main
 
 | 範疇 | 對應檔案 |
 |------|----------|
-| `manager` | `ccpp_manager.py` |
-| `planner` | `coverage_planner.py` |
-| `map` | `map_processor.py` |
-| `region` | `region_detector.py` |
-| `executor` | `path_executor.py` |
-| `web` | `web_server.py` / `app.js` / `index.html` |
-| `viz` | `map_visualizer.js` |
-| `launch` | `ccpp_web_monitor.launch` |
-| `script` | `start_project.sh` |
+| `web` | `flask_map_server.py` / `index.html` / `map_client.js` |
+| `launch` | `flask_web_monitor.launch` |
+| `docs` | `help/implementation.md` |
 
 ### 範例
 
 ```
-feat(web): 新增鍵盤 WASD 遙控功能
-fix(planner): 修正掃描線邊界交點重複計算
-tune(launch): 調整 scan_overlap 至 0.85
-docs: 新增所有模組的行內說明註解
+feat(web): 新增地圖 SSE 即時推送
+fix(web): 修正圖片快取導致地圖不更新
+tune(launch): 調整預設 port 至 8080
+docs: 更新 help/implementation.md
 chore: 更新 .gitignore 排除 __pycache__
-refactor(manager): 將座標轉換獨立為工具函數
 ```
 
 ---

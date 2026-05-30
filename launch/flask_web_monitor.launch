@@ -1,0 +1,33 @@
+<launch>
+    <!--
+        flask_web_monitor.launch
+
+        啟動 Flask 地圖監控伺服器節點。
+
+        前置條件（需在此 launch 之前/同時啟動）：
+          - roscore
+          - turtlebot3_bringup  → 提供感測器 TF
+          - SLAM 節點（如 gmapping 或 cartographer）→ 發佈 /map topic
+
+        使用方式：
+          roslaunch turtlebot3_ccpp flask_web_monitor.launch
+          roslaunch turtlebot3_ccpp flask_web_monitor.launch port:=8080
+    -->
+
+    <arg name="port" default="8080" doc="Flask HTTP 伺服器監聽埠號" />
+
+    <!--
+        flask_map_server 節點
+        type      : 對應 scripts/flask_map_server.py
+        output    : screen，將 rospy.loginfo 印到終端（顯示 IP 位址）
+        required  : true，此節點失敗即終止整個 launch
+    -->
+    <node pkg="turtlebot3_ccpp"
+          type="flask_map_server.py"
+          name="flask_map_server"
+          output="screen"
+          required="true">
+        <param name="port" value="$(arg port)" />
+    </node>
+
+</launch>

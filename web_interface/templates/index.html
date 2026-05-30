@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TurtleBot3 地圖監控</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+
+    <!-- ===== 頂部標題列 ===== -->
+    <header class="topbar">
+        <h1 class="topbar__title">TurtleBot3 地圖監控</h1>
+        <span id="status" class="badge badge--disconnected">連接中...</span>
+    </header>
+
+    <!-- ===== 主體：地圖 + 資訊面板 ===== -->
+    <main class="layout">
+
+        <!-- 地圖顯示區 -->
+        <section class="map-section">
+            <div class="map-viewport" id="map-viewport">
+                <!--
+                    地圖以 <img> 呈現，src 由 map_client.js 透過 SSE 事件動態更新。
+                    每次地圖版本號遞增，圖片 URL 加上 ?v=<版本號> 強制瀏覽器重新載入。
+                -->
+                <img id="map-img" class="map-img" alt="" src="">
+                <div id="no-map" class="no-map-msg">
+                    <p>等待地圖資料...</p>
+                    <p class="hint">請確認 SLAM 節點 (gmapping / cartographer) 已啟動</p>
+                </div>
+            </div>
+            <p class="map-caption" id="map-caption">尚無地圖</p>
+        </section>
+
+        <!-- 資訊面板 -->
+        <aside class="info-panel">
+
+            <div class="card">
+                <h2 class="card__title">連線狀態</h2>
+                <ul class="info-list">
+                    <li>
+                        <span class="info-label">SSE 狀態</span>
+                        <span id="sse-status" class="info-value">--</span>
+                    </li>
+                    <li>
+                        <span class="info-label">最後更新</span>
+                        <span id="last-update" class="info-value">--</span>
+                    </li>
+                </ul>
+            </div>
+
+            <div class="card">
+                <h2 class="card__title">地圖資訊</h2>
+                <ul class="info-list">
+                    <li>
+                        <span class="info-label">尺寸</span>
+                        <span id="map-size" class="info-value">--</span>
+                    </li>
+                    <li>
+                        <span class="info-label">解析度</span>
+                        <span id="map-resolution" class="info-value">--</span>
+                    </li>
+                    <li>
+                        <span class="info-label">版本號</span>
+                        <span id="map-version" class="info-value">--</span>
+                    </li>
+                </ul>
+            </div>
+
+            <div class="card">
+                <h2 class="card__title">圖例</h2>
+                <ul class="legend">
+                    <li><span class="legend-swatch" style="background:#fff; border: 1px solid #444;"></span>可通行區域</li>
+                    <li><span class="legend-swatch" style="background:#000;"></span>障礙物</li>
+                    <li><span class="legend-swatch" style="background:#808080;"></span>未探索區域</li>
+                </ul>
+            </div>
+
+        </aside>
+    </main>
+
+    <script src="/static/js/map_client.js"></script>
+</body>
+</html>

@@ -3,3 +3,9 @@ __pycache__/
 *.pyc
 *.pyo
 
+# catkin 建置產物
+build/
+devel/
+
+# 執行日誌
+*.log
