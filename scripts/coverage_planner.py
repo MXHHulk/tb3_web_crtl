@@ -3,9 +3,27 @@
 牛耕式覆蓋路徑規劃核心演算法（無 ROS 依賴，可被多個節點共用）
 """
 import numpy as np
+from scipy.ndimage import binary_dilation
 
 SPACING = 0.25   # 掃描線間距（公尺）；< 機器人直徑以確保重疊覆蓋
 MARGIN  = 0.15   # 障礙物安全邊距（公尺） ≈ 機器人半徑
+
+
+def apply_safety_margin(data, margin, resolution):
+    """
+    對障礙物套用安全邊距膨脹，確保路徑遠離牆面。
+
+    輸入
+      data       : OccupancyGrid 陣列（0=自由, 100=障礙, -1=未知）
+      margin     : 安全邊距（公尺）
+      resolution : 地圖解析度（公尺/格）
+    輸出
+      bool 陣列，True = 膨脹後的障礙（含安全邊距）
+    """
+    obs = data == 100
+    r = max(1, round(margin / resolution))
+    kern = np.ones((2 * r + 1, 2 * r + 1), dtype=bool)
+    return binary_dilation(obs, structure=kern)
 
 
 def boustrophedon(free, res, ox, oy, spacing=SPACING):

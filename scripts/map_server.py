@@ -9,7 +9,7 @@ TurtleBot3 地圖伺服器（Module A）
 import io, math, os, socket, sys, threading
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
-from coverage_planner import boustrophedon, SPACING as COV_SPACING, MARGIN as COV_MARGIN
+from coverage_planner import boustrophedon, SPACING as COV_SPACING, MARGIN as COV_MARGIN, apply_safety_margin
 
 import numpy as np
 import rospkg, rospy
@@ -290,10 +290,7 @@ def coverage_start():
     if not meta or raw.get('data') is None:
         return jsonify({'ok': False, 'msg': '地圖尚未就緒'})
 
-    # 膨脹障礙物 COV_MARGIN 公尺，確保路徑與牆面保持安全距離
-    obs      = raw['data'] == 100
-    r        = max(1, round(COV_MARGIN / meta['resolution']))
-    safe_obs = binary_dilation(obs, np.ones((3, 3), dtype=bool), iterations=r)
+    safe_obs = apply_safety_margin(raw['data'], COV_MARGIN, meta['resolution'])
     free     = (raw['data'] == 0) & ~safe_obs
 
     pts = boustrophedon(free, meta['resolution'], meta['origin_x'], meta['origin_y'])

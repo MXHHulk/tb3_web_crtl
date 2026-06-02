@@ -11,9 +11,8 @@ import numpy as np
 import rospy
 from geometry_msgs.msg import PoseStamped
 from nav_msgs.msg import OccupancyGrid, Path
-from scipy.ndimage import binary_erosion
 
-from coverage_planner import boustrophedon, SPACING, MARGIN
+from coverage_planner import boustrophedon, SPACING, MARGIN, apply_safety_margin
 
 REPLAN_INTERVAL = 5.0   # 兩次重新規劃的最短間隔（秒）
 
@@ -43,12 +42,8 @@ def map_callback(msg):
     w, h = msg.info.width, msg.info.height
 
     data = np.array(msg.data, dtype=np.int8).reshape((h, w))
-    free = data == 0
-
-    # 侵蝕自由空間，讓機器人遠離障礙物邊緣
-    r    = max(1, round(MARGIN / res))
-    kern = np.ones((2 * r + 1, 2 * r + 1), dtype=bool)
-    free = binary_erosion(free, structure=kern)
+    safe_obs = apply_safety_margin(data, MARGIN, res)
+    free = (data == 0) & ~safe_obs
 
     pts = boustrophedon(free, res, ox, oy)
     if not pts:
