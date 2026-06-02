@@ -16,7 +16,7 @@ import rospkg, rospy
 from flask import Flask, Response, jsonify, send_file
 from nav_msgs.msg import OccupancyGrid, Odometry
 from PIL import Image
-from scipy.ndimage import binary_dilation, binary_erosion
+from scipy.ndimage import binary_erosion, binary_dilation
 
 try:
     import actionlib
