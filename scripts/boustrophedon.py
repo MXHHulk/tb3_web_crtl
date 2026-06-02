@@ -12,7 +12,7 @@ from nav_msgs.msg import OccupancyGrid, Path
 from scipy.ndimage import binary_erosion
 
 # ── 可調參數 ──────────────────────────────────────────────────────────────────
-LINE_SPACING    = 0.3    # 掃描線間距（公尺），通常 = 機器人直徑
+LINE_SPACING    = 0.25   # 掃描線間距（公尺）；< 機器人直徑以確保重疊覆蓋
 ROBOT_RADIUS    = 0.15   # 機器人半徑（公尺），用於與障礙物保持安全距離
 REPLAN_INTERVAL = 5.0    # 兩次重新規劃的最短間隔（秒）
 
@@ -25,45 +25,60 @@ _last_plan  = 0.0
 def boustrophedon(free, res, origin_x, origin_y):
     """
     輸入
-      free     : 2-D bool 陣列，True = 可行走（已侵蝕過）
-      res      : 地圖解析度（公尺/格）
-      origin_x/y: 地圖原點世界座標（公尺）
+      free       : 2-D bool 陣列，True = 可行走（已侵蝕過）
+      res        : 地圖解析度（公尺/格）
+      origin_x/y : 地圖原點世界座標（公尺）
     輸出
       [(world_x, world_y), ...] 依序走訪的路點列表
+
+    以 PCA 對齊自由空間主軸，避免地圖傾斜時掃線方向與牆面不垂直。
     """
-    h, w  = free.shape
-    step  = max(1, round(LINE_SPACING / res))   # 掃描線格距
-    pts   = []
-    l2r   = True   # 當前行掃描方向：True=左→右，False=右→左
+    rows, cols = np.where(free)
+    if len(rows) == 0:
+        return []
 
-    for row in range(step // 2, h, step):
-        # ── 找出這一行的連續可走區段 [(起始格, 結束格), ...] ────────────────
-        segs, start = [], None
-        for col in range(w):
-            if free[row, col] and start is None:
-                start = col
-            elif not free[row, col] and start is not None:
-                segs.append((start, col - 1))
-                start = None
-        if start is not None:
-            segs.append((start, w - 1))
+    # 所有可走格的世界座標
+    wx_all = origin_x + cols.astype(float) * res
+    wy_all = origin_y + rows.astype(float) * res
+    pts    = np.column_stack([wx_all, wy_all])
 
-        if not segs:
-            continue
+    # PCA：找自由空間的長軸（sweep）與短軸（step）
+    center           = pts.mean(axis=0)
+    diffs            = pts - center
+    eigvals, eigvecs = np.linalg.eigh(np.cov(diffs.T))
+    axis_a = eigvecs[:, np.argmax(eigvals)]   # sweep 方向（長軸）
+    axis_b = eigvecs[:, np.argmin(eigvals)]   # step  方向（短軸）
 
-        # ── 依掃描方向決定走法（反向時區段本身也要反轉）──────────────────────
-        if not l2r:
-            segs = [(e, s) for s, e in reversed(segs)]
+    if axis_a[0] < 0:
+        axis_a = -axis_a
+    if axis_b[1] < 0:
+        axis_b = -axis_b
 
-        # 每段只需寫入兩端點（機器人會直線掃過中間）
-        for s, e in segs:
-            for col in ([s, e] if s != e else [s]):
-                pts.append((origin_x + col * res,
-                             origin_y + row * res))
+    proj_a = diffs @ axis_a
+    proj_b = diffs @ axis_b
 
-        l2r = not l2r   # 下一行換方向
+    step  = LINE_SPACING
+    b_min = proj_b.min()
+    b_max = proj_b.max()
 
-    return pts
+    pts_out = []
+    l2r = True
+    b   = b_min + step / 2
+
+    while b <= b_max + step / 2:
+        mask = np.abs(proj_b - b) < step / 2
+        if mask.any():
+            a_vals  = proj_a[mask]
+            p_start = center + a_vals.min() * axis_a + b * axis_b
+            p_end   = center + a_vals.max() * axis_a + b * axis_b
+            if l2r:
+                pts_out += [(p_start[0], p_start[1]), (p_end[0],   p_end[1])]
+            else:
+                pts_out += [(p_end[0],   p_end[1]),   (p_start[0], p_start[1])]
+            l2r = not l2r
+        b += step
+
+    return pts_out
 
 
 # ── ROS 介面 ──────────────────────────────────────────────────────────────────

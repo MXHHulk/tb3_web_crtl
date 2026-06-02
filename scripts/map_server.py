@@ -33,7 +33,7 @@ app = Flask(__name__)
 # ════════════════════════════════════════════════════════
 MORPH_ITER   = 3     # 形態學運算次數
 CROP_PAD     = 10    # 地圖裁切邊距（格）
-COV_SPACING  = 0.3   # 牛耕掃描線間距（公尺） ≈ 機器人直徑
+COV_SPACING  = 0.25  # 牛耕掃描線間距（公尺）；< 機器人直徑以確保重疊覆蓋
 COV_MARGIN   = 0.15  # 障礙物安全邊距（公尺） ≈ 機器人半徑
 
 # ════════════════════════════════════════════════════════
@@ -45,7 +45,7 @@ map_meta = {}   # resolution, origin_x/y, r0, c0, crop_h
 map_data = {}   # data(np array), h, w, frame_id  ← 供覆蓋規劃用
 
 robot_lock = threading.Lock()
-robot_pos  = {'x': None, 'y': None, 'yaw': 0.0}   # 世界座標
+robot_pos  = {'x': None, 'y': None}   # 世界座標
 robot_path = []   # [[wx, wy], ...]
 
 cov_lock   = threading.Lock()
@@ -124,11 +124,9 @@ def map_callback(msg):
 def odom_callback(msg):
     rx = msg.pose.pose.position.x
     ry = msg.pose.pose.position.y
-    q  = msg.pose.pose.orientation
-    yaw = math.atan2(2*(q.w*q.z + q.x*q.y), 1 - 2*(q.y**2 + q.z**2))
 
     with robot_lock:
-        robot_pos.update(x=rx, y=ry, yaw=yaw)
+        robot_pos.update(x=rx, y=ry)
         if not robot_path:
             robot_path.append([rx, ry])
         else:
@@ -145,46 +143,57 @@ def odom_callback(msg):
 def boustrophedon(free, res, ox, oy):
     """
     在可走格（free=True）上計算牛耕路點。
+    以 PCA 對齊自由空間主軸，確保掃線方向與房間走向一致，
+    避免地圖傾斜時有效覆蓋寬度縮減的問題。
     回傳世界座標列表 [(x, y), ...]。
     """
-    h, w  = free.shape
-    step  = max(1, round(COV_SPACING / res))  # 掃描線格距
-
-    # 找出實際有可走格的行範圍，從第一行開始掃描（避免邊緣遺漏）
-    free_rows = np.where(np.any(free, axis=1))[0]
-    if len(free_rows) == 0:
+    rows, cols = np.where(free)
+    if len(rows) == 0:
         return []
-    row_min, row_max = int(free_rows[0]), int(free_rows[-1])
 
-    pts   = []
-    l2r   = True   # 當前掃描方向
+    # 所有可走格的世界座標
+    wx_all = ox + cols.astype(float) * res
+    wy_all = oy + rows.astype(float) * res
+    pts    = np.column_stack([wx_all, wy_all])
 
-    for row in range(row_min, row_max + 1, step):
-        # 找這一行所有連續可走區段
-        segs, start = [], None
-        for col in range(w):
-            if free[row, col] and start is None:
-                start = col
-            elif not free[row, col] and start is not None:
-                segs.append((start, col - 1))
-                start = None
-        if start is not None:
-            segs.append((start, w - 1))
+    # PCA：找自由空間的長軸（sweep）與短軸（step）
+    center           = pts.mean(axis=0)
+    diffs            = pts - center
+    eigvals, eigvecs = np.linalg.eigh(np.cov(diffs.T))
+    axis_a = eigvecs[:, np.argmax(eigvals)]   # sweep 方向（長軸）
+    axis_b = eigvecs[:, np.argmin(eigvals)]   # step  方向（短軸）
 
-        if not segs:
-            continue
+    # 保持方向一致：x 分量為正
+    if axis_a[0] < 0:
+        axis_a = -axis_a
+    if axis_b[1] < 0:
+        axis_b = -axis_b
 
-        # 右→左時，區段倒序且每段端點互換
-        if not l2r:
-            segs = [(e, s) for s, e in reversed(segs)]
+    proj_a = diffs @ axis_a   # 每個格在 sweep 方向的投影
+    proj_b = diffs @ axis_b   # 每個格在 step  方向的投影
 
-        for s, e in segs:
-            for col in ([s, e] if s != e else [s]):
-                pts.append((ox + col * res, oy + row * res))
+    step  = COV_SPACING       # 掃描線間距（公尺）
+    b_min = proj_b.min()
+    b_max = proj_b.max()
 
-        l2r = not l2r
+    waypoints = []
+    l2r = True
+    b   = b_min + step / 2    # 第一條掃線從邊界內縮 step/2，兩端對稱覆蓋
 
-    return pts
+    while b <= b_max + step / 2:
+        mask = np.abs(proj_b - b) < step / 2
+        if mask.any():
+            a_vals  = proj_a[mask]
+            p_start = center + a_vals.min() * axis_a + b * axis_b
+            p_end   = center + a_vals.max() * axis_a + b * axis_b
+            if l2r:
+                waypoints += [(p_start[0], p_start[1]), (p_end[0],   p_end[1])]
+            else:
+                waypoints += [(p_end[0],   p_end[1]),   (p_start[0], p_start[1])]
+            l2r = not l2r
+        b += step
+
+    return waypoints
 
 
 # ════════════════════════════════════════════════════════
@@ -309,7 +318,6 @@ def get_robot_state():
         'pos': {
             'x': px, 'y': py,
             'wx': round(pos['x'], 2), 'wy': round(pos['y'], 2),
-            'yaw_deg': round(math.degrees(pos['yaw']), 1),
         },
         'path':       [list(world_to_px(p[0], p[1], meta)) for p in path_w],
         'resolution': meta['resolution'],

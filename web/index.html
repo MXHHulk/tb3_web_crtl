@@ -333,7 +333,7 @@ async function refresh() {
     const p    = robot.pos;
     const time = new Date().toLocaleTimeString('zh-TW');
     document.getElementById('info').textContent = p
-        ? `${time}  (${p.wx}, ${p.wy}) m  ${p.yaw_deg}°`
+        ? `${time}  (${p.wx}, ${p.wy}) m`
         : `${time}  等待機器人`;
 }
 
