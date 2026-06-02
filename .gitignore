@@ -9,3 +9,6 @@ devel/
 
 # 執行日誌
 *.log
+
+test/
+專案設計架構.md
