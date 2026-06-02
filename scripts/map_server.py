@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
 """
-TurtleBot3 地圖伺服器
+TurtleBot3 地圖伺服器（Module A）
   - 訂閱 /map  → 提供原始 / 侵蝕 / 膨脹地圖 PNG
   - 訂閱 /odom → 提供機器人位置與軌跡
   - /coverage/start|stop|status → 牛耕式路徑規劃 + move_base 執行
+路徑規劃核心由 coverage_planner 模組提供。
 """
-import io, math, os, socket, threading
+import io, math, os, socket, sys, threading
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+from coverage_planner import boustrophedon, SPACING as COV_SPACING, MARGIN as COV_MARGIN
 
 import numpy as np
 import rospkg, rospy
@@ -16,6 +20,7 @@ from scipy.ndimage import binary_dilation, binary_erosion
 
 try:
     import actionlib
+    from actionlib_msgs.msg import GoalStatus
     from move_base_msgs.msg import MoveBaseAction, MoveBaseGoal
     HAS_MB = True
 except ImportError:
@@ -31,10 +36,9 @@ app = Flask(__name__)
 # ════════════════════════════════════════════════════════
 #  可調參數
 # ════════════════════════════════════════════════════════
-MORPH_ITER   = 3     # 形態學運算次數
-CROP_PAD     = 10    # 地圖裁切邊距（格）
-COV_SPACING  = 0.25  # 牛耕掃描線間距（公尺）；< 機器人直徑以確保重疊覆蓋
-COV_MARGIN   = 0.15  # 障礙物安全邊距（公尺） ≈ 機器人半徑
+MORPH_ITER = 3    # 形態學運算次數（侵蝕/膨脹地圖顯示用）
+CROP_PAD   = 10   # 地圖裁切邊距（格）
+# COV_SPACING / COV_MARGIN 來自 coverage_planner 模組
 
 # ════════════════════════════════════════════════════════
 #  共享狀態
@@ -138,65 +142,6 @@ def odom_callback(msg):
 
 
 # ════════════════════════════════════════════════════════
-#  牛耕式路徑規劃
-# ════════════════════════════════════════════════════════
-def boustrophedon(free, res, ox, oy):
-    """
-    在可走格（free=True）上計算牛耕路點。
-    以 PCA 對齊自由空間主軸，確保掃線方向與房間走向一致，
-    避免地圖傾斜時有效覆蓋寬度縮減的問題。
-    回傳世界座標列表 [(x, y), ...]。
-    """
-    rows, cols = np.where(free)
-    if len(rows) == 0:
-        return []
-
-    # 所有可走格的世界座標
-    wx_all = ox + cols.astype(float) * res
-    wy_all = oy + rows.astype(float) * res
-    pts    = np.column_stack([wx_all, wy_all])
-
-    # PCA：找自由空間的長軸（sweep）與短軸（step）
-    center           = pts.mean(axis=0)
-    diffs            = pts - center
-    eigvals, eigvecs = np.linalg.eigh(np.cov(diffs.T))
-    axis_a = eigvecs[:, np.argmax(eigvals)]   # sweep 方向（長軸）
-    axis_b = eigvecs[:, np.argmin(eigvals)]   # step  方向（短軸）
-
-    # 保持方向一致：x 分量為正
-    if axis_a[0] < 0:
-        axis_a = -axis_a
-    if axis_b[1] < 0:
-        axis_b = -axis_b
-
-    proj_a = diffs @ axis_a   # 每個格在 sweep 方向的投影
-    proj_b = diffs @ axis_b   # 每個格在 step  方向的投影
-
-    step  = COV_SPACING       # 掃描線間距（公尺）
-    b_min = proj_b.min()
-    b_max = proj_b.max()
-
-    waypoints = []
-    l2r = True
-    b   = b_min + step / 2    # 第一條掃線從邊界內縮 step/2，兩端對稱覆蓋
-
-    while b <= b_max + step / 2:
-        mask = np.abs(proj_b - b) < step / 2
-        if mask.any():
-            a_vals  = proj_a[mask]
-            p_start = center + a_vals.min() * axis_a + b * axis_b
-            p_end   = center + a_vals.max() * axis_a + b * axis_b
-            if l2r:
-                waypoints += [(p_start[0], p_start[1]), (p_end[0],   p_end[1])]
-            else:
-                waypoints += [(p_end[0],   p_end[1]),   (p_start[0], p_start[1])]
-            l2r = not l2r
-        b += step
-
-    return waypoints
-
-
-# ════════════════════════════════════════════════════════
 #  move_base 執行執行緒
 # ════════════════════════════════════════════════════════
 def _yaw_to_quat(yaw):
@@ -258,6 +203,12 @@ def run_coverage():
                     return
             if client.wait_for_result(rospy.Duration(0.5)):
                 break
+
+        # 失敗容錯：未成功到達則記錄並繼續下一點
+        if client.get_state() != GoalStatus.SUCCEEDED:
+            rospy.logwarn(f'[coverage] 路點 {i+1}/{n} 跳過（move_base 狀態碼 {client.get_state()}）')
+            with cov_lock:
+                cov_status['msg'] = f'路點 {i+1}/{n} 跳過（無法到達）'
 
     with cov_lock:
         if cov_status['state'] == 'running':
@@ -339,11 +290,10 @@ def coverage_start():
     if not meta or raw.get('data') is None:
         return jsonify({'ok': False, 'msg': '地圖尚未就緒'})
 
-    # 可走區域與網頁膨脹地圖顯示一致：
-    #   空地（data==0）且不在膨脹後障礙物範圍內
-    # → 規劃路徑會完整覆蓋網頁白色（可走）區域
+    # 膨脹障礙物 COV_MARGIN 公尺，確保路徑與牆面保持安全距離
     obs      = raw['data'] == 100
-    safe_obs = binary_dilation(obs, np.ones((3, 3), dtype=bool), iterations=MORPH_ITER)
+    r        = max(1, round(COV_MARGIN / meta['resolution']))
+    safe_obs = binary_dilation(obs, np.ones((3, 3), dtype=bool), iterations=r)
     free     = (raw['data'] == 0) & ~safe_obs
 
     pts = boustrophedon(free, meta['resolution'], meta['origin_x'], meta['origin_y'])

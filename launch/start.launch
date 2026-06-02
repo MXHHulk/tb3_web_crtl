@@ -47,7 +47,11 @@
                   command="load" />
     </node>
 
-    <!-- 4. Flask 地圖網頁伺服器 + 覆蓋路徑執行 -->
+    <!-- 4. 牛耕式路徑規劃節點（發布 /coverage_path，供 RViz 顯示）-->
+    <node pkg="turtlebot3_ccpp" type="boustrophedon.py" name="boustrophedon_planner"
+          output="screen" />
+
+    <!-- 5. Flask 地圖網頁伺服器 + 覆蓋路徑執行 -->
     <node pkg="turtlebot3_ccpp" type="map_server.py" name="map_server" output="screen">
         <param name="port" value="$(arg port)" />
     </node>
