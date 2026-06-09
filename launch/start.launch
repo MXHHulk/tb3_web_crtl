@@ -47,9 +47,12 @@
                   command="load" />
     </node>
 
-    <!-- 4. 牛耕式路徑規劃節點（發布 /coverage_path，供 RViz 顯示）-->
+    <!-- 4. 牛耕式路徑規劃節點（發布 /coverage_path，僅供 RViz 顯示）
+         預設停用：本專案的覆蓋路徑由 map_server.py 自行計算並顯示於網頁，
+         此節點與網頁功能重複，僅在需要用 RViz 檢視 /coverage_path 時才啟用。
     <node pkg="turtlebot3_ccpp" type="boustrophedon.py" name="boustrophedon_planner"
-          output="screen" />
+          output="screen" /> -->
+
 
     <!-- 5. Flask 地圖網頁伺服器 + 覆蓋路徑執行 -->
     <node pkg="turtlebot3_ccpp" type="map_server.py" name="map_server" output="screen">

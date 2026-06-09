@@ -21,6 +21,7 @@ _last_plan = 0.0
 
 
 def _make_pose(x, y, frame_id):
+    """把世界座標 (x, y) 包成指定座標系的 PoseStamped。"""
     p = PoseStamped()
     p.header.frame_id    = frame_id
     p.pose.position.x    = x
@@ -30,6 +31,7 @@ def _make_pose(x, y, frame_id):
 
 
 def map_callback(msg):
+    """收到 /map 時重新規劃覆蓋路徑並發布到 /coverage_path（至少間隔 REPLAN_INTERVAL 秒）。"""
     global _last_plan
     now = rospy.get_time()
     if now - _last_plan < REPLAN_INTERVAL:
@@ -60,6 +62,7 @@ def map_callback(msg):
 
 
 def main():
+    """初始化節點，建立 /coverage_path 發布者與 /map 訂閱者後進入事件迴圈。"""
     global _pub
     rospy.init_node('boustrophedon_planner')
     _pub = rospy.Publisher('/coverage_path', Path, queue_size=1, latch=True)

@@ -5,8 +5,8 @@
 import numpy as np
 from scipy.ndimage import binary_dilation
 
-SPACING = 0.25   # 掃描線間距（公尺）；< 機器人直徑以確保重疊覆蓋
-MARGIN  = 0.15   # 障礙物安全邊距（公尺） ≈ 機器人半徑
+SPACING = 0.18   # 掃描線間距（公尺）；覆蓋寬度 ≈ 0.20 m，留 10% 重疊
+MARGIN  = 0.10   # 障礙物安全邊距（公尺） ≈ 機器人半徑（直徑 0.20 m）
 
 
 def apply_safety_margin(data, margin, resolution):
