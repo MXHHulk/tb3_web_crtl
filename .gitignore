@@ -10,5 +10,8 @@ devel/
 # 執行日誌
 *.log
 
+# 地圖錄製輸出
+maps/
+
 test/
-專案設計架構.md
+help/

@@ -16,7 +16,7 @@ import rospkg, rospy
 from flask import Flask, Response, jsonify, send_file
 from nav_msgs.msg import OccupancyGrid, Odometry
 from PIL import Image
-from scipy.ndimage import binary_erosion
+from scipy.ndimage import binary_erosion, binary_dilation
 
 try:
     import actionlib
@@ -40,9 +40,9 @@ count = 0
 # ════════════════════════════════════════════════════════
 #  可調參數
 # ════════════════════════════════════════════════════════
-CROP_PAD = 10     # 地圖裁切邊距（格）
+MORPH_ITER = 3    # 形態學運算次數（侵蝕/膨脹地圖顯示用）
+CROP_PAD   = 10   # 地圖裁切邊距（格）
 # COV_SPACING / COV_MARGIN 來自 coverage_planner 模組
-# 注：侵蝕/膨脹層現已改為動態計算，使用 COV_MARGIN 的核大小以與路徑規劃同步
 
 # ════════════════════════════════════════════════════════
 #  共享狀態
@@ -61,11 +61,9 @@ cov_status = {'state': 'idle', 'done': 0, 'total': 0, 'msg': ''}
 cov_path   = []   # [(wx, wy), ...]  世界座標
 
 
-# ════════════════════════════════════════════════════════
-#  地圖處理
-# ════════════════════════════════════════════════════════
+
 def _to_png(arr):
-    """把灰階陣列上下翻轉後編碼成 PNG bytes（翻轉是為了配合影像 Y 軸向下）。"""
+    """地圖處理後轉 PNG bytes（黑白反轉，並上下翻轉）。"""
     buf = io.BytesIO()
     Image.fromarray(np.flipud(arr), 'L').save(buf, format='PNG')
     return buf.getvalue()
@@ -85,7 +83,6 @@ def _crop(known, h, w):
 
 
 def map_callback(msg):
-    """收到 /map 時轉出原始/侵蝕/膨脹三種圖層、裁切至已知區域並更新共享狀態。"""
     global map_png, map_eroded, map_dilated, map_meta, map_data
 
 
@@ -111,18 +108,11 @@ def map_callback(msg):
     if w == 0 or h == 0:
         return
 
-    res = msg.info.resolution
     data  = np.array(msg.data, dtype=np.int8).reshape((h, w)).astype(np.int16)
     known = data >= 0
     obs   = data == 100
     free  = data == 0
-
-    # 安全邊距：膨脹層直接用路徑規劃的同一函式 apply_safety_margin，
-    # 保證「網頁看到的膨脹」= 機器人實際避開的區域（單一真相來源）。
-    safe_obs = apply_safety_margin(data, COV_MARGIN, res)
-    # 侵蝕層用相同尺寸的核（純視覺化參考，路徑規劃無對應物）
-    r_safety    = max(1, round(COV_MARGIN / res))
-    kern_safety = np.ones((2 * r_safety + 1, 2 * r_safety + 1), dtype=bool)
+    kern  = np.ones((3, 3), dtype=bool)
 
     # 原始地圖灰階
     gray = np.full((h, w), 128, dtype=np.uint8)
@@ -131,12 +121,12 @@ def map_callback(msg):
     # 侵蝕地圖（障礙縮小）
     gray_e = np.full((h, w), 128, dtype=np.uint8)
     gray_e[free] = 255
-    gray_e[binary_erosion(obs, kern_safety, 1)] = 0
+    gray_e[binary_erosion(obs, kern, MORPH_ITER)] = 0
 
-    # 膨脹地圖 = 路徑規劃實際避開的安全邊距區（與規劃同步）
+    # 膨脹地圖（障礙擴大）
     gray_d = np.full((h, w), 128, dtype=np.uint8)
     gray_d[free] = 255
-    gray_d[safe_obs] = 0
+    gray_d[binary_dilation(obs, kern, MORPH_ITER)] = 0
 
     r0, r1, c0, c1 = _crop(known, h, w)
 
@@ -158,7 +148,6 @@ def map_callback(msg):
 
 
 def odom_callback(msg):
-    """收到 /odom 時更新機器人位置，並每移動 0.1 m 記錄一個軌跡點。"""
     rx = msg.pose.pose.position.x
     ry = msg.pose.pose.position.y
 
@@ -259,7 +248,6 @@ def world_to_px(wx, wy, meta):
 #  Flask 路由
 # ════════════════════════════════════════════════════════
 def _serve_png(data):
-    """把 PNG bytes 包成不快取的 HTTP 回應；無資料則回 503。"""
     if data is None:
         return Response('等待地圖...', status=503)
     resp = send_file(io.BytesIO(data), mimetype='image/png')
@@ -269,32 +257,27 @@ def _serve_png(data):
 
 @app.route('/')
 def index():
-    """回傳前端網頁 index.html。"""
     p = os.path.join(PKG, 'web', 'index.html')
     return open(p, encoding='utf-8').read() if os.path.exists(p) else ('找不到 index.html', 404)
 
 @app.route('/map.png')
 def get_map():
-    """提供原始地圖 PNG。"""
     with map_lock: d = map_png
     return _serve_png(d)
 
 @app.route('/map_eroded.png')
 def get_map_eroded():
-    """提供侵蝕地圖 PNG（障礙縮小）。"""
     with map_lock: d = map_eroded
     return _serve_png(d)
 
 @app.route('/map_dilated.png')
 def get_map_dilated():
-    """提供膨脹地圖 PNG（障礙放大）。"""
     with map_lock: d = map_dilated
     return _serve_png(d)
 
 
 @app.route('/robot_state')
 def get_robot_state():
-    """回傳機器人當前位置與行走軌跡（換算為裁切後圖片像素座標）。"""
     with map_lock:   meta = dict(map_meta)
     with robot_lock: pos  = dict(robot_pos); path_w = list(robot_path)
 
@@ -314,7 +297,6 @@ def get_robot_state():
 
 @app.route('/coverage/start', methods=['POST'])
 def coverage_start():
-    """規劃覆蓋路徑並啟動背景執行緒開始執行；已在執行或地圖未就緒則拒絕。"""
     global cov_path
 
     with cov_lock:
@@ -345,7 +327,6 @@ def coverage_start():
 
 @app.route('/coverage/stop', methods=['POST'])
 def coverage_stop():
-    """請求停止覆蓋任務（合作式取消，由執行緒下一輪檢查時生效）。"""
     with cov_lock:
         if cov_status['state'] == 'running':
             cov_status['state'] = 'stopped'
@@ -354,7 +335,6 @@ def coverage_stop():
 
 @app.route('/coverage/status')
 def coverage_status():
-    """回傳覆蓋任務狀態與路徑（換算為圖片像素座標）。"""
     with cov_lock:   st = dict(cov_status); path_w = list(cov_path)
     with map_lock:   meta = dict(map_meta)
 
@@ -366,7 +346,6 @@ def coverage_status():
 #  主函式
 # ════════════════════════════════════════════════════════
 def main():
-    """初始化節點、訂閱 /map 與 /odom，並在背景啟動 Flask 網頁伺服器。"""
     rospy.init_node('map_server')
     port = rospy.get_param('~port', 8080)
 
