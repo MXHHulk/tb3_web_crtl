@@ -2,8 +2,8 @@
     <!-- 使用方式：roslaunch turtlebot3_ccpp start.launch -->
     <!-- 換型號：  roslaunch turtlebot3_ccpp start.launch model:=waffle -->
 
-    <arg name="model" default="burger" />
-    <arg name="port"  default="8080"   />
+    <arg name="model"  default="burger" />
+    <arg name="port"   default="8080"   />
 
     <!-- 設定 TB3 型號環境變數 -->
     <env name="TURTLEBOT3_MODEL" value="$(arg model)" />
@@ -58,5 +58,10 @@
     <node pkg="turtlebot3_ccpp" type="map_server.py" name="map_server" output="screen">
         <param name="port" value="$(arg port)" />
     </node>
+
+    <!-- 註：地圖錄製工具 test/map_recorder.py 為測量用途（量測 /map 每秒張數、
+         觀察每張地圖變化），非專案功能，不掛在此 launch。需要時單獨執行：
+           python3 test/map_recorder.py            # 預設每次 callback 都存
+           python3 test/map_recorder.py _min_period:=1.0   # 每 1 秒最多存一張 -->
 
 </launch>
