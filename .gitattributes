@@ -1,0 +1,11 @@
+# 所有文字檔統一用 LF，防止 Windows CRLF 污染 Linux shebang
+* text=auto eol=lf
+
+*.py     text eol=lf
+*.sh     text eol=lf
+*.launch text eol=lf
+*.xml    text eol=lf
+*.html   text eol=lf
+*.css    text eol=lf
+*.js     text eol=lf
+*.md     text eol=lf

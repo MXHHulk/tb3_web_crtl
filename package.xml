@@ -1,54 +1,18 @@
 <?xml version="1.0"?>
-<!-- 
-檔案名稱：package.xml (ROS 套件清單)
-檔案類型：XML / 套件描述檔
-核心功能：定義套件元數據、維護者資訊、授權以及所有編譯與執行時的相依套件。
--->
 <package format="2">
-  <name>turtlebot3_ccpp</name>
-  <version>0.1.0</version>
-  <description>TurtleBot3 全覆蓋路徑規劃 (CCPP) 結合網頁監控系統</description>
-  <maintainer email="user@todo.todo">User</maintainer>
-  <license>MIT</license>
+    <name>turtlebot3_ccpp</name>
+    <version>0.1.0</version>
+    <description>TurtleBot3 Flask 地圖即時監控</description>
+    <maintainer email="hulk71777@gmail.com">MXHHulk</maintainer>
+    <license>MIT</license>
 
-  <!-- 建構工具依賴 -->
-  <buildtool_depend>catkin</buildtool_depend>
+    <buildtool_depend>catkin</buildtool_depend>
 
-  <!-- 編譯時依賴 (Build Dependencies) -->
-  <build_depend>rospy</build_depend>
-  <build_depend>nav_msgs</build_depend>
-  <build_depend>geometry_msgs</build_depend>
-  <build_depend>visualization_msgs</build_depend>
-  <build_depend>actionlib</build_depend>
-  <build_depend>move_base_msgs</build_depend>
-  <build_depend>sensor_msgs</build_depend>
-  <build_depend>std_srvs</build_depend>
-  <build_depend>std_msgs</build_depend>
-  <build_depend>message_generation</build_depend>
+    <exec_depend>rospy</exec_depend>
+    <exec_depend>nav_msgs</exec_depend>
 
-  <!-- 導出依賴 -->
-  <build_export_depend>rospy</build_export_depend>
-  <build_export_depend>nav_msgs</build_export_depend>
-  <build_export_depend>geometry_msgs</build_export_depend>
-  <build_export_depend>visualization_msgs</build_export_depend>
-  <build_export_depend>actionlib</build_export_depend>
-  <build_export_depend>move_base_msgs</build_export_depend>
-  <build_export_depend>std_srvs</build_export_depend>
-  <build_export_depend>std_msgs</build_export_depend>
-
-  <!-- 執行時依賴 (Execution Dependencies) -->
-  <exec_depend>rospy</exec_depend>
-  <exec_depend>nav_msgs</exec_depend>
-  <exec_depend>geometry_msgs</exec_depend>
-  <exec_depend>visualization_msgs</exec_depend>
-  <exec_depend>actionlib</exec_depend>
-  <exec_depend>move_base_msgs</exec_depend>
-  <exec_depend>rosbridge_server</exec_depend> <!-- 提供 WebSocket 橋樑 -->
-  <exec_depend>web_video_server</exec_depend> <!-- 用於串流相機影像 -->
-  <exec_depend>std_srvs</exec_depend>
-  <exec_depend>std_msgs</exec_depend>
-  <exec_depend>message_runtime</exec_depend>
-
-  <export>
-  </export>
+    <!--
+        pip3 install flask Pillow
+        numpy 已隨 ROS 安裝
+    -->
 </package>
