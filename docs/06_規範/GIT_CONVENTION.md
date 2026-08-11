@@ -45,7 +45,7 @@ main
 |------|----------|
 | `web` | `flask_map_server.py` / `index.html` / `map_client.js` |
 | `launch` | `flask_web_monitor.launch` |
-| `docs` | `help/implementation.md` |
+| `docs` | `docs/**`（學習資料／論文／海報／簡報／日志） |
 
 ### 範例
 
@@ -53,7 +53,7 @@ main
 feat(web): 新增地圖 SSE 即時推送
 fix(web): 修正圖片快取導致地圖不更新
 tune(launch): 調整預設 port 至 8080
-docs: 更新 help/implementation.md
+docs: 更新 docs/01_學習資料/coverage_algorithm.md
 chore: 更新 .gitignore 排除 __pycache__
 ```
 

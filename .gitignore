@@ -13,4 +13,6 @@ devel/
 # 地圖錄製輸出
 maps/
 
-help/
+# 文件產出成品（Word / PowerPoint）：由 docs/**/gen_*.py 產生，不進版控
+docs/**/*.docx
+docs/**/*.pptx
