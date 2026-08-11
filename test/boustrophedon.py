@@ -1,11 +1,20 @@
 #!/usr/bin/env python3
 """
-牛耕式路徑規劃 ROS 節點（Module B）
-訂閱 /map，計算覆蓋路點後以 nav_msgs/Path 發布到 /coverage_path（供 RViz 顯示）。
-路徑規劃核心由 coverage_planner 模組提供。
+測試工具：牛耕式路徑規劃 ROS 節點（供 RViz 檢視覆蓋路徑用）。
+
+訂閱 /map，計算覆蓋路點後以 nav_msgs/Path 發布到 /coverage_path。
+非專案執行路徑的一部分——正式的覆蓋路徑由 scripts/map_server.py 自行計算並
+顯示於網頁，此節點只是把同一份規劃結果另外發成 topic 給 RViz 看，
+機器人不會依它行走，故不掛在 launch/start.launch。
+
+路徑規劃核心共用 scripts/coverage_planner.py。
+
+用法（需先 roslaunch 啟動 SLAM，讓 /map 有資料）：
+  python3 test/boustrophedon.py
 """
 import os, sys
-sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+sys.path.insert(0, os.path.join(
+    os.path.dirname(os.path.dirname(os.path.realpath(__file__))), 'scripts'))
 
 import numpy as np
 import rospy

@@ -15,8 +15,10 @@ import numpy as np
 import rospkg, rospy
 from flask import Flask, Response, jsonify, send_file
 from nav_msgs.msg import OccupancyGrid, Odometry
+from sensor_msgs.msg import LaserScan
 from PIL import Image
 from scipy.ndimage import binary_erosion, binary_dilation
+import tf2_ros
 
 try:
     import actionlib
@@ -40,7 +42,9 @@ count = 0
 # ════════════════════════════════════════════════════════
 #  可調參數
 # ════════════════════════════════════════════════════════
-MORPH_ITER = 3    # 形態學運算次數（侵蝕/膨脹地圖顯示用）
+MORPH_ITER = 2    # 形態學運算次數（侵蝕/膨脹地圖顯示用）
+                  # 對齊規劃用安全邊距：MARGIN(0.10m) / 解析度(0.05m) ≈ 2 格
+                  # 顯示膨脹半徑 = 機器人半徑，避免把窄出口畫成封死
 CROP_PAD   = 10   # 地圖裁切邊距（格）
 # COV_SPACING / COV_MARGIN 來自 coverage_planner 模組
 
@@ -59,6 +63,10 @@ robot_path = []   # [[wx, wy], ...]
 cov_lock   = threading.Lock()
 cov_status = {'state': 'idle', 'done': 0, 'total': 0, 'msg': ''}
 cov_path   = []   # [(wx, wy), ...]  世界座標
+
+scan_lock = threading.Lock()
+scan_msg  = None   # 最新一筆 LaserScan
+tf_buffer = None   # tf2 緩衝（map ← 雷射座標查詢用）
 
 
 
@@ -161,6 +169,13 @@ def odom_callback(msg):
                 robot_path.append([rx, ry])
                 if len(robot_path) > 10000:
                     robot_path.pop(0)
+
+
+def scan_callback(msg):
+    """收到 /scan 時僅保存最新一筆，轉換到地圖座標延後到 /scan 路由處理。"""
+    global scan_msg
+    with scan_lock:
+        scan_msg = msg
 
 
 # ════════════════════════════════════════════════════════
@@ -295,6 +310,40 @@ def get_robot_state():
     })
 
 
+@app.route('/scan')
+def get_scan():
+    """把最新一筆 /scan 透過 TF 轉到 map 座標，再換算成裁切後圖片像素回傳。"""
+    with map_lock:  meta = dict(map_meta)
+    with scan_lock: msg = scan_msg
+
+    if not meta or msg is None or tf_buffer is None:
+        return jsonify({'points': []})
+
+    frame = msg.header.frame_id or 'base_scan'
+    try:
+        # 用最新可得的轉換（Time(0)）：視覺化不需嚴格對齊掃描時刻
+        tf = tf_buffer.lookup_transform('map', frame, rospy.Time(0), rospy.Duration(0.05))
+    except (tf2_ros.LookupException, tf2_ros.ConnectivityException,
+            tf2_ros.ExtrapolationException):
+        return jsonify({'points': []})
+
+    t, q = tf.transform.translation, tf.transform.rotation
+    yaw = math.atan2(2*(q.w*q.z + q.x*q.y), 1 - 2*(q.y*q.y + q.z*q.z))
+    cos_y, sin_y = math.cos(yaw), math.sin(yaw)
+
+    rmin, rmax = msg.range_min, msg.range_max
+    ang, inc   = msg.angle_min, msg.angle_increment
+    pts = []
+    for r in msg.ranges:
+        if rmin <= r <= rmax:                      # 同時排除 inf / nan
+            lx, ly = r * math.cos(ang), r * math.sin(ang)
+            wx = t.x + cos_y * lx - sin_y * ly
+            wy = t.y + sin_y * lx + cos_y * ly
+            pts.append(list(world_to_px(wx, wy, meta)))
+        ang += inc
+    return jsonify({'points': pts})
+
+
 @app.route('/coverage/start', methods=['POST'])
 def coverage_start():
     global cov_path
@@ -346,14 +395,19 @@ def coverage_status():
 #  主函式
 # ════════════════════════════════════════════════════════
 def main():
+    global tf_buffer
     rospy.init_node('map_server')
     port = rospy.get_param('~port', 8080)
 
     if not HAS_MB:
         rospy.logwarn('未安裝 move_base_msgs，覆蓋執行功能不可用')
 
+    tf_buffer = tf2_ros.Buffer()
+    tf2_ros.TransformListener(tf_buffer)
+
     rospy.Subscriber('/map',  OccupancyGrid, map_callback,  queue_size=1)
     rospy.Subscriber('/odom', Odometry,      odom_callback, queue_size=10)
+    rospy.Subscriber('/scan', LaserScan,     scan_callback, queue_size=1)
 
     try:
         ip = socket.gethostbyname(socket.gethostname())

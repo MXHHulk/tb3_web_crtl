@@ -107,6 +107,7 @@ const LAYERS = [
     { id: 'dilated', label: '膨脹層',   color: '#ff7b72', type: 'map',     url: '/map_dilated.png', on: true  },
     { id: 'covpath', label: '覆蓋路徑', color: '#c084fc', type: 'covpath', on: true  },
     { id: 'trail',   label: '行走軌跡', color: '#e3b341', type: 'trail',   on: true  },
+    { id: 'scan',    label: '雷射掃描', color: '#ff4d4d', type: 'scan',    on: true  },
     { id: 'robot',   label: '機器人',   color: '#3fb950', type: 'robot',   on: true  },
 ];
 
@@ -119,6 +120,7 @@ const mainEl  = document.querySelector('main');
 const imgCache = {};
 let robot  = { pos: null, path: [], resolution: 0.05 };
 let cov    = { state: 'idle', done: 0, total: 0, msg: '', path_px: [] };
+let scanPts = [];   // 雷射點（裁切後圖片像素座標），由 5 Hz 輪詢更新
 
 // 建立圖層按鈕
 document.getElementById('layers').append(
@@ -207,9 +209,21 @@ function draw() {
     const TL = LAYERS.find(l => l.id === 'trail');
     if (TL.on && robot.path.length > 1) drawTrail(robot.path, TL.color);
 
+    // 雷射掃描點
+    const SL = LAYERS.find(l => l.id === 'scan');
+    if (SL.on && scanPts.length) drawScan(scanPts, SL.color);
+
     // 機器人位置
     const RL = LAYERS.find(l => l.id === 'robot');
     if (RL.on && robot.pos) drawRobot(robot.pos.x, robot.pos.y, RL.color);
+}
+
+function drawScan(pts, color) {
+    ctx.save();
+    ctx.fillStyle = color;
+    ctx.globalAlpha = 0.9;
+    for (const [x, y] of pts) ctx.fillRect(x - 0.4, y - 0.4, 0.8, 0.8);
+    ctx.restore();
 }
 
 function drawCovPath(pts, color, done) {
@@ -339,6 +353,18 @@ async function refresh() {
 
 refresh();
 setInterval(refresh, 1000);
+
+// 雷射單獨高頻輪詢（~5 Hz）：地圖慢、雷射快，這樣才看得到掃描即時跳動
+async function refreshScan() {
+    const SL = LAYERS.find(l => l.id === 'scan');
+    if (!SL.on || !imgCache['orig']) return;
+    try {
+        const res = await fetch('/scan').then(r => r.json());
+        scanPts = res.points || [];
+        draw();
+    } catch {}
+}
+setInterval(refreshScan, 200);
 </script>
 </body>
 </html>
