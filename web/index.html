@@ -3,14 +3,26 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>TurtleBot3 地圖監控</title>
+<title>TurtleBot3 覆蓋路徑規劃控制台</title>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
+:root {
+    --bg:      #0d1117;
+    --panel:   #161b22;
+    --line:    #30363d;
+    --text:    #e6edf3;
+    --dim:     #8b949e;
+    --accent:  #58a6ff;
+    --ok:      #3fb950;
+    --warn:    #d29922;
+    --danger:  #f85149;
+}
+
 body {
-    font-family: 'Segoe UI', Arial, sans-serif;
-    background: #0d1117;
-    color: #e6edf3;
+    font-family: 'Segoe UI', 'Noto Sans TC', Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
     display: flex;
     flex-direction: column;
     height: 100vh;
@@ -19,157 +31,247 @@ body {
 
 /* ── 頂列 ── */
 header {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 10px;
-    padding: 7px 14px;
-    background: #161b22;
-    border-bottom: 1px solid #30363d;
+    display: flex; align-items: center; gap: 12px;
+    padding: 8px 14px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--line);
     flex-shrink: 0;
 }
-h1 { font-size: 0.88em; font-weight: 600; color: #58a6ff; white-space: nowrap; }
+h1 { font-size: 0.9em; font-weight: 600; color: var(--accent); white-space: nowrap; }
 
-/* 圖層按鈕 */
-.layers { display: flex; gap: 5px; flex-wrap: wrap; }
-.layer-btn {
-    display: flex; align-items: center; gap: 4px;
-    padding: 3px 9px;
-    border-radius: 20px; border: 1.5px solid currentColor;
-    background: transparent; color: inherit;
-    font-size: 0.73em; cursor: pointer; user-select: none;
-    transition: opacity 0.15s;
+.badge {
+    padding: 3px 10px; border-radius: 20px;
+    font-size: 0.72em; font-weight: 700; letter-spacing: 0.04em;
+    border: 1.5px solid currentColor;
 }
-.layer-btn .dot {
-    width: 7px; height: 7px; border-radius: 50%;
-    background: currentColor; flex-shrink: 0;
-}
-.layer-btn.off { opacity: 0.35; }
-.layer-btn.off .dot { background: transparent; border: 1.5px solid currentColor; }
+.badge.manual  { color: var(--ok); }
+.badge.running { color: var(--warn); }
+.badge.error   { color: var(--danger); }
 
-/* 覆蓋控制 */
-.cov {
-    display: flex; align-items: center; gap: 7px;
-    padding-left: 8px;
-    border-left: 1px solid #30363d;
-}
-.btn {
-    padding: 4px 12px; border-radius: 6px; border: none;
-    font-size: 0.76em; font-weight: 600; cursor: pointer;
-    transition: opacity 0.15s;
-}
-.btn:disabled { opacity: 0.35; cursor: default; }
-.btn-start { background: #238636; color: #fff; }
-.btn-stop  { background: #da3633; color: #fff; }
-#cov-info  { font-size: 0.71em; color: #8b949e; white-space: nowrap; }
+#clock { margin-left: auto; font-size: 0.7em; color: var(--dim); white-space: nowrap; }
 
-/* 右側資訊 */
-.info { margin-left: auto; font-size: 0.70em; color: #8b949e; white-space: nowrap; }
+/* ── 主體：地圖 + 側欄 ── */
+.body { flex: 1; display: flex; min-height: 0; }
 
-/* ── 地圖區 ── */
 main {
     flex: 1; display: flex;
     align-items: center; justify-content: center;
     overflow: hidden; padding: 10px; min-height: 0;
 }
 #canvas  { display: block; image-rendering: pixelated; }
-#waiting { color: #8b949e; }
+#waiting { color: var(--dim); font-size: 0.85em; }
+
+aside {
+    width: 250px; flex-shrink: 0;
+    background: var(--panel);
+    border-left: 1px solid var(--line);
+    overflow-y: auto;
+    display: flex; flex-direction: column; gap: 14px;
+    padding: 12px;
+}
+.sec-title {
+    font-size: 0.68em; font-weight: 700; color: var(--dim);
+    letter-spacing: 0.12em; text-transform: uppercase;
+    padding-bottom: 5px; border-bottom: 1px solid var(--line);
+}
+.sec { display: flex; flex-direction: column; gap: 8px; }
+
+/* 圖層按鈕 */
+.layers { display: flex; flex-direction: column; gap: 4px; }
+.layer-btn {
+    display: flex; align-items: center; gap: 7px;
+    padding: 4px 8px;
+    border-radius: 5px; border: 1px solid var(--line);
+    background: transparent; color: inherit;
+    font-size: 0.75em; cursor: pointer; user-select: none;
+    text-align: left; transition: background 0.12s;
+}
+.layer-btn:hover { background: #1f242c; }
+.layer-btn .dot {
+    width: 9px; height: 9px; border-radius: 2px;
+    background: var(--sw); flex-shrink: 0;
+}
+.layer-btn.off { opacity: 0.4; }
+.layer-btn.off .dot { background: transparent; box-shadow: inset 0 0 0 1.5px var(--sw); }
+
+/* 按鈕 */
+.btn {
+    padding: 7px 12px; border-radius: 6px; border: none;
+    font-size: 0.78em; font-weight: 600; cursor: pointer;
+    color: #fff; transition: filter 0.12s;
+}
+.btn:hover:not(:disabled) { filter: brightness(1.15); }
+.btn:disabled { opacity: 0.3; cursor: not-allowed; }
+.btn-start { background: #238636; }
+.btn-stop  { background: #da3633; }
+.btn-slam  { background: #1f6feb; }
+.btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* 遙控搖桿 */
+.pad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; }
+.pad button {
+    aspect-ratio: 1; border-radius: 6px;
+    border: 1px solid var(--line); background: #21262d; color: var(--text);
+    font-size: 1.05em; cursor: pointer; user-select: none;
+    display: flex; align-items: center; justify-content: center;
+    transition: background 0.1s;
+}
+.pad button:hover:not(:disabled) { background: #30363d; }
+.pad button:active:not(:disabled) { background: var(--accent); color: #04101f; }
+.pad button:disabled { opacity: 0.25; cursor: not-allowed; }
+.pad button.stop { color: var(--danger); font-size: 0.9em; }
+
+.speed { display: flex; align-items: center; gap: 7px; font-size: 0.72em; color: var(--dim); }
+.speed input { flex: 1; }
+
+.hint { font-size: 0.68em; color: var(--dim); line-height: 1.5; }
+.locked { color: var(--warn); }
+
+/* 規劃資訊 */
+table.info { width: 100%; border-collapse: collapse; font-size: 0.73em; }
+table.info td { padding: 3px 0; }
+table.info td:first-child { color: var(--dim); }
+table.info td:last-child  { text-align: right; font-variant-numeric: tabular-nums; }
+
+progress { width: 100%; height: 5px; }
+
+@media (max-width: 720px) {
+    .body { flex-direction: column; }
+    aside { width: 100%; border-left: none; border-top: 1px solid var(--line); max-height: 46vh; }
+}
 </style>
 </head>
 <body>
 
 <header>
-    <h1>TurtleBot3 即時地圖</h1>
-
-    <div class="layers" id="layers"></div>
-
-    <div class="cov">
-        <button id="btn-start" class="btn btn-start" onclick="covStart()">▶ 開始覆蓋</button>
-        <button id="btn-stop"  class="btn btn-stop"  onclick="covStop()" disabled>■ 停止</button>
-        <span id="cov-info">閒置</span>
-    </div>
-
-    <div class="info" id="info">等待資料...</div>
+    <h1>TurtleBot3 覆蓋路徑規劃</h1>
+    <span class="badge manual" id="mode-badge">手動模式</span>
+    <span id="clock">等待資料…</span>
 </header>
 
-<main>
-    <canvas id="canvas" style="display:none"></canvas>
-    <div id="waiting">等待地圖資料...</div>
-</main>
+<div class="body">
+    <main>
+        <canvas id="canvas" style="display:none"></canvas>
+        <div id="waiting">等待地圖資料…</div>
+    </main>
+
+    <aside>
+        <div class="sec">
+            <div class="sec-title">圖層</div>
+            <div class="layers" id="layers"></div>
+        </div>
+
+        <div class="sec">
+            <div class="sec-title">執行控制</div>
+            <button id="btn-start" class="btn btn-start">▶ 開始執行</button>
+            <button id="btn-stop"  class="btn btn-stop" disabled>■ 結束</button>
+            <progress id="prog" value="0" max="1"></progress>
+            <div class="hint" id="cov-info">閒置</div>
+        </div>
+
+        <div class="sec">
+            <div class="sec-title">手動操作</div>
+            <div class="pad" id="pad">
+                <button data-v="0.7"  data-w="0.6"  title="左前">↖</button>
+                <button data-v="1"    data-w="0"    title="前進 (W)">↑</button>
+                <button data-v="0.7"  data-w="-0.6" title="右前">↗</button>
+                <button data-v="0"    data-w="1"    title="左轉 (A)">←</button>
+                <button data-v="0"    data-w="0"    title="停止 (空白鍵)" class="stop">■</button>
+                <button data-v="0"    data-w="-1"   title="右轉 (D)">→</button>
+                <button data-v="-0.7" data-w="0.6"  title="左後">↙</button>
+                <button data-v="-1"   data-w="0"    title="後退 (S)">↓</button>
+                <button data-v="-0.7" data-w="-0.6" title="右後">↘</button>
+            </div>
+            <div class="speed">
+                <span>速度</span>
+                <input type="range" id="speed" min="20" max="100" value="60">
+                <span id="speed-val">60%</span>
+            </div>
+            <div class="hint" id="pad-hint">鍵盤 W / A / S / D，空白鍵停止</div>
+        </div>
+
+        <div class="sec">
+            <div class="sec-title">規劃資訊</div>
+            <table class="info" id="plan-info">
+                <tr><td>連通區間</td><td id="i-runs">—</td></tr>
+                <tr><td>臨界點</td><td id="i-crit">—</td></tr>
+                <tr><td>分解 cell</td><td id="i-cells">—</td></tr>
+                <tr><td>掃描主軸</td><td id="i-axis">—</td></tr>
+                <tr><td>λ1 / λ2</td><td id="i-ratio">—</td></tr>
+            </table>
+        </div>
+
+        <div class="sec">
+            <div class="sec-title">建圖</div>
+            <button id="btn-slam" class="btn btn-slam">⟳ 重啟 SLAM 重新建圖</button>
+            <div class="hint">會清空目前地圖與軌跡，重新開始建圖。<br>更動場地擺設後使用。</div>
+        </div>
+    </aside>
+</div>
 
 <script>
 // ════════════════════════════════════════════════════════
 //  圖層定義
 // ════════════════════════════════════════════════════════
 const LAYERS = [
-    { id: 'orig',    label: '原始地圖', color: '#c9d1d9', type: 'map',     url: '/map.png',         on: true  },
-    { id: 'eroded',  label: '侵蝕層',   color: '#58a6ff', type: 'map',     url: '/map_eroded.png',  on: true  },
-    { id: 'dilated', label: '膨脹層',   color: '#ff7b72', type: 'map',     url: '/map_dilated.png', on: true  },
-    { id: 'covpath', label: '覆蓋路徑', color: '#c084fc', type: 'covpath', on: true  },
-    { id: 'trail',   label: '行走軌跡', color: '#e3b341', type: 'trail',   on: true  },
-    { id: 'scan',    label: '雷射掃描', color: '#ff4d4d', type: 'scan',    on: true  },
-    { id: 'robot',   label: '機器人',   color: '#3fb950', type: 'robot',   on: true  },
+    { id: 'orig',    label: '原始地圖',       color: '#c9d1d9', type: 'map',   url: '/map.png',        on: true },
+    { id: 'margin',  label: '安全邊距（膨脹）', color: '#ff7b72', type: 'map',   url: '/map_margin.png', on: true },
+    { id: 'cells',   label: 'cell 分解',      color: '#7ee787', type: 'cells', on: true },
+    { id: 'covpath', label: '覆蓋路徑',       color: '#c084fc', type: 'path',  on: true },
+    { id: 'trail',   label: '行走軌跡',       color: '#e3b341', type: 'trail', on: true },
+    { id: 'robot',   label: '機器人',         color: '#3fb950', type: 'robot', on: true },
 ];
 
-// ════════════════════════════════════════════════════════
-//  初始化
-// ════════════════════════════════════════════════════════
-const canvas  = document.getElementById('canvas');
-const ctx     = canvas.getContext('2d');
-const mainEl  = document.querySelector('main');
+// cell 配色（依序輪用，讓相鄰 cell 明顯不同色）
+const CELL_COLORS = ['#7ee787', '#79c0ff', '#ffa657', '#d2a8ff',
+                     '#f778ba', '#56d4dd', '#e3b341', '#ff7b72'];
+
+const $ = id => document.getElementById(id);
+const canvas = $('canvas'), ctx = canvas.getContext('2d'), mainEl = document.querySelector('main');
 const imgCache = {};
-let robot  = { pos: null, path: [], resolution: 0.05 };
-let cov    = { state: 'idle', done: 0, total: 0, msg: '', path_px: [] };
-let scanPts = [];   // 雷射點（裁切後圖片像素座標），由 5 Hz 輪詢更新
 
-// 建立圖層按鈕
-document.getElementById('layers').append(
-    ...LAYERS.map(layer => {
-        const btn = document.createElement('button');
-        btn.className = 'layer-btn' + (layer.on ? '' : ' off');
-        btn.style.color = layer.color;
-        btn.innerHTML = `<span class="dot"></span>${layer.label}`;
-        btn.onclick = () => {
-            layer.on = !layer.on;
-            btn.classList.toggle('off', !layer.on);
-            draw();
-        };
-        return btn;
-    })
-);
+let robot = { pos: null, path: [], resolution: 0.05 };
+let cov   = { state: 'idle', done: 0, total: 0, msg: '', path_px: [], cells_px: [], info: {}, manual: true };
 
-// Canvas 自動適應視窗
+const layerOn = id => LAYERS.find(l => l.id === id).on;
+
+// ── 圖層按鈕 ──
+$('layers').append(...LAYERS.map(L => {
+    const b = document.createElement('button');
+    b.className = 'layer-btn' + (L.on ? '' : ' off');
+    b.style.setProperty('--sw', L.color);
+    b.innerHTML = `<span class="dot"></span>${L.label}`;
+    b.onclick = () => { L.on = !L.on; b.classList.toggle('off', !L.on); draw(); };
+    return b;
+}));
+
+// ════════════════════════════════════════════════════════
+//  繪製
+// ════════════════════════════════════════════════════════
 function fitCanvas() {
     if (!canvas.width) return;
-    const s = Math.min(
-        (mainEl.clientWidth  - 20) / canvas.width,
-        (mainEl.clientHeight - 20) / canvas.height
-    );
+    const s = Math.min((mainEl.clientWidth - 20) / canvas.width,
+                       (mainEl.clientHeight - 20) / canvas.height);
     canvas.style.width  = Math.round(canvas.width  * s) + 'px';
     canvas.style.height = Math.round(canvas.height * s) + 'px';
 }
 window.addEventListener('resize', fitCanvas);
 
-// ════════════════════════════════════════════════════════
-//  繪製
-// ════════════════════════════════════════════════════════
-function hexToRgb(hex) {
-    return [parseInt(hex.slice(1,3),16), parseInt(hex.slice(3,5),16), parseInt(hex.slice(5,7),16)];
-}
+const hexToRgb = h => [parseInt(h.slice(1,3),16), parseInt(h.slice(3,5),16), parseInt(h.slice(5,7),16)];
 
-// 把灰階地圖轉為彩色障礙物圖層（空地透明）
+/** 把灰階地圖轉成彩色障礙圖層（空地透明） */
 function colorize(img, hex) {
     const c = document.createElement('canvas');
     c.width = img.naturalWidth; c.height = img.naturalHeight;
     const cx = c.getContext('2d');
     cx.drawImage(img, 0, 0);
     const id = cx.getImageData(0, 0, c.width, c.height), d = id.data;
-    const [r,g,b] = hexToRgb(hex);
+    const [r, g, b] = hexToRgb(hex);
     for (let i = 0; i < d.length; i += 4) {
         const v = d[i];
-        if      (v < 80)  { d[i]=r; d[i+1]=g; d[i+2]=b; d[i+3]=220; }  // 障礙 → 著色
-        else if (v > 180) { d[i+3]=0; }                                   // 空地 → 透明
-        else              { d[i]=55; d[i+1]=55; d[i+2]=75; d[i+3]=40; }  // 未知 → 淡灰
+        if      (v < 80)  { d[i]=r; d[i+1]=g; d[i+2]=b; d[i+3]=200; }   // 障礙 → 著色
+        else if (v > 180) { d[i+3] = 0; }                                // 空地 → 透明
+        else              { d[i]=55; d[i+1]=55; d[i+2]=75; d[i+3]=40; } // 未知 → 淡灰
     }
     cx.putImageData(id, 0, 0);
     return c;
@@ -180,96 +282,109 @@ function draw() {
     if (!orig) return;
 
     const W = orig.naturalWidth, H = orig.naturalHeight;
-    if (canvas.width !== W || canvas.height !== H) {
-        canvas.width = W; canvas.height = H;
-        fitCanvas();
-    }
+    if (canvas.width !== W || canvas.height !== H) { canvas.width = W; canvas.height = H; fitCanvas(); }
 
     ctx.fillStyle = '#0d1117';
     ctx.fillRect(0, 0, W, H);
 
-    // 地圖圖層
     for (const L of LAYERS) {
         if (L.type !== 'map' || !L.on || !imgCache[L.id]) continue;
         if (L.id === 'orig') {
             ctx.globalAlpha = 1;
             ctx.drawImage(imgCache[L.id], 0, 0, W, H);
         } else {
-            ctx.globalAlpha = 0.85;
+            ctx.globalAlpha = 0.8;
             ctx.drawImage(colorize(imgCache[L.id], L.color), 0, 0, W, H);
             ctx.globalAlpha = 1;
         }
     }
 
-    // 覆蓋路徑
-    const CL = LAYERS.find(l => l.id === 'covpath');
-    if (CL.on && cov.path_px.length > 1) drawCovPath(cov.path_px, CL.color, cov.done);
-
-    // 行走軌跡
-    const TL = LAYERS.find(l => l.id === 'trail');
-    if (TL.on && robot.path.length > 1) drawTrail(robot.path, TL.color);
-
-    // 雷射掃描點
-    const SL = LAYERS.find(l => l.id === 'scan');
-    if (SL.on && scanPts.length) drawScan(scanPts, SL.color);
-
-    // 機器人位置
-    const RL = LAYERS.find(l => l.id === 'robot');
-    if (RL.on && robot.pos) drawRobot(robot.pos.x, robot.pos.y, RL.color);
+    if (layerOn('cells')   && cov.cells_px.length)  drawCells(cov.cells_px);
+    if (layerOn('covpath') && cov.path_px.length > 1)
+        drawCovPath(cov.path_px, LAYERS.find(l => l.id === 'covpath').color, cov.done);
+    if (layerOn('trail')   && robot.path.length > 1)
+        drawTrail(robot.path, LAYERS.find(l => l.id === 'trail').color);
+    if (layerOn('robot')   && robot.pos)
+        drawRobot(robot.pos.x, robot.pos.y, LAYERS.find(l => l.id === 'robot').color);
 }
 
-function drawScan(pts, color) {
+/** cell 分解：每個 cell 一種顏色，粗線＝掃描線，細線＝cell 內換行，字母＝走訪順序 */
+function drawCells(cells) {
     ctx.save();
-    ctx.fillStyle = color;
-    ctx.globalAlpha = 0.9;
-    for (const [x, y] of pts) ctx.fillRect(x - 0.4, y - 0.4, 0.8, 0.8);
+    cells.forEach((wps, ci) => {
+        const color = CELL_COLORS[ci % CELL_COLORS.length];
+
+        // cell 內換行接駁（細虛線）
+        ctx.strokeStyle = color; ctx.globalAlpha = 0.35;
+        ctx.lineWidth = 1; ctx.setLineDash([2, 3]);
+        for (let i = 1; i + 1 < wps.length; i += 2) {
+            ctx.beginPath();
+            ctx.moveTo(wps[i][0], wps[i][1]);
+            ctx.lineTo(wps[i+1][0], wps[i+1][1]);
+            ctx.stroke();
+        }
+
+        // 掃描線本身（粗實線）
+        ctx.setLineDash([]); ctx.globalAlpha = 0.9;
+        ctx.lineWidth = 2.4; ctx.lineCap = 'round';
+        for (let i = 0; i + 1 < wps.length; i += 2) {
+            ctx.beginPath();
+            ctx.moveTo(wps[i][0], wps[i][1]);
+            ctx.lineTo(wps[i+1][0], wps[i+1][1]);
+            ctx.stroke();
+        }
+
+        // 走訪順序標籤（放在該 cell 的重心）
+        const cx = wps.reduce((s, p) => s + p[0], 0) / wps.length;
+        const cy = wps.reduce((s, p) => s + p[1], 0) / wps.length;
+        ctx.globalAlpha = 1;
+        ctx.font = 'bold 7px sans-serif';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.lineWidth = 2.5; ctx.strokeStyle = '#0d1117';
+        ctx.strokeText(String.fromCharCode(65 + ci), cx, cy);
+        ctx.fillStyle = color;
+        ctx.fillText(String.fromCharCode(65 + ci), cx, cy);
+    });
     ctx.restore();
 }
 
 function drawCovPath(pts, color, done) {
     ctx.save();
-    // 已走部分：實線
-    if (done > 1) {
-        ctx.strokeStyle = color; ctx.globalAlpha = 0.9;
-        ctx.lineWidth = 2; ctx.setLineDash([]);
-        ctx.beginPath();
-        ctx.moveTo(pts[0][0], pts[0][1]);
-        for (let i = 1; i < Math.min(done, pts.length); i++)
-            ctx.lineTo(pts[i][0], pts[i][1]);
+    if (done > 1) {                                   // 已走：實線
+        ctx.strokeStyle = color; ctx.globalAlpha = 0.85;
+        ctx.lineWidth = 1.8; ctx.setLineDash([]);
+        ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]);
+        for (let i = 1; i < Math.min(done, pts.length); i++) ctx.lineTo(pts[i][0], pts[i][1]);
         ctx.stroke();
     }
-    // 待走部分：虛線
-    const from = Math.max(0, done - 1);
-    ctx.strokeStyle = color; ctx.globalAlpha = 0.3;
-    ctx.lineWidth = 1.5; ctx.setLineDash([4, 5]);
-    ctx.beginPath();
-    ctx.moveTo(pts[from][0], pts[from][1]);
-    for (let i = from + 1; i < pts.length; i++)
-        ctx.lineTo(pts[i][0], pts[i][1]);
+    const from = Math.max(0, done - 1);               // 待走：虛線
+    ctx.strokeStyle = color; ctx.globalAlpha = 0.25;
+    ctx.lineWidth = 1.2; ctx.setLineDash([4, 5]);
+    ctx.beginPath(); ctx.moveTo(pts[from][0], pts[from][1]);
+    for (let i = from + 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
     ctx.stroke();
     ctx.setLineDash([]); ctx.restore();
 }
 
 function drawTrail(path, color) {
     const FADE = 300, n = path.length, f = Math.max(0, n - FADE);
-    // 舊軌跡：整段淡色
+    ctx.save(); ctx.lineJoin = 'round';
     if (f > 1) {
         ctx.beginPath(); ctx.strokeStyle = color;
-        ctx.globalAlpha = 0.2; ctx.lineWidth = 1.5; ctx.lineJoin = 'round';
+        ctx.globalAlpha = 0.22; ctx.lineWidth = 1.5;
         ctx.moveTo(path[0][0], path[0][1]);
         for (let i = 1; i <= f; i++) ctx.lineTo(path[i][0], path[i][1]);
         ctx.stroke();
     }
-    // 近期：逐段漸亮
     for (let i = Math.max(f, 1); i < n; i++) {
         ctx.beginPath(); ctx.strokeStyle = color;
-        ctx.globalAlpha = 0.2 + 0.8 * ((i - f) / Math.max(FADE, 1));
+        ctx.globalAlpha = 0.22 + 0.78 * ((i - f) / Math.max(FADE, 1));
         ctx.lineWidth = 2;
         ctx.moveTo(path[i-1][0], path[i-1][1]);
         ctx.lineTo(path[i][0],   path[i][1]);
         ctx.stroke();
     }
-    ctx.globalAlpha = 1;
+    ctx.restore();
 }
 
 function drawRobot(px, py, color) {
@@ -282,37 +397,154 @@ function drawRobot(px, py, color) {
 }
 
 // ════════════════════════════════════════════════════════
-//  覆蓋控制
+//  執行控制
 // ════════════════════════════════════════════════════════
-async function covStart() {
-    document.getElementById('btn-start').disabled = true;
-    const res  = await fetch('/coverage/start', { method: 'POST' });
-    const data = await res.json();
-    if (!data.ok) {
-        alert('無法開始：' + data.msg);
-        document.getElementById('btn-start').disabled = false;
-    }
+$('btn-start').onclick = async () => {
+    $('btn-start').disabled = true;
+    try {
+        const d = await (await fetch('/coverage/start', { method: 'POST' })).json();
+        if (!d.ok) { alert('無法開始：' + d.msg); $('btn-start').disabled = false; }
+    } catch (e) { alert('連線失敗：' + e); $('btn-start').disabled = false; }
+};
+
+$('btn-stop').onclick = async () => {
+    teleopRelease();
+    try { await fetch('/coverage/stop', { method: 'POST' }); } catch {}
+};
+
+$('btn-slam').onclick = async () => {
+    if (!confirm('重啟 SLAM 會清空目前的地圖、軌跡與規劃結果，確定要重新建圖嗎？')) return;
+    $('btn-slam').disabled = true;
+    try {
+        const d = await (await fetch('/slam/restart', { method: 'POST' })).json();
+        if (!d.ok) alert('重啟失敗：' + d.msg);
+        else {
+            for (const k in imgCache) delete imgCache[k];
+            canvas.style.display = 'none';
+            $('waiting').style.display = '';
+            $('waiting').textContent = 'SLAM 重啟中，等待新地圖…';
+        }
+    } catch (e) { alert('連線失敗：' + e); }
+    setTimeout(() => { $('btn-slam').disabled = false; }, 3000);
+};
+
+// ════════════════════════════════════════════════════════
+//  手動遙控（與覆蓋執行互斥，由 cov.manual 控制）
+// ════════════════════════════════════════════════════════
+let holdTimer = null, holdCmd = null;
+const speedScale = () => $('speed').value / 100;
+
+$('speed').oninput = () => { $('speed-val').textContent = $('speed').value + '%'; };
+
+async function teleopSend(v, w) {
+    try {
+        await fetch('/teleop', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ v, w }),
+        });
+    } catch {}
 }
 
-async function covStop() {
-    await fetch('/coverage/stop', { method: 'POST' });
+function teleopHold(v, w) {
+    if (!cov.manual) return;
+    holdCmd = [v, w];
+    const push = () => { const s = speedScale(); teleopSend(holdCmd[0] * s, holdCmd[1] * s); };
+    push();
+    clearInterval(holdTimer);
+    holdTimer = setInterval(push, 150);          // 續傳，後端 0.6 秒沒收到就自動停車
 }
 
-function updateCovUI() {
-    const labels = {
-        idle:    '閒置',
-        running: `執行中 ${cov.done} / ${cov.total}`,
-        stopped: '已停止',
-        done:    '完成 ✓',
-        error:   '錯誤：' + cov.msg,
-    };
-    document.getElementById('cov-info').textContent = labels[cov.state] ?? cov.state;
-    document.getElementById('btn-start').disabled = (cov.state === 'running');
-    document.getElementById('btn-stop').disabled  = (cov.state !== 'running');
+function teleopRelease() {
+    clearInterval(holdTimer); holdTimer = null; holdCmd = null;
+    teleopSend(0, 0);
+}
+
+for (const b of $('pad').children) {
+    const v = parseFloat(b.dataset.v), w = parseFloat(b.dataset.w);
+    b.addEventListener('pointerdown', e => {
+        e.preventDefault();
+        (v === 0 && w === 0) ? teleopRelease() : teleopHold(v, w);
+    });
+    b.addEventListener('pointerup',     teleopRelease);
+    b.addEventListener('pointerleave',  teleopRelease);
+    b.addEventListener('pointercancel', teleopRelease);
+}
+
+const KEYS = {
+    w: [1, 0], arrowup:    [1, 0],
+    s: [-1, 0], arrowdown: [-1, 0],
+    a: [0, 1], arrowleft:  [0, 1],
+    d: [0, -1], arrowright:[0, -1],
+};
+let heldKey = null;
+addEventListener('keydown', e => {
+    if (e.target.tagName === 'INPUT') return;
+    const k = e.key.toLowerCase();
+    if (k === ' ') { e.preventDefault(); teleopRelease(); return; }
+    if (!KEYS[k] || !cov.manual || heldKey === k) return;
+    e.preventDefault();
+    heldKey = k;
+    teleopHold(...KEYS[k]);
+});
+addEventListener('keyup', e => {
+    const k = e.key.toLowerCase();
+    if (k === heldKey) { heldKey = null; teleopRelease(); }
+});
+addEventListener('blur', () => { heldKey = null; teleopRelease(); });
+
+// ════════════════════════════════════════════════════════
+//  UI 更新
+// ════════════════════════════════════════════════════════
+const STATE_LABEL = {
+    idle:    ['手動模式', 'manual'],
+    running: ['覆蓋執行中', 'running'],
+    stopped: ['已結束（手動模式）', 'manual'],
+    done:    ['覆蓋完成（手動模式）', 'manual'],
+    error:   ['錯誤', 'error'],
+};
+
+let wasManual = true;
+
+function updateUI() {
+    const [label, cls] = STATE_LABEL[cov.state] ?? [cov.state, 'manual'];
+    const badge = $('mode-badge');
+    badge.textContent = label;
+    badge.className = 'badge ' + cls;
+
+    $('btn-start').disabled = !cov.manual;
+    $('btn-stop').disabled  = cov.manual;
+    // btn-slam 的 disabled 由它自己的點擊處理器管理，這裡不要覆蓋
+
+    // 手動操作面板：執行中鎖住
+    for (const b of $('pad').children) b.disabled = !cov.manual;
+    $('speed').disabled = !cov.manual;
+    $('pad-hint').className = 'hint' + (cov.manual ? '' : ' locked');
+    $('pad-hint').textContent = cov.manual
+        ? '鍵盤 W / A / S / D，空白鍵停止'
+        : '覆蓋執行中，手動操作已鎖定；按「結束」可解鎖';
+
+    // 剛從手動被鎖住 → 確保沒有殘留的續傳
+    if (wasManual && !cov.manual) teleopRelease();
+    wasManual = cov.manual;
+
+    const txt = { idle: '閒置', running: `執行中　路點 ${cov.done} / ${cov.total}`,
+                  stopped: '已停止', done: `完成 ✓　共 ${cov.total} 個路點`,
+                  error: '錯誤：' + cov.msg }[cov.state] ?? cov.state;
+    $('cov-info').textContent = cov.msg && cov.state === 'running' ? txt + '　' + cov.msg : txt;
+    $('prog').max   = Math.max(1, cov.total);
+    $('prog').value = cov.done;
+
+    const I = cov.info || {};
+    $('i-runs').textContent  = I.n_runs     ?? '—';
+    $('i-crit').textContent  = I.n_critical ?? '—';
+    $('i-cells').textContent = I.n_cells    ?? '—';
+    $('i-axis').textContent  = I.axis_deg !== undefined ? I.axis_deg + '°' : '—';
+    $('i-ratio').textContent = I.ratio      ?? '—';
 }
 
 // ════════════════════════════════════════════════════════
-//  資料輪詢（每秒）
+//  資料輪詢
 // ════════════════════════════════════════════════════════
 function loadImg(url) {
     return new Promise((ok, fail) => {
@@ -323,9 +555,9 @@ function loadImg(url) {
 }
 
 async function refresh() {
-    // 平行載入地圖圖片 + 機器人狀態 + 覆蓋狀態
     const [, robotRes, covRes] = await Promise.allSettled([
-        Promise.all(LAYERS.filter(l => l.type === 'map').map(async L => {
+        // orig 一律載入：canvas 的尺寸靠它決定，關掉圖層也還是要有
+        Promise.all(LAYERS.filter(l => l.type === 'map' && (l.on || l.id === 'orig')).map(async L => {
             try { imgCache[L.id] = await loadImg(L.url); } catch {}
         })),
         fetch('/robot_state').then(r => r.json()),
@@ -335,36 +567,21 @@ async function refresh() {
     if (robotRes.status === 'fulfilled') robot = robotRes.value;
     if (covRes.status   === 'fulfilled') cov   = covRes.value;
 
-    // 首次拿到地圖後顯示 canvas
     if (imgCache['orig']) {
         canvas.style.display = '';
-        document.getElementById('waiting').style.display = 'none';
+        $('waiting').style.display = 'none';
     }
 
-    updateCovUI();
+    updateUI();
     draw();
 
-    const p    = robot.pos;
-    const time = new Date().toLocaleTimeString('zh-TW');
-    document.getElementById('info').textContent = p
-        ? `${time}  (${p.wx}, ${p.wy}) m`
-        : `${time}  等待機器人`;
+    const p = robot.pos;
+    const t = new Date().toLocaleTimeString('zh-TW');
+    $('clock').textContent = p ? `${t}　(${p.wx}, ${p.wy}) m` : `${t}　等待機器人`;
 }
 
 refresh();
 setInterval(refresh, 1000);
-
-// 雷射單獨高頻輪詢（~5 Hz）：地圖慢、雷射快，這樣才看得到掃描即時跳動
-async function refreshScan() {
-    const SL = LAYERS.find(l => l.id === 'scan');
-    if (!SL.on || !imgCache['orig']) return;
-    try {
-        const res = await fetch('/scan').then(r => r.json());
-        scanPts = res.points || [];
-        draw();
-    } catch {}
-}
-setInterval(refreshScan, 200);
 </script>
 </body>
 </html>
