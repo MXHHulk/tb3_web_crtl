@@ -11,11 +11,18 @@
     <!-- 1. 硬體驅動 -->
     <include file="$(find turtlebot3_bringup)/launch/turtlebot3_robot.launch" />
 
-    <!-- 2. SLAM 建圖（gmapping 同時發布 /map 與 map→odom TF，供 move_base 定位用）-->
-    <include file="$(find turtlebot3_slam)/launch/turtlebot3_slam.launch">
-        <arg name="slam_methods" value="gmapping" />
-        <arg name="open_rviz"    value="false"    />
-    </include>
+    <!-- 2. SLAM 建圖（gmapping 同時發布 /map 與 map→odom TF，供 move_base 定位用）
+
+         注意：SLAM 不在這裡啟動，改由 map_server 以子行程管理（見下方第 4 節）。
+         這樣網頁上的「重啟 SLAM」才能收掉舊的 gmapping、重新開一個乾淨的地圖，
+         不必整包 roslaunch 重跑。若要改回由本檔啟動，把下面 map_server 的
+         manage_slam 設為 false，並取消這段註解：
+
+         <include file="$(find turtlebot3_slam)/launch/turtlebot3_slam.launch">
+             <arg name="slam_methods" value="gmapping" />
+             <arg name="open_rviz"    value="false"    />
+         </include>
+    -->
 
     <!-- 3. move_base 導航規劃
          直接沿用 turtlebot3_navigation 的 param 檔，不需額外設定。
@@ -47,9 +54,13 @@
                   command="load" />
     </node>
 
-    <!-- 4. Flask 地圖網頁伺服器 + 覆蓋路徑執行 -->
+    <!-- 4. Flask 地圖網頁伺服器 + 覆蓋路徑執行 + SLAM 生命週期管理
+         manage_slam=true 時，本節點會自己啟動 turtlebot3_slam.launch，
+         並提供 /slam/restart 讓網頁能重新建圖。 -->
     <node pkg="turtlebot3_ccpp" type="map_server.py" name="map_server" output="screen">
-        <param name="port" value="$(arg port)" />
+        <param name="port"         value="$(arg port)" />
+        <param name="manage_slam"  value="true"        />
+        <param name="slam_methods" value="gmapping"    />
     </node>
 
     <!-- 註：test/ 底下皆為測量／檢視工具，非專案執行路徑，不掛在此 launch。
