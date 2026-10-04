@@ -52,6 +52,24 @@
         <!-- DWA 局部路徑規劃器參數（速度、加速度上限）-->
         <rosparam file="$(find turtlebot3_navigation)/param/dwa_local_planner_params_$(arg model).yaml"
                   command="load" />
+
+        <!-- 覆蓋執行的容錯覆寫（必須放在上面的 rosparam 之後才會蓋掉官方值）
+             路點離牆僅 MARGIN = 0.10 m ≈ 車身半寬，定位誤差幾公分就會讓車身壓到
+             costmap 障礙區；以下放寬讓 move_base 不要一碰到就卡住。
+             不縮 footprint / inflation：那等於允許真的撞牆。 -->
+        <!-- 路點落在障礙區內時，改規劃到 0.1 m 內最近的可達點，而不是直接失敗 -->
+        <param name="NavfnROS/default_tolerance"      value="0.1" />
+        <!-- 到達判定放寬（官方 0.05），減少貼牆時的來回微調 -->
+        <param name="DWAPlannerROS/xy_goal_tolerance" value="0.10" />
+        <!-- 找不到可行軌跡／路線時早點放棄（官方約 15 / 5 秒） -->
+        <param name="controller_patience"             value="5.0" />
+        <param name="planner_patience"                value="2.0" />
+        <!-- 讓全域路線貼著掃描線走：官方膨脹 1.0 m 在小場地幾乎鋪滿整片，
+             navfn 為了避開高成本，會把貼牆的掃描線繞到場地中間去走。
+             縮到 0.25 m（略大於車身外接圓）後離牆 0.25 m 外成本為 0，路線就會是直的。
+             寫在舊參數位置即可，costmap 啟動時會自動搬進 inflation_layer。
+             只改全域：局部 costmap（DWA 避障）維持官方值。 -->
+        <param name="global_costmap/inflation_radius" value="0.25" />
     </node>
 
     <!-- 4. Flask 地圖網頁伺服器 + 覆蓋路徑執行 + SLAM 生命週期管理

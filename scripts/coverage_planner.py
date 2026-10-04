@@ -14,6 +14,12 @@ from scipy.ndimage import binary_dilation
 
 SPACING = 0.18   # 掃描線間距（公尺）；覆蓋寬度 ≈ 0.20 m，留 10% 重疊
 MARGIN  = 0.10   # 障礙物安全邊距（公尺） ≈ 機器人半徑（直徑 0.20 m）
+END_TRIM = 0.09  # 掃描線兩端各內縮（公尺）。端點離障礙 ≈ MARGIN + END_TRIM ≈ 0.19 m，
+                 # 大於 Burger 外接圓半徑（0.11~0.15 m），車子在線尾才轉得了身；
+                 # 只靠 MARGIN 時端點離牆僅 0.10~0.125 m，原地轉向會掃到牆而卡死。
+                 # 與側向一致：第一條掃描線本來就離可走區邊界 SPACING / 2。
+VIA_STEP = 0.25  # 掃描線上中途點的最大間距（公尺）。只給頭尾兩點時 navfn 會依 costmap
+                 # 成本自己找路，長線常被拉彎；每隔一小段給一個點，路線就被釘在掃描線上。
 
 
 def apply_safety_margin(data, margin, resolution):
@@ -69,7 +75,7 @@ def _true_runs(flags):
 
 
 def _slice_runs(free, res, ox, oy, center, axis_a, axis_b,
-                a_range, b_centers, min_len):
+                a_range, b_centers, min_len, end_trim=0.0):
     """
     對每條掃描帶的中心線取樣，切出「連續可走區間」（run）。
 
@@ -79,6 +85,8 @@ def _slice_runs(free, res, ox, oy, center, axis_a, axis_b,
 
     輸出 runs：[{'band': 帶序號, 'a0': 起點沿長軸座標, 'a1': 終點沿長軸座標,
                  'p0': 起點世界座標, 'p1': 終點世界座標}, ...]
+    a0/a1 是區間的真實範圍，供 _link_runs 判斷連通；p0/p1 是實際要走的端點，
+    兩端各內縮 end_trim（區間太短時縮成中點），讓車子在線尾有空間轉身。
     """
     H, W = free.shape
     # 取樣步長取 1/8 格（≈6 mm）。步長接近一格時，斜向掃描線會從障礙格的角落
@@ -101,11 +109,13 @@ def _slice_runs(free, res, ox, oy, center, axis_a, axis_b,
         ok[inb] = free[r[inb], c[inb]]
 
         for i0, i1 in _true_runs(ok):
-            if a_s[i1] - a_s[i0] < min_len:       # 太短的碎片不值得跑一趟
+            a0, a1 = a_s[i0], a_s[i1]
+            if a1 - a0 < min_len:                 # 太短的碎片不值得跑一趟
                 continue
-            runs.append({'band': k, 'a0': a_s[i0], 'a1': a_s[i1],
-                         'p0': center + a_s[i0] * axis_a + b * axis_b,
-                         'p1': center + a_s[i1] * axis_a + b * axis_b})
+            t = min(end_trim, (a1 - a0) / 2)
+            runs.append({'band': k, 'a0': a0, 'a1': a1,
+                         'p0': center + (a0 + t) * axis_a + b * axis_b,
+                         'p1': center + (a1 - t) * axis_a + b * axis_b})
     return runs
 
 
@@ -167,25 +177,37 @@ def _build_cells(runs, succ, pred):
     return cells, critical
 
 
-def _cell_waypoints(chain, runs, reverse, flip):
+def _densify(p0, p1, step=VIA_STEP):
+    """p0→p1 線段等分成每段不超過 step，回傳含頭尾的點列。"""
+    p0, p1 = np.asarray(p0, dtype=float), np.asarray(p1, dtype=float)
+    k = max(1, int(np.ceil(np.hypot(*(p1 - p0)) / step)))
+    return [(float(x), float(y)) for x, y in p0 + np.outer(np.arange(k + 1) / k, p1 - p0)]
+
+
+def _cell_waypoints(chain, runs, reverse, flip, via_step=VIA_STEP):
     """
-    產生單一 cell 的蛇行路點。
+    產生單一 cell 的蛇行路點，回傳 (路點, 中途旗標)。
 
     reverse : 帶的走訪方向反過來（從最後一條帶往回掃）
     flip    : 第一條掃描線從哪一側開始
     交替旗標每產生一條線就翻轉，確保是蛇行而不是每條都從同一側重新開始。
+    每條掃描線依 VIA_STEP 補上中途點；中途旗標為 True 的點只是引導路線用，
+    執行端經過即可、不必停下來對準方向（線頭、線尾為 False）。
     """
     order = chain[::-1] if reverse else chain
-    wps, l2r = [], not flip
+    wps, via, l2r = [], [], not flip
     for i in order:
         r = runs[i]
         p0, p1 = (r['p0'], r['p1']) if l2r else (r['p1'], r['p0'])
-        wps += [(float(p0[0]), float(p0[1])), (float(p1[0]), float(p1[1]))]
+        line = _densify(p0, p1, via_step)
+        wps += line
+        via += [False] + [True] * (len(line) - 2) + [False]
         l2r = not l2r
-    return wps
+    return wps, via
 
 
-def plan(free, res, ox, oy, spacing=SPACING, start=None):
+def plan(free, res, ox, oy, spacing=SPACING, start=None, end_trim=END_TRIM,
+         via_step=VIA_STEP):
     """
     完整的覆蓋路徑規劃，回傳含診斷資訊的 dict。
 
@@ -195,14 +217,17 @@ def plan(free, res, ox, oy, spacing=SPACING, start=None):
       ox, oy  : 地圖原點世界座標（公尺）
       spacing : 掃描線間距（公尺）
       start   : (x, y) 機器人起點世界座標；None 則從短軸投影最小的一端開始
+      end_trim: 掃描線兩端各內縮的距離（公尺），見 END_TRIM
+      via_step: 掃描線中途點最大間距（公尺），見 VIA_STEP；inf = 只給頭尾
     輸出 dict
-      waypoints : [(x, y), ...] 依序走訪的路點
+      waypoints : [(x, y), ...] 依序走訪的路點（掃描線已依 VIA_STEP 補上中途點）
+      via       : [bool, ...] 與 waypoints 等長；True = 掃描線上的中途點
       cells     : [[(x, y), ...], ...] 各 cell 的路點，已依走訪順序排列
       axes      : (重心, 長軸, 短軸, 特徵值)
       n_runs    : 連續可走區間總數
       critical  : 臨界點清單 [(run 序號, 'split'/'merge'), ...]
     """
-    empty = {'waypoints': [], 'cells': [], 'axes': None,
+    empty = {'waypoints': [], 'via': [], 'cells': [], 'axes': None,
              'n_runs': 0, 'critical': []}
 
     rows, cols = np.where(free)
@@ -224,7 +249,8 @@ def plan(free, res, ox, oy, spacing=SPACING, start=None):
     b_centers = b_min + spacing / 2 + spacing * np.arange(max(1, n_bands))
 
     runs = _slice_runs(free, res, ox, oy, center, axis_a, axis_b,
-                       (proj_a.min(), proj_a.max()), b_centers, min_len=res)
+                       (proj_a.min(), proj_a.max()), b_centers, min_len=res,
+                       end_trim=end_trim)
     if not runs:
         return empty
 
@@ -236,23 +262,25 @@ def plan(free, res, ox, oy, spacing=SPACING, start=None):
     cur = (np.asarray(start, dtype=float) if start is not None
            else pts[np.lexsort((proj_a, proj_b))[0]])
 
-    remaining, ordered, waypoints = set(range(len(cells))), [], []
+    remaining, ordered, waypoints, via = set(range(len(cells))), [], [], []
     while remaining:
         best, best_d = None, None
         for ci in remaining:
             for reverse in (False, True):
                 for flip in (False, True):
-                    wps = _cell_waypoints(cells[ci], runs, reverse, flip)
+                    wps, vf = _cell_waypoints(cells[ci], runs, reverse, flip, via_step)
                     d = float(np.hypot(*(np.asarray(wps[0]) - cur)))
                     if best_d is None or d < best_d:
-                        best, best_d = (ci, wps), d
-        ci, wps = best
+                        best, best_d = (ci, wps, vf), d
+        ci, wps, vf = best
         remaining.discard(ci)
         ordered.append(wps)
         waypoints += wps
+        via       += vf
         cur = np.asarray(wps[-1], dtype=float)
 
     return {'waypoints': waypoints,
+            'via':       via,
             'cells': ordered,
             'axes': (center, axis_a, axis_b, eigvals),
             'n_runs': len(runs),

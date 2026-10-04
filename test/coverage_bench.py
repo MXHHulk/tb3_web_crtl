@@ -171,7 +171,7 @@ def evaluate(name):
     safe = apply_safety_margin(data, MARGIN, RES)
     free = (data == 0) & ~safe
 
-    r = plan(free, RES, ox, oy)
+    r = plan(free, RES, ox, oy, via_step=math.inf)   # 不補中途點，路點才是「掃描線、銜接線」兩兩交替
     wps = r['waypoints']
     if not wps:
         return dict(name=name, ok=False)
