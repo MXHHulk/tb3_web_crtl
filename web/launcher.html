@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#0d1117">
+<title>TB3 車上控制台</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+    --bg: #0d1117; --panel: #161b22; --panel2: #1c2230; --line: #30363d;
+    --text: #e6edf3; --dim: #8b949e; --accent: #58a6ff;
+    --ok: #3fb950; --warn: #d29922; --danger: #f85149;
+}
+html { -webkit-text-size-adjust: 100%; }
+body {
+    font-family: -apple-system, 'Segoe UI', 'Noto Sans TC', 'PingFang TC', Arial, sans-serif;
+    background: var(--bg); color: var(--text);
+    padding: 12px 16px calc(24px + env(safe-area-inset-bottom));
+    max-width: 720px; margin: 0 auto; line-height: 1.45;
+}
+header { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin: 4px 0 12px; }
+h1 { font-size: 1.15em; color: var(--accent); }
+.host { color: var(--dim); font-size: .85em; font-variant-numeric: tabular-nums; text-align: right; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px; margin-bottom: 12px; }
+.card h2 { font-size: .8em; color: var(--dim); font-weight: 600; letter-spacing: .04em; margin-bottom: 10px; }
+.row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 999px;
+        font-weight: 700; font-size: .95em; background: var(--panel2); border: 1px solid var(--line); }
+.pill::before { content: ''; width: 9px; height: 9px; border-radius: 50%; background: currentColor; }
+.s-idle { color: var(--dim); } .s-running { color: var(--ok); } .s-stopping { color: var(--warn); }
+.s-exited { color: var(--danger); } .s-external { color: var(--accent); } .s-offline { color: var(--danger); }
+.meta { color: var(--dim); font-size: .85em; }
+.msg { margin-top: 8px; font-size: .9em; min-height: 1.3em; }
+.btns { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
+button, .btn {
+    appearance: none; border: 1px solid var(--line); background: var(--panel2); color: var(--text);
+    font: inherit; font-weight: 700; font-size: 1em; border-radius: 10px; min-height: 50px;
+    padding: 0 12px; cursor: pointer; text-decoration: none; display: flex; align-items: center; justify-content: center;
+}
+button:disabled, .btn.off { opacity: .4; pointer-events: none; }
+.go   { background: #1f6f3a; border-color: #2ea043; }
+.stop { background: #7a2425; border-color: var(--danger); }
+.open { grid-column: 1 / -1; background: #163a63; border-color: var(--accent); }
+select { font: inherit; color: var(--text); background: var(--panel2); border: 1px solid var(--line);
+         border-radius: 8px; padding: 6px 8px; }
+.grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+@media (min-width: 520px) { .grid { grid-template-columns: repeat(3, 1fr); } }
+.stat { background: var(--panel2); border-radius: 8px; padding: 8px 10px; min-width: 0; }
+.stat .k { color: var(--dim); font-size: .75em; }
+.stat .v { font-size: 1.15em; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.v.warn { color: var(--warn); } .v.bad { color: var(--danger); } .v.good { color: var(--ok); }
+.bar { height: 10px; background: var(--panel2); border-radius: 5px; overflow: hidden; margin: 8px 0 4px; }
+.bar > i { display: block; height: 100%; width: 0; background: var(--ok); transition: width .4s; }
+details summary { cursor: pointer; color: var(--dim); font-size: .85em; font-weight: 600; list-style: none; }
+details summary::-webkit-details-marker { display: none; }
+details summary::before { content: '▸ '; } details[open] summary::before { content: '▾ '; }
+.nodes { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px; }
+.nodes span { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .8em; background: var(--panel2);
+              padding: 2px 8px; border-radius: 6px; }
+pre { margin-top: 8px; background: #010409; border: 1px solid var(--line); border-radius: 8px; padding: 8px;
+      height: 280px; overflow: auto; font: .72em/1.4 ui-monospace, Menlo, Consolas, monospace;
+      white-space: pre-wrap; word-break: break-all; color: #c9d1d9; }
+.power { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.power button { min-height: 44px; font-size: .9em; color: var(--dim); }
+.empty { color: var(--dim); font-size: .85em; }
+</style>
+</head>
+<body>
+
+<header>
+    <h1>TB3 車上控制台</h1>
+    <div class="host" id="host">連線中…</div>
+</header>
+
+<section class="card">
+    <h2>專案狀態</h2>
+    <div class="row">
+        <span class="pill s-offline" id="state">未連線</span>
+        <span class="meta" id="runmeta"></span>
+    </div>
+    <div class="msg" id="msg"></div>
+    <div class="btns">
+        <button class="go" id="btnStart" disabled>▶ 啟動</button>
+        <button class="stop" id="btnStop" disabled>■ 停止</button>
+        <a class="btn open off" id="btnOpen" target="_blank" rel="noopener">開啟地圖／覆蓋控制頁</a>
+    </div>
+    <div class="row" style="margin-top:10px">
+        <label class="meta" for="model">型號</label>
+        <select id="model"></select>
+        <span class="meta" id="webstate"></span>
+    </div>
+</section>
+
+<section class="card">
+    <h2>覆蓋任務</h2>
+    <div id="covEmpty" class="empty">專案啟動、地圖頁就緒後才會顯示。</div>
+    <div id="cov" hidden>
+        <div class="row"><b id="covState">—</b><span class="meta" id="covTask"></span></div>
+        <div class="bar"><i id="covBar"></i></div>
+        <div class="meta" id="covMsg"></div>
+        <div class="grid" style="margin-top:10px">
+            <div class="stat"><div class="k">路點進度</div><div class="v" id="covDone">—</div></div>
+            <div class="stat"><div class="k">任務完成率</div><div class="v" id="covComp">—</div></div>
+            <div class="stat"><div class="k">實際覆蓋率</div><div class="v" id="covAct">—</div></div>
+            <div class="stat"><div class="k">規劃覆蓋率</div><div class="v" id="covPlan">—</div></div>
+            <div class="stat"><div class="k">跳過路點</div><div class="v" id="covSkip">—</div></div>
+            <div class="stat"><div class="k">執行時間</div><div class="v" id="covTime">—</div></div>
+        </div>
+    </div>
+</section>
+
+<section class="card">
+    <h2>車子</h2>
+    <div class="grid">
+        <div class="stat"><div class="k">電池電壓</div><div class="v" id="batt">—</div></div>
+        <div class="stat"><div class="k">CPU 溫度</div><div class="v" id="temp">—</div></div>
+        <div class="stat"><div class="k">CPU 負載</div><div class="v" id="load">—</div></div>
+        <div class="stat"><div class="k">記憶體</div><div class="v" id="mem">—</div></div>
+        <div class="stat"><div class="k">硬碟剩餘</div><div class="v" id="disk">—</div></div>
+        <div class="stat"><div class="k">開機時間</div><div class="v" id="boot">—</div></div>
+    </div>
+    <details style="margin-top:12px">
+        <summary id="nodesSum">ROS 節點</summary>
+        <div class="nodes" id="nodes"></div>
+    </details>
+</section>
+
+<section class="card">
+    <details id="logBox">
+        <summary id="logSum">roslaunch 日誌</summary>
+        <pre id="log">（尚無日誌）</pre>
+    </details>
+</section>
+
+<section class="card">
+    <h2>電源</h2>
+    <div class="power">
+        <button id="btnOff">關機</button>
+        <button id="btnReboot">重新開機</button>
+    </div>
+    <div class="meta" style="margin-top:8px">拔電池前請先按「關機」，等樹莓派綠燈不再閃爍再關電源。</div>
+</section>
+
+<script>
+const $ = id => document.getElementById(id);
+const STATE_TXT = { idle: '未啟動', running: '執行中', stopping: '停止中', exited: '異常結束',
+                    external: '執行中（終端機開的）', offline: '未連線' };
+const COV_TXT = { idle: '待命', running: '覆蓋中', stopped: '已停止', done: '已完成', error: '錯誤', stuck: '受困' };
+let last = null, busy = false;
+
+const pct = v => v == null ? '—' : (v * 100).toFixed(1) + '%';
+function dur(s) {
+    if (s == null) return '—';
+    s = Math.round(s);
+    const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), ss = s % 60;
+    return h ? `${h}h${String(m).padStart(2, '0')}m` : m ? `${m}m${String(ss).padStart(2, '0')}s` : `${ss}s`;
+}
+function setV(id, text, cls) { const e = $(id); e.textContent = text; e.className = 'v' + (cls ? ' ' + cls : ''); }
+
+async function api(path, body) {
+    const r = await fetch(path, body === undefined ? { cache: 'no-store' } :
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    return r.json();
+}
+
+function render(s) {
+    const st = s ? s.state : 'offline';
+    $('state').textContent = STATE_TXT[st] || st;
+    $('state').className = 'pill s-' + st;
+
+    if (!s) {
+        $('host').textContent = '連不到車子';
+        $('btnStart').disabled = $('btnStop').disabled = true;
+        $('btnOpen').classList.add('off');
+        return;
+    }
+    const sys = s.system;
+    $('host').innerHTML = `${sys.hostname}<br>${(sys.ips || []).join(' / ') || '無 IP'}`;
+
+    const sel = $('model');
+    if (!sel.options.length) {
+        s.models.forEach(m => sel.add(new Option(m, m)));
+        try { sel.value = localStorage.getItem('tb3.model') || 'burger'; } catch (e) {}
+    }
+
+    const meta = [];
+    if (s.model && (st === 'running' || st === 'stopping')) meta.push(s.model);
+    if (s.uptime_s != null) meta.push('已執行 ' + dur(s.uptime_s));
+    if (s.pid) meta.push('PID ' + s.pid);
+    $('runmeta').textContent = meta.join(' · ');
+    if (!busy) $('msg').textContent = s.msg || '';
+
+    const alive = st === 'running' || st === 'external' || st === 'stopping';
+    $('btnStart').disabled = busy || alive;
+    $('btnStop').disabled = busy || !alive || st === 'stopping';
+    sel.disabled = alive;
+
+    const url = `http://${location.hostname}:${s.map_port}/`;
+    $('btnOpen').href = url;
+    $('btnOpen').classList.toggle('off', !s.web_ready);
+    $('webstate').textContent = alive ? (s.web_ready ? '地圖頁已就緒' : '地圖頁啟動中…') : '';
+
+    // 覆蓋任務
+    const c = s.coverage;
+    $('cov').hidden = !c; $('covEmpty').hidden = !!c;
+    if (c) {
+        $('covState').textContent = COV_TXT[c.state] || c.state;
+        $('covTask').textContent = c.task != null ? `任務 #${c.task}` : '';
+        $('covBar').style.width = c.total ? (100 * c.done / c.total).toFixed(1) + '%' : '0';
+        $('covMsg').textContent = c.msg || '';
+        setV('covDone', c.total ? `${c.done} / ${c.total}` : '—');
+        setV('covComp', pct(c.completion));
+        setV('covAct', pct(c.actual_cov));
+        setV('covPlan', pct(c.plan_cov));
+        setV('covSkip', c.skipped ?? '—', c.skipped ? 'warn' : '');
+        setV('covTime', dur(c.exec_s));
+    }
+
+    // 車子
+    const b = s.battery;
+    setV('batt', b == null ? (alive ? '讀取中' : '—') : b.toFixed(2) + ' V', b == null ? '' : b < 11.0 ? 'bad' : b < 11.5 ? 'warn' : 'good');
+    const t = sys.cpu_temp;
+    setV('temp', t == null ? '—' : t + ' °C', t >= 80 ? 'bad' : t >= 70 ? 'warn' : '');
+    setV('load', sys.load1 ?? '—', sys.load1 >= 4 ? 'warn' : '');
+    setV('mem', pct(sys.mem_used), sys.mem_used > .9 ? 'bad' : sys.mem_used > .8 ? 'warn' : '');
+    setV('disk', sys.disk_free_gb + ' GB', sys.disk_free_gb < 1 ? 'bad' : sys.disk_free_gb < 2 ? 'warn' : '');
+    setV('boot', dur(sys.uptime_s));
+
+    const nodes = s.nodes || [];
+    $('nodesSum').textContent = `ROS 節點（${nodes.length}）`;
+    $('nodes').innerHTML = nodes.length ? nodes.map(n => `<span>${n.replace(/[<>&]/g, '')}</span>`).join('')
+                                        : '<div class="empty">專案未啟動或 ROS master 尚未就緒</div>';
+}
+
+async function poll() {
+    try { last = await api('/api/status'); render(last); }
+    catch (e) { last = null; render(null); }
+}
+
+async function pollLog() {
+    if (!$('logBox').open) return;
+    try {
+        const r = await api('/api/log?lines=300');
+        const pre = $('log');
+        const atBottom = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 30;
+        pre.textContent = r.lines.length ? r.lines.join('\n') : '（尚無日誌）';
+        $('logSum').textContent = 'roslaunch 日誌' + (r.file ? `（${r.file}）` : '');
+        if (atBottom) pre.scrollTop = pre.scrollHeight;
+    } catch (e) {}
+}
+
+async function act(path, body, pending) {
+    busy = true; $('msg').textContent = pending; render(last);
+    try { const r = await api(path, body); $('msg').textContent = r.msg; }
+    catch (e) { $('msg').textContent = '送出失敗：連不到車子'; }
+    busy = false; poll();
+}
+
+$('btnStart').onclick = () => {
+    const m = $('model').value;
+    try { localStorage.setItem('tb3.model', m); } catch (e) {}
+    act('/api/start', { model: m }, '啟動中…');
+};
+$('btnStop').onclick = () => {
+    if (confirm('停止整套專案？覆蓋任務會中斷、車子會停下。')) act('/api/stop', {}, '停止中…');
+};
+$('btnOff').onclick = () => {
+    if (confirm('確定要關機？之後要重新上電才能再連線。')) act('/api/power', { action: 'shutdown' }, '關機中…');
+};
+$('btnReboot').onclick = () => {
+    if (confirm('確定要重新開機？約 1 分鐘後重新整理本頁。')) act('/api/power', { action: 'reboot' }, '重新開機中…');
+};
+$('logBox').addEventListener('toggle', pollLog);
+
+poll(); setInterval(poll, 2000); setInterval(pollLog, 3000);
+</script>
+</body>
+</html>

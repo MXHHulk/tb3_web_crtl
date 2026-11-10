@@ -4,6 +4,35 @@
 
 ---
 
+## 2026-11-10　feat(launcher)：車上常駐控制台（手機開熱點即可啟動／觀察專案）＋同步腳本
+
+- **類型**：feat / chore
+- **做了什麼**
+  - 新增 `scripts/launcher.py`：不依賴 ROS master 的常駐 Flask 服務，port 8000。
+    - `/api/start`（可選 burger/waffle/waffle_pi）以獨立行程群組 `roslaunch turtlebot3_ccpp start.launch`；
+      每次啟動依車子**當下 IP** 設定 `ROS_MASTER_URI`／`ROS_HOSTNAME`，換熱點 IP 變了也不用改 `.bashrc`。
+    - `/api/stop`：SIGINT（同 Ctrl+C，讓 map_server 停車、收 SLAM）→ 20 秒逾時 SIGTERM → SIGKILL，最後清殘留 `turtlebot3_slam.launch`。
+    - 能偵測從終端機手動開的 start.launch（顯示「執行中（終端機開的）」，也能停）。
+    - `/api/status`：行程狀態、地圖頁（8080）是否就緒、`rosnode list`、`/battery_state` 電壓、
+      覆蓋任務摘要（轉讀 map_server `/coverage/status`，只留進度與指標）、CPU 溫度／負載／記憶體／硬碟。慢的查詢都在背景執行緒每 2 秒輪詢，API 只讀快取。
+    - `/api/log`：roslaunch 輸出日誌（存在 `~/.ros/ccpp_launcher/`，保留最近 20 份）。
+    - `/api/power`：先停專案再 `sudo -n systemctl poweroff/reboot`，拔電前安全關機。
+  - 新增 `web/launcher.html`：手機優先的單頁控制台，無外部資源（熱點沒網路也能開）。
+  - 新增 `tools/ccpp-launcher.service`、`tools/install_launcher.sh`：開機自動啟動控制台；
+    `KillMode=process`，重啟控制台不會殺掉正在跑的 roslaunch。
+  - 新增 `tools/sync_to_robot.sh`：以 `git archive HEAD` 把已 commit 的實作程式推上車（LF 換行），
+    有未 commit 的程式變更就拒絕；刪除車上 HEAD 已不存在的檔案；寫 `.synced_commit`；`--build` 會 catkin_make；控制台在跑就自動重啟。
+- **為什麼**：使用者要求車子自己架網頁，讓連同一熱點的手機也能用瀏覽器啟動、觀察專案；
+  並且從此每次改程式都要版控、本地與車上同步。
+- **影響檔案**：`scripts/launcher.py`、`web/launcher.html`、`tools/*`
+- **結果 / 驗證**：`py_compile`、`bash -n`、頁面 JS 語法檢查通過；以模擬 API 在 375 px 手機寬度預覽版面正常。
+  撰寫期間車子（172.20.10.5）SSH 逾時離線，**尚未部署與實車驗證**。
+- **待辦 / 已知問題**
+  - 車子上線後：`bash tools/sync_to_robot.sh`，再到車上 `bash ~/catkin_ws/src/turtlebot3_ccpp/tools/install_launcher.sh`。
+  - 電池電壓讀 `/battery_state`，門檻以 Burger 3S 鋰電池設定（<11.0 V 紅、<11.5 V 黃）。
+
+---
+
 ## 2026-11-10　chore：車上程式與本地同步、整理本地與車上資料夾
 
 - **類型**：chore
