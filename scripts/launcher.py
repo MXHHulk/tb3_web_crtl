@@ -7,17 +7,18 @@ TurtleBot3 CCPP 車上控制台（常駐，開機由 systemd 啟動）
   - 看執行狀態：roslaunch 行程、地圖網頁是否就緒、ROS 節點、覆蓋任務進度、電池、溫度、負載
   - 看 roslaunch 輸出日誌
   - 安全關機／重新開機（拔電前先關機，SD 卡才不會壞）
+  - 轉接 map_server（8080）的地圖／覆蓋／遙控 API，手機只要開本頁一個網址就能操作全部功能
 
 網址：http://<車子 IP>:8000   （手機開熱點時，車子 IP 在熱點的「已連線裝置」可查）
-專案啟動後，地圖／覆蓋控制頁在 http://<車子 IP>:8080 ，本頁有按鈕直接開。
+電腦版寬螢幕頁面仍在 http://<車子 IP>:8080 。
 
 ROS 網路變數在「每次按啟動」時依車子當下的 IP 設定，
 所以換了熱點、IP 變了也不用改 ~/.bashrc。
 """
-import json, os, signal, socket, subprocess, threading, time, urllib.request
+import json, os, signal, socket, subprocess, threading, time, urllib.error, urllib.request
 from collections import deque
 
-from flask import Flask, jsonify, request, send_file
+from flask import Flask, Response, abort, jsonify, request, send_file
 
 # ════════════════════════════════════════════════════════
 #  設定
@@ -367,6 +368,38 @@ def api_power():
     threading.Thread(target=worker, daemon=True).start()
     word = '關機' if action == 'shutdown' else '重新開機'
     return jsonify(ok=True, msg=f'正在停止專案並{word}，綠燈不再閃爍後再關電源')
+
+
+# ── 轉接 map_server（8080）：手機只開 8000 一個網址，同源呼叫，不必處理跨來源 ──
+PROXY_GET  = {'map.png', 'map_margin.png', 'map_eroded.png', 'map_dilated.png',
+              'robot_state', 'scan', 'coverage/status', 'coverage/runs.csv'}
+PROXY_POST = {'coverage/start', 'coverage/stop', 'coverage/resume', 'teleop', 'slam/restart'}
+
+
+@app.route('/<path:p>', methods=['GET', 'POST'])
+def proxy(p):
+    if p not in (PROXY_POST if request.method == 'POST' else PROXY_GET):
+        abort(404)
+    url = f'http://127.0.0.1:{MAP_PORT}/{p}'
+    if request.query_string:
+        url += '?' + request.query_string.decode()
+    data = request.get_data() if request.method == 'POST' else None
+    req = urllib.request.Request(url, data=data, method=request.method,
+                                 headers={'Content-Type': request.content_type or 'application/json'})
+    # 開始覆蓋要規劃路徑、重啟 SLAM 要等舊的收掉，給長一點
+    timeout = 40 if p in ('coverage/start', 'slam/restart') else 5
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            body, status, headers = r.read(), r.status, r.headers
+    except urllib.error.HTTPError as e:
+        body, status, headers = e.read(), e.code, e.headers
+    except Exception:
+        return jsonify(ok=False, msg='系統未啟動，或地圖服務還沒就緒'), 502
+    resp = Response(body, status=status, content_type=headers.get('Content-Type'))
+    if headers.get('Content-Disposition'):
+        resp.headers['Content-Disposition'] = headers['Content-Disposition']
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
 
 
 def main():
