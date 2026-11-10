@@ -742,7 +742,17 @@ $('btnCovStart').onclick = () => {
     teleopRelease(); $('btnCovStart').disabled = true;
     covAction('/coverage/start', '規劃路徑中…', '開始自動覆蓋');
 };
-$('btnCovResume').onclick = () => { $('btnCovResume').disabled = true; covAction('/coverage/resume', '繼續中…', '從中斷處繼續'); };
+$('csv').onclick = async e => {             // 還沒有紀錄時，map_server 回 404，改用提示而不是跳到錯誤頁
+    e.preventDefault();
+    try {
+        const r = await fetch('/coverage/runs.csv', { cache: 'no-store' });
+        if (!r.ok) { toast(r.status === 502 ? '系統未啟動，無法下載' : '還沒有執行紀錄，跑完一次覆蓋後再下載'); return; }
+        const url = URL.createObjectURL(await r.blob()), a = document.createElement('a');
+        a.href = url; a.download = 'coverage_runs.csv'; document.body.append(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 5000);
+    } catch (err) { toast('下載失敗：連不到車子'); }
+};
+$('btnCovResume').onclick =() => { $('btnCovResume').disabled = true; covAction('/coverage/resume', '繼續中…', '從中斷處繼續'); };
 $('btnCovStop').onclick = () => { teleopRelease(); covAction('/coverage/stop', '結束中…', '已結束，可以手動遙控'); };
 
 // ════════════════════════════════════════════════════════

@@ -395,7 +395,8 @@ def proxy(p):
         body, status, headers = e.read(), e.code, e.headers
     except Exception:
         return jsonify(ok=False, msg='系統未啟動，或地圖服務還沒就緒'), 502
-    resp = Response(body, status=status, content_type=headers.get('Content-Type'))
+    resp = Response(body, status=status)
+    resp.headers['Content-Type'] = headers.get('Content-Type', 'application/octet-stream')
     if headers.get('Content-Disposition'):
         resp.headers['Content-Disposition'] = headers['Content-Disposition']
     resp.headers['Cache-Control'] = 'no-store'
