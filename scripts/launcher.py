@@ -43,7 +43,7 @@ run   = {                       # 由本控制台啟動的那一次執行
 }
 cache = {                       # 背景輪詢結果（狀態 API 直接回傳，不在請求中做慢動作）
     'web_ready': False, 'nodes': [], 'battery': None, 'coverage': None,
-    't_nodes': 0.0, 't_batt': 0.0,
+    't_nodes': 0.0,
 }
 T_BOOT = time.time()
 
@@ -253,23 +253,33 @@ def _poller():
             now = time.time()
             upd = {'web_ready': web, 'coverage': _coverage_summary() if web else None}
             if not alive:
-                upd.update(nodes=[], battery=None)
-            else:
-                if now - cache['t_nodes'] > 6:
-                    out = ros_cmd('rosnode list', timeout=5)
-                    upd.update(nodes=out.split() if out else [], t_nodes=now)
-                if now - cache['t_batt'] > 15:
-                    out = ros_cmd('rostopic echo -n 1 /battery_state/voltage', timeout=6)
-                    try:
-                        upd['battery'] = round(float(out.split()[0]), 2) if out else None
-                    except ValueError:
-                        upd['battery'] = None
-                    upd['t_batt'] = now
+                upd.update(nodes=[])
+            elif now - cache['t_nodes'] > 6:
+                out = ros_cmd('rosnode list', timeout=8)
+                upd.update(nodes=out.split() if out else [], t_nodes=now)
             with lock:
                 cache.update(upd)
         except Exception as e:      # 輪詢絕不能死
             print('[poller]', e, flush=True)
         time.sleep(2.0)
+
+
+def _battery_poller():
+    """電池電壓獨立一條執行緒：rostopic 在樹莓派上光啟動就要 4～7 秒，不能卡住主輪詢。"""
+    while True:
+        if not _alive():
+            with lock:
+                cache['battery'] = None
+            time.sleep(3.0)
+            continue
+        out = ros_cmd('rostopic echo -n 1 /battery_state/voltage', timeout=20)
+        try:
+            volt = round(float(out.split()[0]), 2) if out else None
+        except (ValueError, IndexError):
+            volt = None
+        with lock:
+            cache['battery'] = volt if volt is not None or not _alive() else cache['battery']
+        time.sleep(20.0)
 
 
 # ════════════════════════════════════════════════════════
@@ -361,6 +371,7 @@ def api_power():
 
 def main():
     threading.Thread(target=_poller, daemon=True).start()
+    threading.Thread(target=_battery_poller, daemon=True).start()
     print(f'[launcher] http://{(host_ips() or ["127.0.0.1"])[0]}:{PORT}', flush=True)
     app.run(host='0.0.0.0', port=PORT, threaded=True, use_reloader=False)
 
