@@ -28,8 +28,23 @@
 - **結果 / 驗證**：`py_compile`、`bash -n`、頁面 JS 語法檢查通過；以模擬 API 在 375 px 手機寬度預覽版面正常。
   撰寫期間車子（172.20.10.5）SSH 逾時離線，**尚未部署與實車驗證**。
 - **待辦 / 已知問題**
-  - 車子上線後：`bash tools/sync_to_robot.sh`，再到車上 `bash ~/catkin_ws/src/turtlebot3_ccpp/tools/install_launcher.sh`。
   - 電池電壓讀 `/battery_state`，門檻以 Burger 3S 鋰電池設定（<11.0 V 紅、<11.5 V 黃）。
+
+---
+
+## 2026-11-10　部署車上控制台並實測；fix(launcher)：電池電壓讀不到
+
+- **類型**：fix / chore
+- **做了什麼**
+  - `sync_to_robot.sh` 同步到車上，`install_launcher.sh` 安裝 `ccpp-launcher.service`（已 enable，開機自啟）。
+  - 實測發現 `rostopic echo -n 1 /battery_state/voltage` 在樹莓派上要約 6.5 秒，超過原本 6 秒逾時，電壓一直是空的。
+    改成獨立的 `_battery_poller` 執行緒、逾時 20 秒、每 20 秒讀一次，不再卡住主輪詢；`rosnode list` 逾時 5 → 8 秒。
+- **影響檔案**：`scripts/launcher.py`
+- **結果 / 驗證**（從同熱點的筆電呼叫 `http://172.20.10.5:8000`）
+  - 啟動：約 38 秒地圖頁（8080）就緒，8 個節點（map_server、move_base、turtlebot3_core／lds／diagnostics、gmapping…）。
+  - 同步新版時控制台自動重啟，正在跑的 roslaunch 沒被中斷，狀態顯示「執行中（終端機開的）」，電壓讀到 12.48 V。
+  - 停止：約 12 秒回到「未啟動」，`pgrep` 確認 roslaunch／rosmaster／gmapping／move_base／map_server 無殘留。
+  - 手機寬度實頁畫面正常。尚未按「關機／重新開機」實測（會真的關掉車子）。
 
 ---
 
