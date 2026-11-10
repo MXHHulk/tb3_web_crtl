@@ -4,6 +4,59 @@
 
 ---
 
+## 2026-11-10　chore：車上程式與本地同步、整理本地與車上資料夾
+
+- **類型**：chore
+- **做了什麼**
+  - 比對車上 `~/catkin_ws/src/turtlebot3_ccpp`（172.20.10.5）與本地：車上停在 2026-09-24 版
+    （有線尾內縮、脫困／受困處理，但沒有「掃描線中途點」與「任務指標／CSV」），沒有本地缺少的修改。
+  - 先把車上整包備份到 `~/backup/turtlebot3_ccpp_20261110_101919`，再把本地的
+    `scripts/`、`launch/`、`web/`、`test/*.py`、`CMakeLists.txt`、`package.xml` 推上車（轉成 LF 換行），
+    md5 與本地一致，`py_compile` 通過。
+  - 車上：刪掉從 Windows 帶上去的 `__pycache__`（cpython-313）；
+    `devel/lib/turtlebot3_ccpp/` 刪除舊架構留下的 7 個失效 relay（ccpp_manager.py 等），重跑 `catkin_make`。
+  - 本地：刪 `scripts/`、`test/` 的 `__pycache__`；`docs/README.md` 的 03_海報 段落改成只剩 `專題海報.pdf`。
+- **為什麼**：專案擱置一段時間，車上與本地版本不一致，下次實車測試前要先對齊。
+- **影響檔案**：`docs/README.md`、本檔；車上套件目錄
+- **結果 / 驗證**：車上檔案 md5 與本地相同、可編譯；尚未在車上 `roslaunch` 實跑。
+- **車上清理（使用者確認後執行）**：刪除與專案無關的資料，硬碟 90% → 73%（剩 3.8 GB）。
+  - 舊專案 `tb3_web_crtl`、`my_tb3_driver` 先打包到 `~/backup/old_packages_tb3_web_crtl_my_tb3_driver_20261110.tar.gz`
+    （`tb3_web_crtl` 有 10 個未推送 commit；打包前已移除遠端網址內嵌的 GitHub 權杖）後刪除；`rosboard` 一併刪除。
+  - 刪除 `~/opencv`、`~/opencv_contrib`（OpenCV 4.5.0 已裝在 `/usr/local`，`cv2` 仍可用）、
+    `~/.vscode-server` 等 VS Code／AI 工具資料夾、`~/.cache`、重複的 `catkin_ws/opencr_update`，`rosclean purge` 清掉 ROS 日誌。
+  - `build/`、`devel/` 清掉重新 `catkin_make`，`rospack find turtlebot3_ccpp` 正常。
+- **待辦 / 已知問題**
+  - 中途點與任務指標兩個功能仍未實車驗證。
+  - 舊權杖需到 GitHub 撤銷；`/etc/systemd/system/tb3_web.service`（已停用、指向已刪的腳本）留給使用者自行移除。
+
+---
+
+## 2026-10-04　feat(web)：「規劃資訊」改為任務指標面板，並記錄每次執行數據
+
+- **類型**：feat
+- **做了什麼**
+  - `coverage_planner.py`：新增 `COVER_R = 0.10`、`coverage_mask()`／`coverage_ratio()`
+    （線段取樣標格後一次距離轉換）；`plan()` 多回傳 `sweeps`（依走訪順序的掃描線，不含換行銜接）。
+  - `map_server.py`
+    - 規劃時記錄規劃時間（含安全邊距膨脹）、規劃覆蓋率、規劃路徑長、可達面積，並保存規劃當下的可走格 `cov_grid`。
+    - 新增 `cov_metrics()`：實際覆蓋率（行走軌跡在 `cov_grid` 上掃過的比例，軌跡沒變就用快取）、
+      任務完成率（到達路點 / 總路點）、跳過數、累計執行時間（停止後繼續會接著算）、實際行走長。
+    - `run_coverage()` 改成計時外殼，原本主體改名 `_run_coverage()`；每次結束（完成、停止、錯誤）
+      把指標追加到 `data/coverage_runs.csv`（utf-8-sig）。新增 `/coverage/runs.csv` 下載。
+    - `/coverage/status` 多回傳 `metrics`。
+  - `web/index.html`：「規劃資訊」改為「任務指標」，分規劃／執行兩組；加 CSV 下載連結。
+    原本的連通區間、臨界點、cell、主軸、λ 比從面板移除，但仍寫在 CSV 裡。
+- **為什麼**：使用者要能產出實質數據（覆蓋率、規劃時間、任務完成率）做實驗比較。
+  實際覆蓋率沿用規劃當下的地圖算，分母才和規劃覆蓋率一致（SLAM 執行中地圖會變大、原點會移）。
+- **影響檔案**：`scripts/coverage_planner.py`、`scripts/map_server.py`、`web/index.html`
+- **結果 / 驗證**：以假 ROS 模組載入 `map_server`，用合成地圖跑 `/coverage/start`、模擬行走與結束，
+  指標、CSV 內容與下載路由皆正確；補點與不補點的 `sweeps` 算出相同規劃覆蓋率；網頁 JS 以 `node --check` 通過。尚未實車驗證。
+- **待辦 / 已知問題**
+  - 軌跡每 0.1 m 才記一點，實際覆蓋率對最後一小段略為低估。
+  - 停止後再繼續，CSV 會多一列（同一個 task 編號），分析時取每個 task 的最後一列。
+
+---
+
 ## 2026-10-04　feat(coverage)：掃描線補中途點，讓實車照直線走
 
 - **類型**：feat
