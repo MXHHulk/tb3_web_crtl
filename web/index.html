@@ -128,9 +128,12 @@ aside {
 .hint { font-size: 0.68em; color: var(--dim); line-height: 1.5; }
 .locked { color: var(--warn); }
 
-/* 規劃資訊 */
+/* 任務指標 */
 table.info { width: 100%; border-collapse: collapse; font-size: 0.73em; }
 table.info td { padding: 3px 0; }
+table.info tr.grp td { padding-top: 7px; color: var(--accent); font-size: 0.92em; }
+a.dl { display: block; margin-top: 6px; font-size: 0.7em; color: var(--accent); text-decoration: none; }
+a.dl:hover { text-decoration: underline; }
 table.info td:first-child { color: var(--dim); }
 table.info td:last-child  { text-align: right; font-variant-numeric: tabular-nums; }
 
@@ -195,15 +198,23 @@ progress { width: 100%; height: 5px; }
         </div>
 
         <div class="sec">
-            <div class="sec-title">規劃資訊</div>
+            <div class="sec-title">任務指標</div>
             <table class="info" id="plan-info">
-                <tr><td>連通區間</td><td id="i-runs">—</td></tr>
-                <tr><td>臨界點</td><td id="i-crit">—</td></tr>
-                <tr><td>分解 cell</td><td id="i-cells">—</td></tr>
-                <tr><td>掃描主軸</td><td id="i-axis">—</td></tr>
-                <tr><td>λ1 / λ2</td><td id="i-ratio">—</td></tr>
-                <tr><td>跳過路點</td><td id="i-skip">—</td></tr>
+                <tr class="grp"><td colspan="2">規劃</td></tr>
+                <tr><td>規劃時間</td><td id="m-plan-ms">—</td></tr>
+                <tr><td>可達面積</td><td id="m-area">—</td></tr>
+                <tr><td>規劃覆蓋率</td><td id="m-plan-cov">—</td></tr>
+                <tr><td>規劃路徑長</td><td id="m-plan-len">—</td></tr>
+                <tr class="grp"><td colspan="2">執行</td></tr>
+                <tr><td>實際覆蓋率</td><td id="m-act-cov">—</td></tr>
+                <tr><td>任務完成率</td><td id="m-done">—</td></tr>
+                <tr><td>跳過路點</td><td id="m-skip">—</td></tr>
+                <tr><td>執行時間</td><td id="m-time">—</td></tr>
+                <tr><td>實際行走長</td><td id="m-act-len">—</td></tr>
             </table>
+            <div class="hint">覆蓋率分母＝扣除安全邊距後的可達區；路線兩側各 0.10 m 算掃過。<br>
+                任務完成率＝成功到達的路點 / 總路點。每次執行結束自動記錄一筆。</div>
+            <a class="dl" href="/coverage/runs.csv" download>⬇ 下載歷次執行數據（CSV）</a>
         </div>
 
         <div class="sec">
@@ -615,13 +626,23 @@ function updateUI() {
     $('prog').max   = Math.max(1, cov.total);
     $('prog').value = cov.done;
 
-    const I = cov.info || {};
-    $('i-runs').textContent  = I.n_runs     ?? '—';
-    $('i-crit').textContent  = I.n_critical ?? '—';
-    $('i-cells').textContent = I.n_cells    ?? '—';
-    $('i-axis').textContent  = I.axis_deg !== undefined ? I.axis_deg + '°' : '—';
-    $('i-ratio').textContent = I.ratio      ?? '—';
-    $('i-skip').textContent  = cov.total ? `${(cov.skipped || []).length} / ${cov.total}` : '—';
+    const M = cov.metrics || {}, has = M.task != null;
+    const pct = v => v == null ? '—' : (v * 100).toFixed(1) + '%';
+    const m   = v => v == null ? '—' : v.toFixed(2) + ' m';
+    $('m-plan-ms').textContent  = has ? M.plan_ms.toFixed(1) + ' ms' : '—';
+    $('m-area').textContent     = has ? M.area.toFixed(2) + ' m²' : '—';
+    $('m-plan-cov').textContent = has ? pct(M.plan_cov) : '—';
+    $('m-plan-len').textContent = has ? m(M.plan_len) : '—';
+    $('m-act-cov').textContent  = has ? pct(M.actual_cov) : '—';
+    $('m-done').textContent     = has ? `${pct(M.completion)}（${M.reached} / ${M.total}）` : '—';
+    $('m-skip').textContent     = has ? M.skipped : '—';
+    $('m-time').textContent     = has ? fmtSec(M.exec_s) : '—';
+    $('m-act-len').textContent  = has ? m(M.actual_len) : '—';
+}
+
+function fmtSec(s) {
+    const t = Math.round(s);
+    return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
 }
 
 // ════════════════════════════════════════════════════════

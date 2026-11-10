@@ -10,7 +10,7 @@
   5. plan                 每個 cell 各自蛇行，再以貪婪最近鄰決定 cell 走訪順序
 """
 import numpy as np
-from scipy.ndimage import binary_dilation
+from scipy.ndimage import binary_dilation, distance_transform_edt
 
 SPACING = 0.18   # 掃描線間距（公尺）；覆蓋寬度 ≈ 0.20 m，留 10% 重疊
 MARGIN  = 0.10   # 障礙物安全邊距（公尺） ≈ 機器人半徑（直徑 0.20 m）
@@ -18,6 +18,7 @@ END_TRIM = 0.09  # 掃描線兩端各內縮（公尺）。端點離障礙 ≈ MA
                  # 大於 Burger 外接圓半徑（0.11~0.15 m），車子在線尾才轉得了身；
                  # 只靠 MARGIN 時端點離牆僅 0.10~0.125 m，原地轉向會掃到牆而卡死。
                  # 與側向一致：第一條掃描線本來就離可走區邊界 SPACING / 2。
+COVER_R  = 0.10  # 覆蓋半徑（公尺）：路線兩側各這麼寬的範圍算「掃過」，與 SPACING 的覆蓋寬度假設一致
 VIA_STEP = 0.25  # 掃描線上中途點的最大間距（公尺）。只給頭尾兩點時 navfn 會依 costmap
                  # 成本自己找路，長線常被拉彎；每隔一小段給一個點，路線就被釘在掃描線上。
 
@@ -206,6 +207,41 @@ def _cell_waypoints(chain, runs, reverse, flip, via_step=VIA_STEP):
     return wps, via
 
 
+def _line_bounds(via):
+    """由中途旗標還原每條掃描線在路點列中的 (頭, 尾) 索引；非中途點依序兩兩成對。"""
+    ends = [i for i, v in enumerate(via) if not v]
+    return list(zip(ends[0::2], ends[1::2]))
+
+
+def coverage_mask(shape, res, ox, oy, segs, radius=COVER_R):
+    """
+    網格上離任一線段 <= radius 的格子（bool 陣列，形狀同 shape）。
+    線段以半格間距取樣後標到網格上，再用距離轉換一次算出每格離最近取樣點的距離，
+    格數再大也只跑一次，不必逐線段對全圖算距離。
+    """
+    H, W = shape
+    hit = np.zeros(shape, bool)
+    for p, q in segs:
+        p, q = np.asarray(p, dtype=float), np.asarray(q, dtype=float)
+        n = int(np.ceil(np.hypot(*(q - p)) / (res / 2))) + 1
+        xy = p + np.outer(np.linspace(0.0, 1.0, n), q - p)
+        c = np.round((xy[:, 0] - ox) / res).astype(int)
+        r = np.round((xy[:, 1] - oy) / res).astype(int)
+        ok = (r >= 0) & (r < H) & (c >= 0) & (c < W)
+        hit[r[ok], c[ok]] = True
+    if not hit.any():
+        return hit
+    return distance_transform_edt(~hit) * res <= radius
+
+
+def coverage_ratio(free, res, ox, oy, segs, radius=COVER_R):
+    """可走格（free=True）中被 segs 掃過的比例。"""
+    total = int(free.sum())
+    if not total:
+        return 0.0
+    return float((coverage_mask(free.shape, res, ox, oy, segs, radius) & free).sum()) / total
+
+
 def plan(free, res, ox, oy, spacing=SPACING, start=None, end_trim=END_TRIM,
          via_step=VIA_STEP):
     """
@@ -222,12 +258,13 @@ def plan(free, res, ox, oy, spacing=SPACING, start=None, end_trim=END_TRIM,
     輸出 dict
       waypoints : [(x, y), ...] 依序走訪的路點（掃描線已依 VIA_STEP 補上中途點）
       via       : [bool, ...] 與 waypoints 等長；True = 掃描線上的中途點
+      sweeps    : [((x0, y0), (x1, y1)), ...] 依走訪順序的掃描線（不含換行銜接），算覆蓋率用
       cells     : [[(x, y), ...], ...] 各 cell 的路點，已依走訪順序排列
       axes      : (重心, 長軸, 短軸, 特徵值)
       n_runs    : 連續可走區間總數
       critical  : 臨界點清單 [(run 序號, 'split'/'merge'), ...]
     """
-    empty = {'waypoints': [], 'via': [], 'cells': [], 'axes': None,
+    empty = {'waypoints': [], 'via': [], 'sweeps': [], 'cells': [], 'axes': None,
              'n_runs': 0, 'critical': []}
 
     rows, cols = np.where(free)
@@ -263,6 +300,7 @@ def plan(free, res, ox, oy, spacing=SPACING, start=None, end_trim=END_TRIM,
            else pts[np.lexsort((proj_a, proj_b))[0]])
 
     remaining, ordered, waypoints, via = set(range(len(cells))), [], [], []
+    ordered_via = []
     while remaining:
         best, best_d = None, None
         for ci in remaining:
@@ -275,12 +313,15 @@ def plan(free, res, ox, oy, spacing=SPACING, start=None, end_trim=END_TRIM,
         ci, wps, vf = best
         remaining.discard(ci)
         ordered.append(wps)
+        ordered_via.append(vf)
         waypoints += wps
         via       += vf
         cur = np.asarray(wps[-1], dtype=float)
 
     return {'waypoints': waypoints,
             'via':       via,
+            'sweeps':    [(wps[i], wps[j]) for wps, vf in zip(ordered, ordered_via)
+                          for i, j in _line_bounds(vf)],
             'cells': ordered,
             'axes': (center, axis_a, axis_b, eigvals),
             'n_runs': len(runs),

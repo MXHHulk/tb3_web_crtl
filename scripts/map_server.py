@@ -13,11 +13,11 @@ TurtleBot3 地圖伺服器（Module A）
   其他狀態            → 可手動遙控
 按下停止、覆蓋完成、或發生錯誤都會離開 running，自動切回可手動。
 """
-import io, math, os, signal, socket, subprocess, sys, threading
+import csv, io, math, os, signal, socket, subprocess, sys, threading, time
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 from coverage_planner import (plan as plan_coverage, SPACING as COV_SPACING,
-                              MARGIN as COV_MARGIN, apply_safety_margin)
+                              MARGIN as COV_MARGIN, apply_safety_margin, coverage_ratio)
 
 import numpy as np
 import rospkg, rospy
@@ -42,6 +42,7 @@ try:
     PKG = rospkg.RosPack().get_path('turtlebot3_ccpp')
 except rospkg.ResourceNotFound:
     PKG = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+RUN_LOG = os.path.join(PKG, 'data', 'coverage_runs.csv')   # 每次執行結束追加一列指標
 
 app = Flask(__name__)
 
@@ -89,8 +90,11 @@ cov_status = {'state': 'idle', 'done': 0, 'total': 0, 'msg': ''}
 cov_path   = []   # [(wx, wy), ...] 全部路點，世界座標
 cov_cells  = []   # [[(wx, wy), ...], ...] 每個 cell 的路點
 cov_via    = []   # [bool, ...] 與 cov_path 等長；True = 掃描線上的中途點
-cov_info   = {}   # n_runs / n_cells / n_critical / axis_deg / ratio
+cov_info   = {}   # task / plan_ms / plan_cov / plan_len / area / n_runs / n_cells / n_critical / axis_deg / ratio
 cov_skips  = []   # [[路點序號, 原因], ...] 被跳過的路點，供網頁標示
+cov_grid   = {}   # 規劃當下的 free / res / ox / oy：實際覆蓋率沿用同一張圖算，分母才和規劃覆蓋率一致
+cov_clock  = {'elapsed': 0.0, 't0': None}   # 累計執行秒數（停止→繼續會接著算）
+cov_cache  = {'n': -1, 'ratio': 0.0}        # 實際覆蓋率快取：軌跡點數沒變就不重算
 
 scan_lock = threading.Lock()
 scan_msg  = None   # 最新一筆 LaserScan
@@ -464,6 +468,20 @@ def _escape(fid):
 
 
 def run_coverage(start_idx=0):
+    """執行緒進入點：計時並在結束時（完成、停止、錯誤皆然）把本次指標寫進 RUN_LOG。"""
+    with cov_lock:
+        cov_clock['t0'] = time.time()
+    try:
+        _run_coverage(start_idx)
+    finally:
+        with cov_lock:
+            if cov_clock['t0'] is not None:
+                cov_clock['elapsed'] += time.time() - cov_clock['t0']
+                cov_clock['t0'] = None
+        _log_run()
+
+
+def _run_coverage(start_idx=0):
     """
     從第 start_idx 個路點起依序送給 move_base，可隨時被 stop 中斷。結束時一律離開 running。
 
@@ -556,6 +574,73 @@ def run_coverage(start_idx=0):
     with cov_lock:
         if cov_status['state'] == 'running':
             cov_status.update(state='done', done=n)
+
+
+def _path_len(pts):
+    return float(sum(math.dist(pts[i], pts[i + 1]) for i in range(len(pts) - 1)))
+
+
+def cov_metrics():
+    """
+    覆蓋任務的量化指標（給網頁與 RUN_LOG）：
+      plan_ms / plan_cov / plan_len / area  規劃當下算好，存在 cov_info
+      actual_cov   實際行走軌跡掃過可達區的比例（與 plan_cov 同一張圖、同一覆蓋半徑）
+      reached      成功到達的路點數（已處理 − 跳過）；completion = reached / total
+      exec_s       累計執行秒數；actual_len 實際行走長度
+    """
+    with cov_lock:
+        st, info, grid = dict(cov_status), dict(cov_info), dict(cov_grid)
+        n_skip  = len(cov_skips)
+        exec_s  = cov_clock['elapsed'] + (time.time() - cov_clock['t0']
+                                          if cov_clock['t0'] is not None else 0.0)
+    with robot_lock:
+        path = [tuple(p) for p in robot_path]
+
+    if grid and path and len(path) != cov_cache['n']:
+        segs = list(zip(path[:-1], path[1:])) or [(path[0], path[0])]
+        cov_cache.update(n=len(path), ratio=coverage_ratio(
+            grid['free'], grid['res'], grid['ox'], grid['oy'], segs))
+    actual = cov_cache['ratio'] if grid and path else 0.0
+
+    total   = st['total']
+    reached = max(0, st['done'] - n_skip)
+    return {
+        'task':       info.get('task'),
+        'state':      st['state'],
+        'area':       info.get('area'),
+        'plan_ms':    info.get('plan_ms'),
+        'plan_cov':   info.get('plan_cov'),
+        'actual_cov': round(actual, 4),
+        'total':      total,
+        'reached':    reached,
+        'skipped':    n_skip,
+        'completion': round(reached / total, 4) if total else None,
+        'exec_s':     round(exec_s, 1),
+        'plan_len':   info.get('plan_len'),
+        'actual_len': round(_path_len(path), 2),
+        'n_cells':    info.get('n_cells'),
+        'n_critical': info.get('n_critical'),
+        'axis_deg':   info.get('axis_deg'),
+        'ratio':      info.get('ratio'),
+    }
+
+
+def _log_run():
+    """把本次執行的指標追加到 RUN_LOG（utf-8-sig，Excel 直接開不會亂碼）。"""
+    m = cov_metrics()
+    if not m['task']:
+        return
+    row = {'time': time.strftime('%Y-%m-%d %H:%M:%S'), **m}
+    try:
+        os.makedirs(os.path.dirname(RUN_LOG), exist_ok=True)
+        new = not os.path.exists(RUN_LOG)
+        with open(RUN_LOG, 'a', newline='', encoding='utf-8-sig') as f:
+            w = csv.DictWriter(f, fieldnames=list(row))
+            if new:
+                w.writeheader()
+            w.writerow(row)
+    except OSError as e:
+        rospy.logwarn('[coverage] 寫入 %s 失敗：%s', RUN_LOG, e)
 
 
 def world_to_px(wx, wy, meta):
@@ -674,6 +759,7 @@ def coverage_start():
 
     teleop_halt()                                  # 交出 /cmd_vel 控制權前先停車
 
+    t_plan = time.perf_counter()                   # 規劃時間含安全邊距膨脹
     safe = apply_safety_margin(raw['data'], COV_MARGIN, meta['resolution'])
     free = (raw['data'] == 0) & ~safe
 
@@ -682,6 +768,7 @@ def coverage_start():
 
     r = plan_coverage(free, meta['resolution'], meta['origin_x'], meta['origin_y'],
                       start=start)
+    plan_ms = (time.perf_counter() - t_plan) * 1000.0
     if not r['waypoints']:
         return jsonify({'ok': False, 'msg': '無可走路徑，地圖可能不完整'})
 
@@ -694,8 +781,18 @@ def coverage_start():
         cov_via[:]   = r['via']
         cov_cells[:] = r['cells']
         cov_skips.clear()
+        cov_grid.update(free=free, res=meta['resolution'],
+                        ox=meta['origin_x'], oy=meta['origin_y'])
+        cov_clock.update(elapsed=0.0, t0=None)
+        cov_cache.update(n=-1, ratio=0.0)
         cov_info.clear()
         cov_info.update(
+            task       = time.strftime('%Y%m%d-%H%M%S'),
+            plan_ms    = round(plan_ms, 1),
+            plan_cov   = round(coverage_ratio(free, meta['resolution'], meta['origin_x'],
+                                              meta['origin_y'], r['sweeps']), 4),
+            plan_len   = round(_path_len(r['waypoints']), 2),
+            area       = round(float(free.sum()) * meta['resolution'] ** 2, 2),
             n_runs     = r['n_runs'],
             n_cells    = len(r['cells']),
             n_critical = len(r['critical']),
@@ -733,6 +830,17 @@ def coverage_resume():
     return jsonify({'ok': True, 'start': start})
 
 
+@app.route('/coverage/runs.csv')
+def coverage_runs_csv():
+    """下載歷次執行指標（RUN_LOG）。"""
+    if not os.path.exists(RUN_LOG):
+        return Response('尚無執行紀錄', status=404, mimetype='text/plain; charset=utf-8')
+    with open(RUN_LOG, 'rb') as f:                 # 不用 send_file：Noetic 的 Flask 1.x 沒有 download_name
+        body = f.read()
+    return Response(body, mimetype='text/csv',
+                    headers={'Content-Disposition': 'attachment; filename=coverage_runs.csv'})
+
+
 @app.route('/coverage/status')
 def coverage_status():
     with cov_lock:
@@ -751,7 +859,8 @@ def coverage_status():
     else:
         st['path_px'] = st['cells_px'] = []
 
-    st['info']   = info
+    st['info']    = info
+    st['metrics'] = cov_metrics()
     st['manual'] = st['state'] != 'running'
     st['slam_managed'] = slam_cfg['manage']
     return jsonify(st)
@@ -807,6 +916,9 @@ def slam_restart():
             cov_cells[:] = []
             cov_skips.clear()
             cov_info.clear()
+            cov_grid.clear()
+            cov_clock.update(elapsed=0.0, t0=None)
+            cov_cache.update(n=-1, ratio=0.0)
             cov_status.update(state='idle', done=0, total=0, msg='')
 
         try:
