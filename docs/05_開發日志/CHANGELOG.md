@@ -4,6 +4,37 @@
 
 ---
 
+## 2026-11-11　feat(slam,coverage)：減少地圖假障礙——調 gmapping 參數（A）＋規劃前去雜點（B）
+
+- **類型**：feat / fix
+- **背景**：第一次在 1.06 × 1.47 m 場地自動建圖（任務 20261111-102235）：55 秒、走 4.1 m、回起點誤差 3 cm，
+  scan matching 分數穩定（163 次僅 1 次失敗），定位正常；但地圖空地裡有零星假障礙、右牆被畫成 2～3 格厚。
+  覆蓋規劃直接用這張圖，規劃前又把障礙膨脹 10 cm，一顆 5 cm 雜點就變成約 25 cm 的禁區。
+- **做了什麼**
+  - A：新增 `config/gmapping_params.yaml` 與 `launch/slam_gmapping.launch`（含 turtlebot3_remote，等同官方 slam launch），
+    `map_server.slam_launch()` 在 gmapping 時改用本套件版本。改動：`occ_thresh` 0.25→0.5、`linearUpdate` 1.0→0.2、
+    `angularUpdate` 0.2→0.1、`maxUrange` 3.0→2.0。
+  - B：`coverage_planner.remove_noise()`：8 鄰接相連、不超過 3 格的障礙團塊視為雜點，改成空地（只作用在規劃用的地圖）。
+    `coverage_start()` 與「安全邊距」圖層都改用去雜點後的地圖；新增 `/map_noise.png`，手機與電腦版網頁多一個黃色「雜點（規劃忽略）」圖層；
+    `cov_info`／覆蓋 CSV 多 `n_noise`。`_log_run()` 發現 CSV 欄位不同時，舊檔改名為 `coverage_runs_old_<時間>.csv` 保留。
+  - `sync_to_robot.sh` 同步範圍加 `config/`；CMakeLists 安裝 `config/`。
+- **踩到的坑（已修）**：一開始在參數檔加了 `maxRange: 3.5`，結果地圖憑空多出半徑 2 m 的一整圈空地。
+  原因：LDS-01 收不到反射時回報 0，slam_gmapping 把它換成 range_max（3.5）；預設 maxRange＝3.49 會忽略這種讀值，
+  設成 3.5 反而被當成「此方向 maxUrange 內都是空地」。當時一圈 360 筆有 153 筆是 0。已拿掉 `maxRange`（commit 4d434a9）。
+  另外 ROS 參數伺服器會保留舊參數，改參數檔後要**整套系統重啟**，只按「重新建圖」不會生效。
+- **影響檔案**：`turtlebot3_ccpp/config/gmapping_params.yaml`（新）、`launch/slam_gmapping.launch`（新）、
+  `scripts/coverage_planner.py`、`scripts/map_server.py`、`scripts/launcher.py`、`web/launcher.html`、`web/index.html`、
+  `tools/sync_to_robot.sh`、`CMakeLists.txt`
+- **結果 / 驗證**
+  - 用第一次實測存下的地圖離線比較：去雜點移除 4 格（空地中 2 顆假障礙＋牆外 2 顆），中間方框與四面牆保留；
+    可規劃面積 1.08 → 1.16 m²（+7%），cell 3 → 4、路點 31 → 32。
+  - 車上整套重啟後確認 gmapping 參數生效（`occ_thresh=0.5` 等、`maxRange` 未設），`/map_noise.png` 正常。
+  - 驗證當下車子周圍的地圖有多條光束穿出場地外，光達在部分方向看得很遠，和第一次實測的封閉場地不同，可能是車子或圍牆位置變了。
+    **新參數的實際效果還沒在同一場地重跑比較。**
+- **待辦 / 已知問題**：請在封閉場地內按「清空地圖、重新建圖」後再跑一次「自動建圖 → 自動覆蓋」，比較兩次的雜點數、牆厚與規劃覆蓋率。
+
+---
+
 ## 2026-11-11　feat(explore)：自動建圖紀錄（摘要、每秒過程、軌跡、事件、軌跡疊圖）
 
 - **類型**：feat
