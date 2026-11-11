@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>開機自動建圖說明</title>
+<style>
+:root {
+    --bg: #fbfaf8; --card: #ffffff; --ink: #1c1917; --ink2: #57534e; --ink3: #8b857e;
+    --line: #e3ded6; --accent: #0d6d72; --accent-bg: #e6f2f2; --warn: #a1621a; --warn-bg: #fbf1e3;
+    --bad: #b42318; --bad-bg: #fdecea; --ok: #2f7a3b; --ok-bg: #e9f5eb; --code: #f4f2ee;
+    --known: #ffffff; --unknown: #b8b3ab; --wall: #3b3733; --front: #e0821a; --robot: #0d6d72;
+}
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+        --bg: #14161a; --card: #1b1e24; --ink: #ece9e4; --ink2: #b3aea6; --ink3: #847f78;
+        --line: #2e323a; --accent: #4fb3b8; --accent-bg: #16302f; --warn: #e0a85a; --warn-bg: #2f2516;
+        --bad: #f2867a; --bad-bg: #351c1a; --ok: #7cc98a; --ok-bg: #18301c; --code: #22262d;
+        --known: #e8e6e1; --unknown: #5d5952; --wall: #0b0c0e; --front: #f0a040; --robot: #4fb3b8;
+    }
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--ink);
+       font: 16px/1.75 -apple-system, 'Segoe UI', 'Noto Sans TC', 'PingFang TC', 'Microsoft JhengHei', sans-serif; }
+.wrap { max-width: 860px; margin: 0 auto; padding: 32px 16px 80px; }
+h1 { font-size: 1.9em; line-height: 1.3; margin: 0 0 6px; }
+.sub { color: var(--ink2); margin: 0 0 24px; }
+h2 { font-size: 1.35em; margin: 48px 0 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+h2 .n { display: inline-block; min-width: 1.8em; color: var(--accent); }
+h3 { font-size: 1.08em; margin: 26px 0 6px; }
+p { margin: 8px 0; }
+ul, ol { padding-left: 1.4em; margin: 8px 0; }
+li { margin: 4px 0; }
+code { font: .88em ui-monospace, Menlo, Consolas, monospace; background: var(--code); padding: 1px 6px; border-radius: 4px; }
+pre { background: var(--code); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; overflow-x: auto;
+      font: .84em/1.55 ui-monospace, Menlo, Consolas, monospace; margin: 10px 0; }
+pre code { background: none; padding: 0; font-size: 1em; }
+.c { color: var(--ink3); }
+nav.toc { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px 16px; }
+nav.toc b { font-size: .85em; color: var(--ink3); }
+nav.toc ol { margin: 6px 0 0; }
+nav.toc a { color: var(--accent); text-decoration: none; }
+.box { border-radius: 10px; padding: 12px 14px; margin: 14px 0; border: 1px solid var(--line); background: var(--card); }
+.box.tip  { background: var(--accent-bg); border-color: transparent; }
+.box.warn { background: var(--warn-bg); border-color: transparent; }
+.box.bad  { background: var(--bad-bg); border-color: transparent; }
+.box > b:first-child { display: block; margin-bottom: 2px; }
+.tbl { overflow-x: auto; margin: 12px 0; }
+table { border-collapse: collapse; width: 100%; font-size: .92em; }
+th, td { border-bottom: 1px solid var(--line); padding: 8px 8px; text-align: left; vertical-align: top; }
+th { color: var(--ink3); font-weight: 600; font-size: .9em; white-space: nowrap; }
+td:first-child { white-space: nowrap; }
+.tag { display: inline-block; font-size: .78em; font-weight: 700; padding: 1px 8px; border-radius: 999px; white-space: nowrap; }
+.t-have { background: var(--ok-bg); color: var(--ok); }
+.t-need { background: var(--warn-bg); color: var(--warn); }
+.t-ours { background: var(--accent-bg); color: var(--accent); }
+.flow { display: grid; gap: 8px; margin: 16px 0; }
+.flow .s { display: grid; grid-template-columns: 44px 1fr; gap: 10px; align-items: start;
+           background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+.flow .s .i { width: 34px; height: 34px; border-radius: 50%; background: var(--accent); color: #fff;
+              display: flex; align-items: center; justify-content: center; font-weight: 700; }
+.flow .s.new .i { background: var(--warn); }
+.flow .s b { display: block; }
+.flow .s span { color: var(--ink2); font-size: .93em; }
+.legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: .88em; color: var(--ink2); margin: 6px 0 12px; }
+.legend i { display: inline-block; width: 14px; height: 14px; border-radius: 3px; vertical-align: -2px; margin-right: 5px; border: 1px solid var(--line); }
+figure { margin: 16px 0; }
+figure svg { width: 100%; height: auto; display: block; }
+figcaption { color: var(--ink3); font-size: .86em; margin-top: 6px; }
+.cmp { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 620px) { .cmp { grid-template-columns: 1fr; } h1 { font-size: 1.55em; } }
+.cmp .box { margin: 0; }
+.steps-impl { counter-reset: st; list-style: none; padding: 0; }
+.steps-impl > li { counter-increment: st; position: relative; padding-left: 42px; margin: 22px 0; }
+.steps-impl > li::before { content: counter(st); position: absolute; left: 0; top: 0; width: 30px; height: 30px;
+    border-radius: 8px; background: var(--accent); color: #fff; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+.steps-impl > li > b { font-size: 1.05em; }
+.where { color: var(--ink3); font-size: .86em; }
+footer { margin-top: 56px; color: var(--ink3); font-size: .85em; border-top: 1px solid var(--line); padding-top: 12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>開機自動建圖：要做什麼、怎麼做、為什麼這樣能動</h1>
+<p class="sub">目標：車子一上電，不用碰手機、不用開電腦，自己把整個場地的地圖畫出來，畫完自己停下並存檔。
+本文用白話說明，搭配本專案現有的程式（<code>launcher.py</code>、<code>map_server.py</code>、<code>start.launch</code>）講要改哪裡。</p>
+
+<nav class="toc">
+    <b>目錄</b>
+    <ol>
+        <li><a href="#s1">一句話總結：現在差在哪</a></li>
+        <li><a href="#s2">會用到的套件</a></li>
+        <li><a href="#s3">工作原理（白話版）</a></li>
+        <li><a href="#s4">實作步驟（要改哪些檔案）</a></li>
+        <li><a href="#s5">安全與防呆</a></li>
+        <li><a href="#s6">怎麼測試</a></li>
+        <li><a href="#s7">常見問題</a></li>
+    </ol>
+</nav>
+
+<!-- ═══════════════════════════════════════ -->
+<h2 id="s1"><span class="n">1</span>一句話總結：現在差在哪</h2>
+
+<p>「開機自動建圖」其實是兩件事拼起來：</p>
+<div class="cmp">
+    <div class="box"><b>① 開機自動「開系統」</b>
+        現在：上電後車上控制台（port 8000）會自己跑起來，但要<strong>你在手機上按「啟動系統」</strong>才會開始。<br>
+        要做：控制台開機後，<strong>等硬體準備好就自己按下啟動</strong>。</div>
+    <div class="box"><b>② 自動「建圖」</b>
+        現在：SLAM 會開起來，但地圖要<strong>你用搖桿把車開著繞一圈</strong>才畫得出來。<br>
+        要做：讓車子<strong>自己決定下一步要去哪裡看</strong>，一直走到沒有沒看過的地方為止。</div>
+</div>
+
+<p>第 ① 件很簡單，改控制台就好。第 ② 件是重點，業界標準做法叫 <strong>Frontier（邊界）探索</strong>：
+地圖上「已經看過的空地」跟「還沒看過的區域」交界的那條線，就是邊界；車子只要一直往邊界走，邊界後面的東西就會被光達看到、補進地圖。
+邊界全部消失，就代表整個場地都看過了。</p>
+
+<div class="flow">
+    <div class="s"><div class="i">1</div><div><b>上電 → Ubuntu 開機</b><span>約 40～60 秒</span></div></div>
+    <div class="s"><div class="i">2</div><div><b>systemd 啟動車上控制台 <code>ccpp-launcher</code></b><span>已經有了，開機就會跑（port 8000）</span></div></div>
+    <div class="s new"><div class="i">3</div><div><b>控制台確認硬體都在 → 自動執行 roslaunch</b><span>新增：檢查底盤板 OpenCR、光達的 USB 都出現了、有網路 IP，再啟動</span></div></div>
+    <div class="s"><div class="i">4</div><div><b>底盤、光達、SLAM（gmapping）、move_base、map_server 依序起來</b><span>已經有了，約 20～40 秒</span></div></div>
+    <div class="s new"><div class="i">5</div><div><b>map_server 等地圖穩定後，啟動 Frontier 探索</b><span>新增：車子開始自己找邊界、自己開過去</span></div></div>
+    <div class="s new"><div class="i">6</div><div><b>邊界找完 → 停止探索 → 存地圖 → 開回起點</b><span>新增：手機打開 8000 就能看到成果，接著可以按「開始」自動覆蓋</span></div></div>
+</div>
+<p class="c">藍色＝已經做好的；橘色＝這次要新增的。</p>
+
+<!-- ═══════════════════════════════════════ -->
+<h2 id="s2"><span class="n">2</span>會用到的套件</h2>
+
+<p>大部分你車上都已經有了（之前同步時查過已安裝的 <code>ros-noetic-*</code>），真正要新裝的只有探索套件。</p>
+
+<div class="tbl"><table>
+    <tr><th>套件</th><th>狀態</th><th>白話：它負責什麼</th></tr>
+    <tr><td><code>turtlebot3_bringup</code></td><td><span class="tag t-have">已安裝</span></td>
+        <td>開底盤和光達。它會跟底盤板 OpenCR 講話（讀輪子轉了多少、把速度指令送給馬達），並把光達資料發成 <code>/scan</code>。</td></tr>
+    <tr><td><code>turtlebot3_slam</code> + <code>gmapping</code></td><td><span class="tag t-have">已安裝</span></td>
+        <td>SLAM＝「邊走邊畫地圖、同時知道自己在地圖哪裡」。輸入光達＋輪子里程，輸出地圖 <code>/map</code>。</td></tr>
+    <tr><td><code>move_base</code> + <code>dwa_local_planner</code></td><td><span class="tag t-have">已安裝</span></td>
+        <td>導航。你給它一個目的地，它負責規劃路線、閃障礙、控制速度開過去。覆蓋任務現在就是靠它。</td></tr>
+    <tr><td><code>turtlebot3_navigation</code></td><td><span class="tag t-have">已安裝</span></td>
+        <td>只拿它的參數檔（車身大小、速度上限、障礙膨脹範圍），<code>start.launch</code> 已經在用。</td></tr>
+    <tr><td><code>explore_lite</code></td><td><span class="tag t-need">要新裝</span></td>
+        <td>Frontier 探索。讀地圖、找出所有邊界、挑一個最划算的，丟給 move_base 去開。到了或卡住就換下一個。<br>
+            安裝：<code>sudo apt install ros-noetic-explore-lite</code></td></tr>
+    <tr><td><code>map_server</code>（ROS 官方的）</td><td><span class="tag t-need">確認一下</span></td>
+        <td>用它附的 <code>map_saver</code> 把地圖存成 <code>.pgm</code> + <code>.yaml</code>。通常隨 navigation 一起裝好，
+            用 <code>rospack find map_server</code> 確認；沒有就 <code>sudo apt install ros-noetic-map-server</code>。</td></tr>
+    <tr><td>本專案 <code>launcher.py</code></td><td><span class="tag t-ours">要修改</span></td>
+        <td>加「開機自動啟動」開關與「等硬體就緒」。</td></tr>
+    <tr><td>本專案 <code>map_server.py</code></td><td><span class="tag t-ours">要修改</span></td>
+        <td>加「探索模式」：啟動／停止 explore_lite、判斷探索完成、存圖、回起點；並和遙控、覆蓋互斥。</td></tr>
+    <tr><td>本專案 <code>launcher.html</code></td><td><span class="tag t-ours">要修改</span></td>
+        <td>手機頁加「自動建圖」按鈕、進度、「開機自動建圖」開關。</td></tr>
+</table></div>
+
+<div class="box warn"><b>名字撞到要小心</b>
+ROS 官方有一個套件叫 <code>map_server</code>（存讀地圖用），我們專案的網頁節點檔名也叫 <code>map_server.py</code>、節點名稱 <code>/map_server</code>。
+用 <code>map_saver</code> 存圖沒問題（它的節點名稱是 <code>map_saver</code>），但<strong>不要</strong>再另外啟動官方的 <code>map_server</code> 節點，否則節點名稱相同，先開的會被踢掉。</div>
+
+<!-- ═══════════════════════════════════════ -->
+<h2 id="s3"><span class="n">3</span>工作原理（白話版）</h2>
+
+<h3>3-1 資料怎麼流</h3>
+<p>把整台車想成一條生產線：<strong>眼睛</strong>（光達）看到牆 → <strong>畫圖員</strong>（SLAM）把牆畫進地圖 →
+<strong>探險隊長</strong>（explore_lite）看地圖決定下一站 → <strong>司機</strong>（move_base）規劃路線、控制方向盤 →
+<strong>腳</strong>（OpenCR 底盤）轉輪子。車子一動，光達看到新的東西，整條線再跑一次。</p>
+
+<figure>
+<svg viewBox="0 0 820 275"role="img" aria-label="資料流：光達到 SLAM 到探索到導航到底盤，形成迴圈">
+    <defs>
+        <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="var(--ink2)"/></marker>
+    </defs>
+    <style>
+        .bx { fill: var(--card); stroke: var(--line); stroke-width: 1.5; }
+        .bx.n { stroke: var(--warn); stroke-width: 2; }
+        .t1 { font: 700 15px sans-serif; fill: var(--ink); text-anchor: middle; }
+        .t2 { font: 12px sans-serif; fill: var(--ink3); text-anchor: middle; }
+        .tp { font: 12px ui-monospace, Menlo, monospace; fill: var(--accent); text-anchor: middle; }
+        .ln { stroke: var(--ink2); stroke-width: 1.6; fill: none; marker-end: url(#ar); }
+    </style>
+    <rect class="bx"   x="10"  y="30" width="135" height="70" rx="10"/>
+    <text class="t1" x="77"  y="60">光達</text><text class="t2" x="77" y="82">眼睛：量四周距離</text>
+    <rect class="bx"   x="195" y="30" width="135" height="70" rx="10"/>
+    <text class="t1" x="262" y="60">SLAM</text><text class="t2" x="262" y="82">畫圖員：gmapping</text>
+    <rect class="bx n" x="380" y="30" width="150" height="70" rx="10"/>
+    <text class="t1" x="455" y="60">explore_lite</text><text class="t2" x="455" y="82">隊長：挑下一個邊界</text>
+    <rect class="bx"   x="580" y="30" width="135" height="70" rx="10"/>
+    <text class="t1" x="647" y="60">move_base</text><text class="t2" x="647" y="82">司機：規劃＋閃避</text>
+    <rect class="bx"   x="580" y="160" width="135" height="70" rx="10"/>
+    <text class="t1" x="647" y="190">OpenCR 底盤</text><text class="t2" x="647" y="212">腳：轉輪子</text>
+    <rect class="bx"   x="195" y="160" width="135" height="70" rx="10"/>
+    <text class="t1" x="262" y="190">輪子里程</text><text class="t2" x="262" y="212">走了多遠、轉幾度</text>
+
+    <path class="ln" d="M145 65 H192"/><text class="tp" x="169" y="56">/scan</text>
+    <path class="ln" d="M330 65 H377"/><text class="tp" x="354" y="56">/map</text>
+    <path class="ln" d="M530 65 H577"/><text class="tp" x="554" y="56">目標點</text>
+    <path class="ln" d="M647 100 V157"/><text class="tp" x="690" y="133">/cmd_vel</text>
+    <path class="ln" d="M580 195 H333"/><text class="tp" x="456" y="186">/odom</text>
+    <path class="ln" d="M262 160 V103"/>
+    <path class="ln" d="M647 230 V246 H40 V103" stroke-dasharray="5 4"/>
+    <text class="t2" x="350" y="266">車子一動，光達看到新區域 → 迴圈再跑一次</text>
+</svg>
+<figcaption>橘框是要新加的 explore_lite，其餘現在都在跑。箭頭上藍綠色的字是 ROS 話題（topic）名稱，可以想成「資料管線的名字」。</figcaption>
+</figure>
+
+<h3>3-2 SLAM：地圖怎麼畫出來</h3>
+<p>地圖是一張格子紙，每格 5 公分，每格只有三種狀態：</p>
+<div class="legend">
+    <span><i style="background:var(--known)"></i>空地（看過、沒東西）</span>
+    <span><i style="background:var(--wall)"></i>障礙（看過、有東西）</span>
+    <span><i style="background:var(--unknown)"></i>未知（還沒看過）</span>
+</div>
+<p>光達每秒轉 5 圈，每圈量 360 個方向「多遠有東西」。雷射打到的那一格塗黑，雷射一路經過的格子塗白。
+難的地方是「車子現在到底在哪」：輪子會打滑，里程會越算越歪。gmapping 的做法是同時猜很多個「車子可能的位置」（粒子），
+每個猜測都拿這一圈光達去比對地圖，<strong>比對得越吻合的猜測越可信</strong>，不吻合的淘汰。這樣地圖和位置會互相校正，不會越畫越歪。</p>
+
+<h3>3-3 Frontier 探索：車子怎麼知道要去哪</h3>
+<figure>
+<svg viewBox="0 0 560 300" role="img" aria-label="格子地圖示意：白色空地、灰色未知、黑色牆、橘色邊界格與機器人位置">
+    <style>
+        .k { fill: var(--known); stroke: var(--line); stroke-width: .5; }
+        .u { fill: var(--unknown); stroke: var(--line); stroke-width: .5; }
+        .w { fill: var(--wall); }
+        .f { fill: var(--front); }
+        .lb { font: 700 13px sans-serif; fill: var(--ink); }
+        .lb2 { font: 12px sans-serif; fill: var(--ink2); }
+    </style>
+    <g id="grid"></g>
+    <circle cx="110" cy="170" r="11" fill="var(--robot)"/>
+    <text class="lb" x="80" y="208">車子</text>
+    <path d="M122 164 L222 124" stroke="var(--robot)" stroke-width="2.5" stroke-dasharray="6 5" fill="none"/>
+    <circle cx="230" cy="120" r="7" fill="none" stroke="var(--robot)" stroke-width="2.5"/>
+    <text class="lb" x="372" y="40">A 區邊界：大、近</text>
+    <text class="lb2" x="372" y="58">→ 分數高，先去這裡</text>
+    <text class="lb" x="372" y="232">B 區邊界：小、遠</text>
+    <text class="lb2" x="372" y="250">→ 分數低，晚點再去</text>
+</svg>
+<figcaption>白＝空地、黑＝牆、灰＝還沒看過、橘＝邊界（空地旁邊就是未知的格子）。車子朝分數最高的邊界中心開過去。</figcaption>
+</figure>
+<script>
+/* 產生示意格子（純裝飾圖，不影響內容） */
+(() => {
+    const W = 14, H = 12, S = 20, ox = 20, oy = 20, g = document.getElementById('grid');
+    const cls = Array.from({ length: H }, () => Array(W).fill('u'));
+    for (let y = 2; y <= 10; y++) for (let x = 1; x <= 9; x++) cls[y][x] = 'k';
+    for (let x = 1; x <= 9; x++) cls[2][x] = 'w';
+    for (let y = 2; y <= 10; y++) cls[y][1] = 'w';
+    for (let x = 1; x <= 6; x++) cls[10][x] = 'w';
+    for (let y = 3; y <= 6; y++) { cls[y][10] = 'f'; }            // A 區：右側長邊界
+    for (let y = 9; y <= 10; y++) { cls[y][7] = 'f'; }           // B 區：右下小邊界
+    cls[10][8] = 'f';
+    for (let y = 7; y <= 8; y++) cls[y][10] = 'w';
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+        const r = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        r.setAttribute('x', ox + x * S); r.setAttribute('y', oy + y * S);
+        r.setAttribute('width', S); r.setAttribute('height', S);
+        r.setAttribute('class', cls[y][x]);
+        g.appendChild(r);
+    }
+})();
+</script>
+
+<p>explore_lite 大約每 3 秒做一次這四步：</p>
+<ol>
+    <li><strong>找邊界格</strong>：掃整張地圖，凡是「自己是空地、旁邊有未知格」的，就是邊界格（圖中橘色）。</li>
+    <li><strong>分群</strong>：相連的邊界格算同一段邊界。太短的（例如小於 0.3 公尺，比車還窄）直接丟掉，因為那通常是雜訊或車子鑽不進去的縫。</li>
+    <li><strong>打分數</strong>：<code>分數 ≈ 邊界越長越好 − 離車子越遠越扣分</code>。意思是「又近又大片」的未知區最值得去。</li>
+    <li><strong>派車</strong>：把分數最高那段邊界的中心點丟給 move_base 當目的地。開到附近時，光達已經看到原本未知的那片，邊界自然往後退或消失 → 回到第 1 步。</li>
+</ol>
+<p>如果某個目標一直開不到（例如 30 秒都沒有進展），explore_lite 會把它列入黑名單、改去下一個。
+當<strong>地圖上再也找不到夠大的邊界</strong>，它就停止派車——這就是「探索完成」。</p>
+
+<h3>3-4 move_base：司機怎麼開</h3>
+<p>move_base 拿到目的地後分兩層處理：<strong>全域規劃</strong>（navfn）在整張地圖上找一條不撞牆的路，像導航 App 畫路線；
+<strong>區域規劃</strong>（DWA）每秒試算很多種「速度＋轉向」組合，挑一個既沿著路線、又不會撞到眼前障礙的，送給輪子。
+地圖上的牆會被「加厚」（膨脹），讓路線跟牆保持距離。這套跟你的覆蓋任務用的是同一個 move_base。</p>
+
+<h3>3-5 開機自動：誰叫誰起床</h3>
+<p>Linux 開機後由 <strong>systemd</strong> 負責把該開的服務一個一個叫起來，我們的 <code>ccpp-launcher.service</code> 已經登記在裡面。
+新增的部分是：控制台起來後，先確認三件事都好了才啟動 ROS——</p>
+<ul>
+    <li><code>/dev/ttyACM0</code> 出現了（底盤板 OpenCR 的 USB）</li>
+    <li><code>/dev/ttyUSB0</code> 出現了（LDS 光達的 USB）</li>
+    <li>拿到網路 IP（ROS 需要用 IP 讓節點互相找到）</li>
+</ul>
+<p>沒等就直接開，常見的結果是 <code>turtlebot3_core</code> 連不上 OpenCR、光達沒資料，整套卡住。所以「等硬體」是開機自動化最重要的一步。</p>
+
+<!-- ═══════════════════════════════════════ -->
+<h2 id="s4"><span class="n">4</span>實作步驟（要改哪些檔案）</h2>
+
+<div class="box tip"><b>設計原則：沿用現在管 SLAM 的方式</b>
+現在 <code>map_server.py</code> 是用「子行程」開關 SLAM 的（<code>slam_launch()</code>／<code>slam_kill()</code>），網頁才能「重新建圖」。
+探索也照這個模式：由 map_server 開關 explore_lite。好處是 map_server 永遠知道「現在是不是在探索」，
+就能擋住探索中有人按搖桿或按「開始覆蓋」（兩個人同時搶方向盤是最危險的狀況）。</div>
+
+<ol class="steps-impl">
+<li><b>車上安裝套件</b>
+    <pre><code>sudo apt update
+sudo apt install ros-noetic-explore-lite ros-noetic-map-server
+rospack find explore_lite        <span class="c"># 有印出路徑就是裝好了</span></code></pre>
+    <p class="where">只要做一次。裝在車上，不屬於專案程式，不用同步。</p>
+</li>
+
+<li><b>先手動試一次 explore_lite（不改任何程式）</b>
+    <p>用手機按「啟動系統」，等地圖出現後，在車上另開一個終端機：</p>
+    <pre><code>rosrun explore_lite explore _robot_base_frame:=base_footprint \
+    _costmap_topic:=map _costmap_updates_topic:=map_updates \
+    _visualize:=false _planner_frequency:=0.33 _progress_timeout:=30.0 \
+    _potential_scale:=3.0 _gain_scale:=1.0 _min_frontier_size:=0.3</code></pre>
+    <p>車子應該會自己開始走。這一步先確認「套件本身在你的場地能動」，再開始寫程式，出問題比較好查。
+    按 Ctrl+C 停止。</p>
+    <div class="box warn"><b>參數白話</b>
+        <code>costmap_topic:=map</code> 直接看 SLAM 的地圖找邊界；<code>planner_frequency 0.33</code> 每 3 秒重新挑一次目標；
+        <code>progress_timeout 30</code> 30 秒沒進展就放棄這個目標；<code>potential_scale</code> 越大越在意「近」，
+        <code>gain_scale</code> 越大越在意「大片」；<code>min_frontier_size</code> 小於這長度（公尺）的邊界不理它。</div>
+</li>
+
+<li><b>改 <code>map_server.py</code>：加「探索模式」</b>
+    <p class="where">新增的東西照現有 SLAM 管理的寫法放在同一區。</p>
+    <ul>
+        <li><code>explore_launch()</code>／<code>explore_kill()</code>：跟 <code>slam_launch()</code> 一樣，用 <code>subprocess.Popen(..., preexec_fn=os.setsid)</code> 開 explore_lite，停止時送 SIGINT。</li>
+        <li>狀態：<code>cov_status['state']</code> 多一種 <code>'exploring'</code>。現有的互斥規則是「不是 running 就能遙控」，要改成「<strong>running 和 exploring 都不能遙控、也不能開始覆蓋</strong>」。</li>
+        <li>新路由：<code>POST /explore/start</code>、<code>POST /explore/stop</code>，<code>/coverage/status</code> 多回傳探索進度。</li>
+        <li><strong>判斷探索完成</strong>：在 <code>map_callback()</code> 已經拿到地圖陣列，順手數「邊界格」有幾個（空地且四周有未知）。
+            連續 20 秒都少於門檻（例如 10 格），或已知面積 60 秒都沒有增加，就判定完成。自己算比去讀 explore_lite 的訊息可靠，網頁也能顯示「剩幾段邊界」。</li>
+        <li><strong>完成後</strong>：停 explore_lite → 存圖（下一步）→ 送 move_base 目標回到起點 (0, 0) → 狀態回到 idle，可以接著按「開始覆蓋」。</li>
+        <li><strong>參數</strong>：加 <code>~auto_explore</code>（預設 false）。為 true 時，SLAM 開好、第一張地圖進來後等 10 秒自動 <code>explore_launch()</code>。</li>
+    </ul>
+    <pre><code><span class="c"># 判斷邊界格的核心只要幾行（free/unknown 是由 /map 轉成的布林陣列）</span>
+from scipy.ndimage import binary_dilation
+frontier = free &amp; binary_dilation(unknown)      <span class="c"># 自己是空地、旁邊碰到未知</span>
+n_frontier = int(frontier.sum())</code></pre>
+</li>
+
+<li><b>存地圖</b>
+    <pre><code>rosrun map_server map_saver -f ~/catkin_ws/src/turtlebot3_ccpp/maps/explore_20261110_153000</code></pre>
+    <p>在 map_server.py 裡用 <code>subprocess.run()</code> 呼叫，檔名用時間戳。會產生 <code>.pgm</code>（地圖影像）和 <code>.yaml</code>（解析度、原點）。
+    <code>maps/</code> 已經在 <code>.gitignore</code>，也不在同步範圍，不會被同步腳本刪掉。</p>
+</li>
+
+<li><b>改 <code>start.launch</code>：把開關傳下去</b>
+    <pre><code>&lt;arg name="auto_explore" default="false" /&gt;
+...
+&lt;node pkg="turtlebot3_ccpp" type="map_server.py" name="map_server" output="screen"&gt;
+    ...
+    &lt;param name="auto_explore" value="$(arg auto_explore)" /&gt;
+&lt;/node&gt;</code></pre>
+    <p>手動啟動時預設不探索，行為跟現在一樣；只有 <code>auto_explore:=true</code> 才會自己跑。</p>
+</li>
+
+<li><b>改 <code>launcher.py</code>：開機自動啟動</b>
+    <ul>
+        <li>設定檔 <code>~/.ros/ccpp_launcher/config.json</code>，例如 <code>{"autostart": true, "auto_explore": true, "model": "burger"}</code>。
+            放在車上家目錄，不放專案資料夾，同步程式時不會被蓋掉。</li>
+        <li>控制台啟動時讀設定；<code>autostart</code> 為 true 就開一條執行緒：每秒檢查 <code>/dev/ttyACM0</code>、<code>/dev/ttyUSB0</code>、IP，
+            全部就緒後再多等 5 秒，呼叫現有的 <code>start()</code>，多帶 <code>auto_explore:=true</code>。最多等 3 分鐘，等不到就放棄並在頁面上顯示原因。</li>
+        <li>新增 <code>GET/POST /api/config</code> 讓手機能切換開關。</li>
+    </ul>
+</li>
+
+<li><b>改 <code>launcher.html</code>：手機上看得到、關得掉</b>
+    <ul>
+        <li>「操作」頁：自動覆蓋上方加「自動建圖」卡片：開始／停止按鈕、已知面積、剩餘邊界數、探索時間。</li>
+        <li>頂端三步驟的「② 遙控建圖」改成「② 建圖」，提示文字依狀態寫「自動建圖中…」。</li>
+        <li>「系統」頁：加兩個開關「開機自動啟動系統」「啟動後自動建圖」。</li>
+    </ul>
+</li>
+
+<li><b>commit → push → 同步到車上 → 補 devlog</b>
+    <pre><code>git add scripts launch web
+git commit -m "feat(explore): 開機自動建圖（frontier 探索）"
+git push origin rebuild
+bash tools/sync_to_robot.sh</code></pre>
+</li>
+</ol>
+
+<!-- ═══════════════════════════════════════ -->
+<h2 id="s5"><span class="n">5</span>安全與防呆</h2>
+<p>開機就會自己跑，代表<strong>可能沒有人在旁邊</strong>。以下幾條建議一起做：</p>
+<div class="tbl"><table>
+    <tr><th>風險</th><th>白話</th><th>對策</th></tr>
+    <tr><td>一上電就衝出去</td><td>放在桌上充電、搬運途中開機，車子突然開始走</td>
+        <td>開機自動建圖預設<strong>關閉</strong>，要在手機上主動打開；開始探索前等 10 秒、手機頁顯示倒數，可按停止。</td></tr>
+    <tr><td>兩個人搶方向盤</td><td>探索中又按搖桿或開始覆蓋</td>
+        <td>map_server 用 <code>exploring</code> 狀態擋掉遙控與覆蓋（同現在覆蓋中鎖搖桿的做法）。</td></tr>
+    <tr><td>永遠走不完</td><td>門沒關、場地有出口，未知區一直有</td>
+        <td>設最長探索時間（例如 10 分鐘）與最大距離起點範圍，超過就停止並存圖。</td></tr>
+    <tr><td>電池耗盡</td><td>Burger 的電池約 11.1 V，低於約 11 V 就該停</td>
+        <td>控制台已經在讀電壓；低於門檻就停止探索、存圖、提示充電。</td></tr>
+    <tr><td>撞到東西</td><td>光達只看得到約 12 公分高度那一圈，矮的東西看不到</td>
+        <td>探索時把速度上限調低（DWA 的 <code>max_vel_x</code>），場地先清掉低矮雜物；第一次測試一定要有人在旁邊。</td></tr>
+    <tr><td>地圖畫歪</td><td>開太快、轉太急時 SLAM 容易對不上</td>
+        <td>同上，降低速度與角速度；長走廊、空曠大廳特徵少，容易歪，屬於 gmapping 的天生限制。</td></tr>
+</table></div>
+
+<!-- ═══════════════════════════════════════ -->
+<h2 id="s6"><span class="n">6</span>怎麼測試</h2>
+<ol>
+    <li><strong>先手動跑 explore_lite</strong>（第 4 章第 2 步），確認車子在你的場地會自己走、會停。</li>
+    <li><strong>網頁按鈕觸發探索</strong>：還沒開機自動，先用手機按「自動建圖」，確認可以中途停止、停止後搖桿恢復可用。</li>
+    <li><strong>完成判定</strong>：小場地（例如用紙箱圍 2 m × 3 m 長方形）跑到結束，確認會停、會存圖、會回起點。</li>
+    <li><strong>開機自動</strong>：打開開關後重開機（手機頁「重新開機」），從上電計時，記錄「多久開始動」「多久完成」。</li>
+    <li><strong>異常情況</strong>：拔掉光達 USB 開機（應該等待並顯示原因、不會亂跑）；探索中按停止；探索中電壓過低（可以暫時把門檻調高來模擬）。</li>
+    <li>每一次測試的結果寫進 <code>docs/05_開發日志/CHANGELOG.md</code>。</li>
+</ol>
+
+<!-- ═══════════════════════════════════════ -->
+<h2 id="s7"><span class="n">7</span>常見問題</h2>
+<h3>Q：為什麼不自己寫探索演算法？</h3>
+<p>找邊界本身很簡單（第 4 章的三行），難的是「目標開不到怎麼辦、要不要換、什麼時候放棄」這些細節。
+explore_lite 已經處理好又很輕量（它不自己算 costmap，直接讀現有地圖），在樹莓派上跑得動。我們只自己寫「判斷完成」，因為要顯示進度、決定何時存圖。</p>
+<h3>Q：建完圖可以直接接著自動覆蓋嗎？</h3>
+<p>可以。探索完成後狀態回到 idle，地圖和車子位置都還在，按「開始」就會用這張地圖規劃覆蓋路徑。
+之後也可以做成「建完圖自動開始覆蓋」，但建議先人工確認地圖沒歪再按。</p>
+<h3>Q：場地是正方形可以嗎？</h3>
+<p>建圖沒問題；但覆蓋規劃用 PCA 找主軸，正方形會讓主軸方向不穩定，覆蓋效果退化。建圖跟覆蓋是兩件事，這點不影響本文的探索。</p>
+<h3>Q：IP 變了怎麼辦？</h3>
+<p>控制台每次啟動都會用車子當下的 IP 設定 ROS，自動啟動也一樣，所以換熱點不用改設定；只是手機要用新 IP 開頁面。</p>
+<h3>Q：探索中想停下來怎麼辦？</h3>
+<p>手機頁「停止」會讓 map_server 收掉 explore_lite 並送零速度；或直接在「系統」頁停止整套系統。
+後端本來就有「0.6 秒沒收到指令就停車」的保護，但那是給遙控用的；探索是 move_base 在開，所以一定要從頁面按停止。</p>
+
+<footer>TurtleBot3 CCPP 專題 · 開機自動建圖說明 · 2026-11-10 · 這份文件只是規劃，以上程式尚未實作。</footer>
+</div>
+</body>
+</html>

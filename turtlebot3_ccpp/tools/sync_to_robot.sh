@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # 在本地（Windows Git Bash / Linux）執行：把「已 commit」的實作程式同步到車上。
 #
-#   bash tools/sync_to_robot.sh            # 同步 HEAD
-#   bash tools/sync_to_robot.sh --build    # 同步後在車上跑 catkin_make
-#   ROBOT=ubuntu@192.168.0.50 bash tools/sync_to_robot.sh   # 換車子 IP
+#   bash turtlebot3_ccpp/tools/sync_to_robot.sh            # 同步 HEAD
+#   bash turtlebot3_ccpp/tools/sync_to_robot.sh --build    # 同步後在車上跑 catkin_make
+#   ROBOT=ubuntu@192.168.0.50 bash turtlebot3_ccpp/tools/sync_to_robot.sh   # 換車子 IP
+#
+# 本地 repo 的 turtlebot3_ccpp/ 資料夾 ＝ 車上 ~/catkin_ws/src/turtlebot3_ccpp（一對一）。
 #
 # 規則：
 #   - 只同步實作程式（下面 PATHS），文件不上車。
@@ -15,23 +17,24 @@ set -euo pipefail
 
 ROBOT="${ROBOT:-ubuntu@172.20.10.5}"
 DEST='catkin_ws/src/turtlebot3_ccpp'
-PATHS=(scripts launch web test tools CMakeLists.txt package.xml)
+PKG='turtlebot3_ccpp'                       # repo 內的套件資料夾
+PATHS=(scripts launch web test tools CMakeLists.txt package.xml)   # 相對於套件資料夾
 BUILD=0
 [[ "${1:-}" == "--build" ]] && BUILD=1
 
 cd "$(git rev-parse --show-toplevel)"
 
-if [[ -n "$(git status --porcelain -- "${PATHS[@]}")" ]]; then
+if [[ -n "$(git status --porcelain -- "${PATHS[@]/#/$PKG/}")" ]]; then
     echo "✗ 以下程式有未 commit 的變更，請先 commit 再同步："
-    git status --short -- "${PATHS[@]}"
+    git status --short -- "${PATHS[@]/#/$PKG/}"
     exit 1
 fi
 
 REV="$(git rev-parse --short HEAD)"
-FILES="$(git ls-tree -r --name-only HEAD -- "${PATHS[@]}")"
+FILES="$(git ls-tree -r --name-only "HEAD:$PKG" -- "${PATHS[@]}")"
 echo "→ 同步 $REV 到 $ROBOT:~/$DEST"
 
-git archive --format=tar HEAD -- "${PATHS[@]}" | ssh -o ConnectTimeout=8 "$ROBOT" "
+git archive --format=tar "HEAD:$PKG" -- "${PATHS[@]}" | ssh -o ConnectTimeout=8 "$ROBOT" "
     set -e
     cd ~/$DEST
     tar xf -

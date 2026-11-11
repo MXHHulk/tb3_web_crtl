@@ -58,8 +58,8 @@ docs/
 **實測數據可用一行指令重現**：
 
 ```bash
-python3 test/coverage_bench.py                    # 14 種場地的總表
-python3 test/coverage_bench.py --detail 斜置30度   # 單一場地的逐帶診斷
+python3 turtlebot3_ccpp/test/coverage_bench.py                  # 14 種場地的總表
+python3 turtlebot3_ccpp/test/coverage_bench.py --detail 斜置30度   # 單一場地的逐帶診斷
 ```
 
 ## 02_論文
