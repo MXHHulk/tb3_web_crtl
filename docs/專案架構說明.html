@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>專案架構說明</title>
+<style>
+:root {
+    --bg: #fbfaf8; --card: #ffffff; --ink: #1c1917; --ink2: #57534e; --ink3: #8b857e;
+    --line: #e3ded6; --accent: #0d6d72; --accent-bg: #e6f2f2; --warn: #a1621a; --warn-bg: #fbf1e3;
+    --ok: #2f7a3b; --ok-bg: #e9f5eb; --code: #f4f2ee; --plan: #6b4fa0; --plan-bg: #f0ebf8;
+}
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+        --bg: #14161a; --card: #1b1e24; --ink: #ece9e4; --ink2: #b3aea6; --ink3: #847f78;
+        --line: #2e323a; --accent: #4fb3b8; --accent-bg: #16302f; --warn: #e0a85a; --warn-bg: #2f2516;
+        --ok: #7cc98a; --ok-bg: #18301c; --code: #22262d; --plan: #b49be0; --plan-bg: #261f33;
+    }
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--ink);
+       font: 16px/1.75 -apple-system, 'Segoe UI', 'Noto Sans TC', 'PingFang TC', 'Microsoft JhengHei', sans-serif; }
+.wrap { max-width: 900px; margin: 0 auto; padding: 32px 16px 80px; }
+h1 { font-size: 1.9em; line-height: 1.3; margin: 0 0 6px; }
+.sub { color: var(--ink2); margin: 0 0 24px; }
+h2 { font-size: 1.35em; margin: 48px 0 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+h2 .n { display: inline-block; min-width: 1.8em; color: var(--accent); }
+h3 { font-size: 1.08em; margin: 26px 0 6px; }
+p { margin: 8px 0; }
+ul, ol { padding-left: 1.4em; margin: 8px 0; }
+li { margin: 4px 0; }
+code { font: .88em ui-monospace, Menlo, Consolas, monospace; background: var(--code); padding: 1px 6px; border-radius: 4px; }
+pre { background: var(--code); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; overflow-x: auto;
+      font: .84em/1.55 ui-monospace, Menlo, Consolas, monospace; margin: 10px 0; }
+pre code { background: none; padding: 0; font-size: 1em; }
+.c { color: var(--ink3); }
+nav.toc { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px 16px; }
+nav.toc b { font-size: .85em; color: var(--ink3); }
+nav.toc ol { margin: 6px 0 0; columns: 2; column-gap: 28px; }
+@media (max-width: 620px) { nav.toc ol { columns: 1; } h1 { font-size: 1.55em; } }
+nav.toc a { color: var(--accent); text-decoration: none; }
+.box { border-radius: 10px; padding: 12px 14px; margin: 14px 0; border: 1px solid var(--line); background: var(--card); }
+.box.tip  { background: var(--accent-bg); border-color: transparent; }
+.box.warn { background: var(--warn-bg); border-color: transparent; }
+.box.plan { background: var(--plan-bg); border-color: transparent; }
+.box > b:first-child { display: block; margin-bottom: 2px; }
+.tbl { overflow-x: auto; margin: 12px 0; }
+table { border-collapse: collapse; width: 100%; font-size: .92em; }
+th, td { border-bottom: 1px solid var(--line); padding: 8px 8px; text-align: left; vertical-align: top; }
+th { color: var(--ink3); font-weight: 600; font-size: .9em; white-space: nowrap; }
+td:first-child { white-space: nowrap; }
+.tag { display: inline-block; font-size: .78em; font-weight: 700; padding: 1px 8px; border-radius: 999px; white-space: nowrap; }
+.t-ok { background: var(--ok-bg); color: var(--ok); }
+.t-wip { background: var(--warn-bg); color: var(--warn); }
+.t-plan { background: var(--plan-bg); color: var(--plan); }
+figure { margin: 16px 0; }
+figure svg { width: 100%; height: auto; display: block; }
+figcaption { color: var(--ink3); font-size: .86em; margin-top: 6px; }
+.flow { display: grid; gap: 8px; margin: 16px 0; }
+.flow .s { display: grid; grid-template-columns: 40px 1fr; gap: 10px; align-items: start;
+           background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+.flow .s .i { width: 32px; height: 32px; border-radius: 50%; background: var(--accent); color: #fff;
+              display: flex; align-items: center; justify-content: center; font-weight: 700; }
+.flow .s b { display: block; }
+.flow .s span { color: var(--ink2); font-size: .93em; }
+.kpi { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 14px 0; }
+.kpi div { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+.kpi b { display: block; font-size: 1.5em; font-variant-numeric: tabular-nums; }
+.kpi span { color: var(--ink3); font-size: .85em; }
+footer { margin-top: 56px; color: var(--ink3); font-size: .85em; border-top: 1px solid var(--line); padding-top: 12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>TurtleBot3 牛耕式完全覆蓋：專案架構說明</h1>
+<p class="sub">給「隔一陣子回來、要馬上搞懂這個專案現在長怎樣」的人看。用白話說明每個零件做什麼、資料怎麼流、
+車子實際怎麼跑完一個場地，以及接下來打算怎麼改。內容對應 2026-11-11 的程式（車上版本 <code>26f1a1f</code>）。</p>
+
+<nav class="toc">
+    <b>目錄</b>
+    <ol>
+        <li><a href="#s1">一句話介紹與目前成果</a></li>
+        <li><a href="#s2">硬體與軟體</a></li>
+        <li><a href="#s3">資料夾：本地 ↔ 車上</a></li>
+        <li><a href="#s4">一次完整任務怎麼跑</a></li>
+        <li><a href="#s5">系統架構圖</a></li>
+        <li><a href="#s6">每個程式檔做什麼</a></li>
+        <li><a href="#s7">覆蓋路徑怎麼規劃</a></li>
+        <li><a href="#s8">車子怎麼照路線開</a></li>
+        <li><a href="#s9">紀錄檔與怎麼分析</a></li>
+        <li><a href="#s10">重要參數速查</a></li>
+        <li><a href="#s11">改程式的流程</a></li>
+        <li><a href="#s12">已知問題與未來規劃</a></li>
+    </ol>
+</nav>
+
+<!-- ═══════════════════════════════════════ -->
+<h2 id="s1"><span class="n">1</span>一句話介紹與目前成果</h2>
+<p>一台 TurtleBot3 Burger 掃地機器人原型：<strong>自己畫出場地地圖 → 自己規劃「來回掃」的路線 → 自己照路線開完整個場地</strong>，
+用手機瀏覽器就能啟動、觀察與停止。「牛耕式」就是像牛犁田一樣一來一回地掃。</p>
+
+<p>2026-11-11 在 1.06 × 1.47 m 的紙箱場地（中間放一個箱子當障礙）實測，同一個場地前後兩版的比較：</p>
+<div class="kpi">
+    <div><b>71% → 97.7%</b><span>實際覆蓋率（以車身寬計）</span></div>
+    <div><b>436 → 322 秒</b><span>執行時間（路線還變長一倍）</span></div>
+    <div><b>1127 → 209</b><span>導航「找不到可走軌跡」次數</span></div>
+    <div><b>35 / 35 → 83 / 83</b><span>路點全部到達、零跳過</span></div>
+</div>
+<p class="c">之後又把剩下會卡住的「跨區移動」也改成自己開（<code>26f1a1f</code>），模擬驗證過，尚未實車跑。</p>
+
+<!-- ═══════════════════════════════════════ -->
+<h2 id="s2"><span class="n">2</span>硬體與軟體</h2>
+<div class="tbl"><table>
+    <tr><th>東西</th><th>白話說明</th></tr>
+    <tr><td>TurtleBot3 Burger</td><td>圓形小車，寬約 18 cm，兩輪差速（左右輪轉速不同就會轉彎），最高 0.22 m/s。</td></tr>
+    <tr><td>樹莓派 4（Ubuntu 20.04）</td><td>車上的電腦，所有程式都在這裡跑。IP 由手機熱點分配，目前是 <code>172.20.10.5</code>。</td></tr>
+    <tr><td>OpenCR 底盤板</td><td>控制馬達、讀輪子轉了多少（里程）、量電池電壓。USB 接在 <code>/dev/ttyACM0</code>。</td></tr>
+    <tr><td>LDS-01 光達</td><td>頭頂會轉的雷射，每秒轉 5 圈、每圈量 360 個方向的距離（0.12～3.5 m）。USB 在 <code>/dev/ttyUSB0</code>。</td></tr>
+    <tr><td>ROS Noetic</td><td>機器人程式的「框架」：每個功能是一個節點，節點之間用話題（topic）傳資料。</td></tr>
+    <tr><td>gmapping</td><td>SLAM 套件：邊走邊畫地圖，同時算出車子在地圖上的位置。</td></tr>
+    <tr><td>move_base</td><td>ROS 標準導航：給目的地就會規劃路線並開過去。我們現在主要只借它「算路線」，開車改自己來（第 8 章）。</td></tr>
+    <tr><td>explore_lite</td><td>自動建圖用：找出地圖上「看過」與「沒看過」的交界（邊界），叫車子開過去看。</td></tr>
+    <tr><td>Flask</td><td>Python 的網頁伺服器，車上兩個網頁都靠它。</td></tr>
+</table></div>
+
+<!-- ═══════════════════════════════════════ -->
+<h2 id="s3"><span class="n">3</span>資料夾：本地 ↔ 車上</h2>
+<pre><code>turtlebot3_ccpp_local/                 ← 本地 git repo（D:\coding_place\...）
+├── turtlebot3_ccpp/   ★ 車上跑的全部程式，＝ 車上 ~/catkin_ws/src/turtlebot3_ccpp（一對一）
+│   ├── scripts/
+│   │   ├── launcher.py         車上控制台（port 8000，開機就跑）
+│   │   ├── map_server.py       主節點：地圖、建圖、規劃、執行、網頁 API（port 8080）
+│   │   └── coverage_planner.py 覆蓋路徑演算法（純 Python，不依賴 ROS）
+│   ├── launch/
+│   │   ├── start.launch        一鍵啟動：底盤＋光達＋move_base＋map_server
+│   │   └── slam_gmapping.launch 本專案版 SLAM（由 map_server 開關）
+│   ├── config/gmapping_params.yaml  SLAM 參數（比官方版不容易留下假障礙）
+│   ├── web/
+│   │   ├── launcher.html       手機版（8000）：操作／數據／系統三分頁
+│   │   └── index.html          電腦版（8080）：寬螢幕側欄
+│   ├── tools/                  同步腳本、開機服務
+│   ├── test/                   量測與離線評估工具（不在正式流程）
+│   └── maps/、data/            地圖與執行紀錄（車上產生，不進版控、不同步）
+├── docs/              文件（不上車）
+└── README.md          資料夾說明與改程式流程</code></pre>
+<div class="box tip"><b>同步規則</b>
+本地是唯一正本。改完程式先 commit，再跑 <code>bash turtlebot3_ccpp/tools/sync_to_robot.sh</code>：
+它只送「已 commit」的內容（未 commit 會拒絕），車上 HEAD 已經沒有的舊檔會刪掉，車上 <code>.synced_commit</code> 記錄目前版本。
+<code>maps/</code>、<code>data/</code> 不在同步範圍，不會被動到。</div>
+
+<!-- ═══════════════════════════════════════ -->
+<h2 id="s4"><span class="n">4</span>一次完整任務怎麼跑</h2>
+<div class="flow">
+    <div class="s"><div class="i">0</div><div><b>上電</b><span>Ubuntu 開機約 1 分鐘；systemd 自動啟動車上控制台 <code>ccpp-launcher</code>（port 8000）。手機連同一個熱點，開 <code>http://172.20.10.5:8000</code>。</span></div></div>
+    <div class="s"><div class="i">1</div><div><b>啟動系統</b><span>按「啟動系統」→ 控制台用車子當下的 IP 設好 ROS 網路，執行 <code>roslaunch turtlebot3_ccpp start.launch</code>。約 40 秒後地圖出現。（也可在「系統」頁設定開機自動啟動。）</span></div></div>
+    <div class="s"><div class="i">2</div><div><b>建圖</b><span>按「自動建圖」：explore_lite 帶車子把沒看過的地方都看一遍，完成後存地圖、開回起點。也可以用搖桿自己開一圈。</span></div></div>
+    <div class="s"><div class="i">3</div><div><b>自動覆蓋</b><span>按「開始」：用當下地圖規劃牛耕路線（含最後一圈外圈），車子照路線開完。網頁綠色帶＝實際掃過的範圍。</span></div></div>
+    <div class="s"><div class="i">4</div><div><b>看結果</b><span>「數據」頁看覆蓋率等指標；完整紀錄在車上 <code>data/</code>（第 9 章）。</span></div></div>
+    <div class="s"><div class="i">5</div><div><b>收工</b><span>「系統」頁按「停止」，拔電前按「關機」等綠燈不閃。</span></div></div>
+</div>
+
+<!-- ═══════════════════════════════════════ -->
+<h2 id="s5"><span class="n">5</span>系統架構圖</h2>
+<figure>
+<svg viewBox="0 0 860 470" role="img" aria-label="系統架構：手機連到控制台，控制台啟動 ROS，map_server 管理 SLAM、探索與覆蓋執行">
+    <defs>
+        <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="var(--ink2)"/></marker>
+    </defs>
+    <style>
+        .bx { fill: var(--card); stroke: var(--line); stroke-width: 1.5; }
+        .bx.me { stroke: var(--accent); stroke-width: 2; }
+        .grp { fill: none; stroke: var(--line); stroke-width: 1.5; stroke-dasharray: 6 5; }
+        .t1 { font: 700 14px sans-serif; fill: var(--ink); text-anchor: middle; }
+        .t2 { font: 12px sans-serif; fill: var(--ink3); text-anchor: middle; }
+        .tg { font: 700 12px sans-serif; fill: var(--ink3); }
+        .tp { font: 11px ui-monospace, Menlo, monospace; fill: var(--accent); text-anchor: middle; }
+        .ln { stroke: var(--ink2); stroke-width: 1.5; fill: none; marker-end: url(#ar); }
+    </style>
+    <!-- 手機 -->
+    <rect class="bx" x="20" y="30" width="140" height="64" rx="10"/>
+    <text class="t1" x="90" y="58">手機瀏覽器</text><text class="t2" x="90" y="78">launcher.html</text>
+
+    <!-- 車上 -->
+    <rect class="grp" x="200" y="12" width="645" height="445" rx="14"/>
+    <text class="tg" x="215" y="34">樹莓派（車上）</text>
+
+    <rect class="bx me" x="225" y="45" width="170" height="64" rx="10"/>
+    <text class="t1" x="310" y="72">launcher.py :8000</text><text class="t2" x="310" y="92">控制台（開機常駐）</text>
+
+    <rect class="grp" x="225" y="140" width="605" height="300" rx="12"/>
+    <text class="tg" x="240" y="162">roslaunch start.launch（按「啟動系統」才有）</text>
+
+    <rect class="bx me" x="250" y="180" width="200" height="74" rx="10"/>
+    <text class="t1" x="350" y="208">map_server.py :8080</text><text class="t2" x="350" y="228">地圖・規劃・執行・API</text>
+    <text class="t2" x="350" y="244">coverage_planner.py</text>
+
+    <rect class="bx" x="500" y="180" width="140" height="56" rx="10"/>
+    <text class="t1" x="570" y="204">gmapping</text><text class="t2" x="570" y="222">SLAM（子行程）</text>
+    <rect class="bx" x="665" y="180" width="140" height="56" rx="10"/>
+    <text class="t1" x="735" y="204">explore_lite</text><text class="t2" x="735" y="222">自動建圖（子行程）</text>
+
+    <rect class="bx" x="665" y="290" width="140" height="56" rx="10"/>
+    <text class="t1" x="735" y="314">move_base</text><text class="t2" x="735" y="332">算路線（＋備援開車）</text>
+
+    <rect class="bx" x="250" y="360" width="160" height="56" rx="10"/>
+    <text class="t1" x="330" y="384">turtlebot3_core</text><text class="t2" x="330" y="402">OpenCR：輪子、電池</text>
+    <rect class="bx" x="500" y="360" width="140" height="56" rx="10"/>
+    <text class="t1" x="570" y="384">LDS 驅動</text><text class="t2" x="570" y="402">光達</text>
+
+    <!-- 連線 -->
+    <path class="ln" d="M160 62 H222"/><text class="tp" x="191" y="54">HTTP</text>
+    <path class="ln" d="M310 109 V177"/><text class="tp" x="352" y="135">啟動／停止、轉接 API</text>
+    <path class="ln" d="M450 205 H497"/><text class="tp" x="474" y="197">開關</text>
+    <path class="ln" d="M450 225 C 560 160, 650 160, 690 177"/>
+    <path class="ln" d="M610 236 V266 H700 V287"/><text class="tp" x="652" y="260">/map</text>
+    <path class="ln" d="M770 236 V287"/><text class="tp" x="800" y="266">目標</text>
+    <path class="ln" d="M350 254 V357"/><text class="tp" x="384" y="320">/cmd_vel</text>
+    <path class="ln" d="M665 330 H470 V258"/><text class="tp" x="520" y="322">路線</text>
+    <path class="ln" d="M570 360 V239"/><text class="tp" x="600" y="352">/scan</text>
+</svg>
+<figcaption>藍綠框是本專案寫的程式，其餘是 ROS 現成套件。手機只開 8000 一個網址，8000 會把地圖、覆蓋、遙控的請求轉給 8080。</figcaption>
+</figure>
+
+<h3>為什麼分成兩個網頁伺服器？</h3>
+<p><strong>8000（launcher.py）</strong>不依賴 ROS，車子一開機就在，負責「把整套 ROS 開起來、關掉、看狀態、關機」。
+<strong>8080（map_server.py）</strong>是 ROS 節點，ROS 開起來才有，負責地圖與任務。手機頁只連 8000，8000 再轉接給 8080，所以使用者只要記一個網址。</p>
+
+<h3>為什麼 SLAM 與探索由 map_server 用「子行程」開關？</h3>
+<p>這樣網頁上按「重新建圖」可以只重開 SLAM，不必整套重啟；map_server 也永遠知道「現在是不是在自動建圖」，
+才能擋住「建圖中有人按搖桿或開始覆蓋」這種兩邊搶方向盤的狀況（模式互斥）。</p>
+
+<!-- ═══════════════════════════════════════ -->
+<h2 id="s6"><span class="n">6</span>每個程式檔做什麼</h2>
+<div class="tbl"><table>
+    <tr><th>檔案</th><th>白話說明</th></tr>
+    <tr><td><code>launcher.py</code></td><td>
+        車上控制台。啟動／停止 roslaunch（停止時先送 Ctrl+C 讓車子停好再關）；偵測從終端機手動開的系統；
+        讀電池、溫度、節點；保存 roslaunch 日誌；開機自動啟動（只在真的剛開機時，且先等底盤板、光達、網路都到齊）；
+        安全關機；轉接 8080 的 API（白名單）。</td></tr>
+    <tr><td><code>map_server.py</code></td><td>
+        專案的大腦，分幾塊：<br>
+        ・<b>地圖</b>：收 SLAM 的 <code>/map</code>，產生原圖、安全邊距、雜點等圖層，算已知面積與剩餘邊界。<br>
+        ・<b>SLAM 生命週期</b>：開關 gmapping、重新建圖。<br>
+        ・<b>自動建圖</b>：開關 explore_lite，判斷完成（沒邊界／90 秒沒變大／10 分鐘／電池低）、存地圖、回起點、寫紀錄。<br>
+        ・<b>覆蓋執行</b>：呼叫規劃、逐點執行（直線循跡／自己導航／move_base 備援）、脫困、受困停止、寫紀錄。<br>
+        ・<b>遙控</b>：按住才動，0.6 秒沒收到指令自動停車；自動模式中鎖住。<br>
+        ・<b>網頁 API</b>：地圖 PNG、車子位置、覆蓋狀態、開始／停止…</td></tr>
+    <tr><td><code>coverage_planner.py</code></td><td>
+        純演算法：去雜點 → 安全邊距 → PCA 找場地主軸 → 切掃描帶 → cell 分解 → 每個 cell 蛇行 → 決定 cell 順序 → 外圈。
+        不依賴 ROS，可以在電腦上單獨測（<code>test/coverage_bench.py</code>）。</td></tr>
+    <tr><td><code>start.launch</code></td><td>開底盤與光達、move_base（含本專案的參數覆寫），以及 map_server。</td></tr>
+    <tr><td><code>slam_gmapping.launch</code> ＋ <code>gmapping_params.yaml</code></td><td>本專案版 SLAM：障礙判定門檻較嚴、更新較頻繁，減少假障礙。</td></tr>
+    <tr><td><code>launcher.html</code></td><td>手機版：頂端三步驟與「下一步」提示；「操作」頁地圖＋自動建圖＋自動覆蓋＋搖桿；「數據」頁指標與車況；「系統」頁啟停、開機設定、日誌、電源。</td></tr>
+    <tr><td><code>index.html</code></td><td>電腦版，功能與手機版的地圖／覆蓋／遙控相同，畫面較寬。</td></tr>
+    <tr><td><code>tools/sync_to_robot.sh</code></td><td>把已 commit 的程式同步到車上（第 3 章）。</td></tr>
+    <tr><td><code>tools/ccpp-launcher.service</code>、<code>install_launcher.sh</code></td><td>讓控制台開機自動執行；重啟控制台不會連帶關掉正在跑的系統。</td></tr>
+</table></div>
+
+<!-- ═══════════════════════════════════════ -->
+<h2 id="s7"><span class="n">7</span>覆蓋路徑怎麼規劃</h2>
+<ol>
+    <li><b>去雜點</b>：SLAM 偶爾會在空地留下一兩格假障礙；不超過 3 格、沒連到其他障礙的點，規劃時當作空地（網頁黃點）。</li>
+    <li><b>安全邊距</b>：把障礙往外加厚 10 cm（約車身半寬），剩下的才是「車子中心可以到的地方」。</li>
+    <li><b>找主軸（PCA）</b>：算出可走區最長的方向，掃描線沿著它走，換線次數最少。場地要是長方形才有明顯主軸。</li>
+    <li><b>切掃描帶</b>：沿短邊每 14 cm 切一條線（車身寬 18 cm，重疊約 20%，走歪一點也不會留縫）。線的兩端各縮 9 cm，留空間轉身。</li>
+    <li><b>cell 分解</b>：遇到障礙時，一條線會被切成兩段；「分岔」或「合併」的地方就是區塊邊界，整個場地被分成幾個 cell，每個 cell 內部可以一路蛇行。</li>
+    <li><b>決定順序</b>：從車子目前位置開始，每次挑最近的 cell 先掃。</li>
+    <li><b>外圈</b>：最後沿可走區邊緣往內一格（中心離牆約 15 cm）繞一圈。</li>
+</ol>
+
+<div class="box tip"><b>為什麼跑完 cell 還要多繞一圈？</b>
+蛇行的掃描線有兩個先天的空隙：<br>
+① <b>線頭線尾</b>：每條線兩端各縮 9 cm 讓車子有空間原地轉身，所以兩端的短牆邊有一條沒掃到的帶。<br>
+② <b>最外側</b>：第一條、最後一條線離可走區邊緣半個線距。<br>
+小場地裡這圈牆邊佔的比例很大。用第二次實測地圖試算（以車身寬計）：只有蛇行 92.8%，加上外圈 100%；
+實車跑出來規劃 99.4%、實際 97.7%。外圈放在最後，是因為它是一整圈連續的路，從蛇行結束點最近的地方接上去最省路；
+也可以改成「先繞外圈再蛇行」（很多掃地機器人是先沿邊），列在未來規劃。</div>
+
+<!-- ═══════════════════════════════════════ -->
+<h2 id="s8"><span class="n">8</span>車子怎麼照路線開</h2>
+<p>每個路點都標了「怎麼到達」：<b>line</b>（從上一點直線開過來：掃描線、換線、外圈的一段）或
+<b>move</b>（要換到另一個 cell 或外圈起點，中間可能隔著障礙）。執行時依序嘗試，前一種失敗才換下一種：</p>
+<div class="tbl"><table>
+    <tr><th>順序</th><th>方式</th><th>白話</th></tr>
+    <tr><td>1</td><td><b>直線循跡</b><br><code>_follow_line</code></td><td>
+        先原地轉正，再沿線直行；邊走邊看「方向差多少、偏離線多遠」修正方向盤；接近線尾減速。
+        前方 ±20° 雷射小於 13 cm、或 3 秒沒進展就放棄交給下一種。只用在 line 且車子就在上一點旁。</td></tr>
+    <tr><td>2</td><td><b>自己導航</b><br><code>_drive_to</code></td><td>
+        從目前位置到目標的直線如果都在可走區內就直接直線開；否則向 move_base「要一條繞開障礙的路線」（只要路線，不讓它開車），
+        簡化成幾段直線後一段一段直線循跡。</td></tr>
+    <tr><td>3、4</td><td><b>move_base 開</b><br><code>_go_to</code></td><td>
+        最後備援，交給 move_base（含 DWA 區域控制器）開。第二次之前先「脫困」：前後找有空間的方向退開 12 cm、清除 costmap。</td></tr>
+</table></div>
+<p>全部失敗才跳過該點；<b>連續 3 點失敗且車子幾乎沒移動 → 判定受困、停下任務</b>，等人把車移開後按「繼續」（不會把剩下的點全跳光）。</p>
+
+<div class="box warn"><b>為什麼不全部交給 move_base？</b>
+move_base 的區域控制器（DWA）會一直評估「這樣轉會不會撞到」。在 1 m 寬的小場地，車子離牆 20 cm 它就可能判定轉身會撞而僵住；
+而且路點一換它就重新規劃，路線容易歪。實測一次覆蓋它失敗了 1127 次。改成自己控制後掃描線幾乎都是直的，
+最後一次實測只剩「跨區移動」會卡，因此 <code>26f1a1f</code> 把跨區也改成自己開，DWA 只留作最後備援。</div>
+
+<!-- ═══════════════════════════════════════ -->
+<h2 id="s9"><span class="n">9</span>紀錄檔與怎麼分析</h2>
+<p>都在車上 <code>~/catkin_ws/src/turtlebot3_ccpp/data/</code>（不同步、不進版控，用 scp 取回）：</p>
+<div class="tbl"><table>
+    <tr><th>檔案</th><th>內容</th></tr>
+    <tr><td><code>coverage_runs.csv</code></td><td>每次覆蓋結束一列：規劃／實際覆蓋率、完成率、跳過數、時間、規劃／實際路長、cell 數、雜點數…</td></tr>
+    <tr><td><code>coverage/&lt;任務&gt;_*</code></td><td><code>events.txt</code> 每個路點用哪種方式到達、花幾秒、改用備援的原因、跳過、受困；
+        <code>timeline.csv</code> 每秒位置與方式；<code>path.csv</code> 軌跡；<code>map.png</code> 地圖＋規劃線＋實際掃過範圍＋軌跡。</td></tr>
+    <tr><td><code>explore_runs.csv</code>、<code>explore/&lt;任務&gt;_*</code></td><td>自動建圖：結束原因、面積變化、走多遠、回起點誤差、事件、軌跡疊圖。</td></tr>
+    <tr><td><code>~/.ros/ccpp_launcher/*.log</code></td><td>每次啟動系統的完整文字日誌（保留最近 20 份）。看 move_base 警告、SLAM 分數、程式錯誤。</td></tr>
+    <tr><td><code>maps/explore_*.pgm/.yaml</code></td><td>自動建圖存下的地圖，可拿來在電腦上離線重算規劃。</td></tr>
+</table></div>
+<pre><code>scp -r ubuntu@172.20.10.5:catkin_ws/src/turtlebot3_ccpp/data ./分析用
+scp ubuntu@172.20.10.5:.ros/ccpp_launcher/$(ssh ubuntu@172.20.10.5 'ls -t ~/.ros/ccpp_launcher/*.log | head -1 | xargs basename') .</code></pre>
+
+<!-- ═══════════════════════════════════════ -->
+<h2 id="s10"><span class="n">10</span>重要參數速查</h2>
+<div class="tbl"><table>
+    <tr><th>參數</th><th>值</th><th>在哪</th><th>白話</th></tr>
+    <tr><td><code>SPACING</code></td><td>0.14 m</td><td>coverage_planner</td><td>掃描線間距（車寬 0.178，重疊約 20%）</td></tr>
+    <tr><td><code>MARGIN</code></td><td>0.10 m</td><td>coverage_planner</td><td>規劃時障礙往外加厚多少</td></tr>
+    <tr><td><code>END_TRIM</code></td><td>0.09 m</td><td>coverage_planner</td><td>線頭線尾內縮，留轉身空間</td></tr>
+    <tr><td><code>COVER_R</code></td><td>0.089 m</td><td>coverage_planner</td><td>算覆蓋率用的半寬（車身半寬）</td></tr>
+    <tr><td><code>PERIM_INSET</code></td><td>1 格</td><td>coverage_planner</td><td>外圈離可走區邊緣再往內幾格（約離牆 15 cm）</td></tr>
+    <tr><td><code>NOISE_MAX_CELLS</code></td><td>3</td><td>coverage_planner</td><td>幾格以下的孤立障礙算雜點</td></tr>
+    <tr><td><code>LINE_V</code></td><td>0.12 m/s</td><td>map_server</td><td>直線循跡速度</td></tr>
+    <tr><td><code>LINE_K_HEAD / K_CTE</code></td><td>2.0 / 2.5</td><td>map_server</td><td>修正方向的力道（太大會左右晃、太小會偏）</td></tr>
+    <tr><td><code>FRONT_STOP</code></td><td>0.13 m</td><td>map_server</td><td>前方多近就停下改用備援</td></tr>
+    <tr><td><code>ESCAPE_CLEAR</code></td><td>0.18 m</td><td>map_server</td><td>脫困時要有多少空間才敢退</td></tr>
+    <tr><td><code>STALL_SEC</code></td><td>3 秒</td><td>map_server</td><td>沒進展多久算停滯</td></tr>
+    <tr><td><code>EXPLORE_IDLE_S / MAX_S</code></td><td>90 / 600 秒</td><td>map_server</td><td>自動建圖完成條件</td></tr>
+    <tr><td><code>inflation_radius</code></td><td>0.25 m</td><td>start.launch</td><td>move_base 全域與區域 costmap 的障礙加厚（官方 1.0）</td></tr>
+    <tr><td><code>controller_frequency</code></td><td>5 Hz</td><td>start.launch</td><td>move_base 控制頻率（官方 10，樹莓派跟不上）</td></tr>
+    <tr><td><code>occ_thresh</code></td><td>0.5</td><td>gmapping_params</td><td>一格被打到超過一半才算障礙（官方 0.25）</td></tr>
+    <tr><td><code>linear/angularUpdate</code></td><td>0.3 m / 0.15 rad</td><td>gmapping_params</td><td>走多遠、轉多少更新一次地圖</td></tr>
+    <tr><td><code>maxRange</code></td><td>不設</td><td>gmapping_params</td><td>⚠ 設成 3.5 會把光達「沒回波」當成大片空地（踩過的坑）</td></tr>
+</table></div>
+<div class="box warn"><b>改 SLAM 或 move_base 參數後</b>要在「系統」頁<strong>停止再啟動</strong>；ROS 參數伺服器會記住舊值，只按「重新建圖」不會生效。</div>
+
+<!-- ═══════════════════════════════════════ -->
+<h2 id="s11"><span class="n">11</span>改程式的流程</h2>
+<ol>
+    <li>改 <code>turtlebot3_ccpp/</code> 底下的程式。演算法能離線測的先在電腦測（<code>coverage_bench.py</code>，或用車上存的地圖重算）。</li>
+    <li>在 <code>docs/05_開發日志/CHANGELOG.md</code> 最上面補一筆（做了什麼、為什麼、怎麼驗證、待辦）。</li>
+    <li><code>git commit</code> → <code>git push origin rebuild</code>（commit 格式見 <code>docs/06_規範/GIT_CONVENTION.md</code>）。</li>
+    <li><code>bash turtlebot3_ccpp/tools/sync_to_robot.sh</code>（改了 CMakeLists 加 <code>--build</code>）。改到 launch／參數要整套重啟系統。</li>
+    <li>實車跑完把 <code>data/</code> 取回分析，結果補進 devlog。</li>
+</ol>
+
+<!-- ═══════════════════════════════════════ -->
+<h2 id="s12"><span class="n">12</span>已知問題與未來規劃</h2>
+<div class="tbl"><table>
+    <tr><th>項目</th><th>狀態</th><th>說明</th></tr>
+    <tr><td>跨區移動自己開（own_nav）</td><td><span class="tag t-wip">待實車驗證</span></td><td>26f1a1f。模擬中即使 move_base 永遠卡住也能跑完；要在實車確認借來的路線夠平順、轉角不會擦牆。</td></tr>
+    <tr><td>直線循跡參數</td><td><span class="tag t-wip">待微調</span></td><td>實測紀錄圖上部分掃描線有小幅左右擺動，可試著把 <code>LINE_K_HEAD</code> 降到 1.5、或速度降到 0.10 m/s 比較。</td></tr>
+    <tr><td>光達偶發沒資料</td><td><span class="tag t-wip">已知</span></td><td>出現過一次啟動後 <code>/scan</code> 沒資料、地圖一直不出來，整套重啟就好。可讓控制台偵測並在網頁提示。</td></tr>
+    <tr><td>外圈先走或後走可選</td><td><span class="tag t-plan">規劃中</span></td><td>先沿邊再蛇行，可以先確認牆邊安全、也符合一般掃地機器人習慣。</td></tr>
+    <tr><td>建圖後鎖定地圖（AMCL）</td><td><span class="tag t-plan">規劃中</span></td><td>建完圖就固定，用 AMCL 在固定地圖上定位，覆蓋時地圖不再變動；改動較大，等目前版本穩定後再做。</td></tr>
+    <tr><td>手機上手動擦除／補牆</td><td><span class="tag t-plan">規劃中</span></td><td>規劃前讓使用者在地圖上框選擦掉誤判障礙或畫虛擬牆。</td></tr>
+    <tr><td>網頁瀏覽歷次紀錄</td><td><span class="tag t-plan">規劃中</span></td><td>在手機「數據」頁直接看歷次的 map.png 與事件，不必 scp。</td></tr>
+    <tr><td>障礙物周圍補一圈</td><td><span class="tag t-plan">規劃中</span></td><td>外圈目前只繞場地外緣，中間障礙物（箱子）四周靠線尾內縮留下的帶還沒補。</td></tr>
+    <tr><td>學習資料講義同步</td><td><span class="tag t-plan">待更新</span></td><td><code>docs/01_學習資料</code> 24 章寫於 2026-08，未包含控制台、自動建圖、直線循跡、外圈等新內容；以本文件為準。</td></tr>
+    <tr><td>正方形場地</td><td><span class="tag t-ok">已知限制</span></td><td>PCA 找不到明顯主軸，掃描方向不穩定；場地請用長方形。</td></tr>
+</table></div>
+
+<footer>TurtleBot3 CCPP 專題 · 專案架構說明 · 2026-11-11 · 對應車上版本 26f1a1f（分支 rebuild）</footer>
+</div>
+</body>
+</html>

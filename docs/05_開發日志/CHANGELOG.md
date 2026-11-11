@@ -4,6 +4,32 @@
 
 ---
 
+## 2026-11-11　feat(coverage)：跨區移動改由自己開；實測分析；專案架構說明與收工交接
+
+- **類型**：feat / docs
+- **實測分析**（任務 20261111-112057，車上版本 fb0ef34，紀錄在 `data/coverage/20261111-112057_*`）
+  - 實際覆蓋率 **97.7%**（規劃 99.4%）、83/83 路點、零跳過、執行 322 秒、規劃 13.65 m／實走 16.79 m。
+    上一版同場地：71%、436 秒。DWA 失敗 1127 → 209 次（都發生在交給 move_base 的段落）。
+  - 75 段直線循跡只有 1 段（路點 70）停滯改交 move_base，16 秒後到達。
+  - **唯一一次受困**：路點 14～16（kind＝move，交給 move_base）。車子停在離最近障礙 0.20 m 處 30 秒幾乎沒動，
+    日誌 `Rotation cmd in collision`／`Invalid Trajectory` 各 83 次＝DWA 判定原地轉會撞；
+    `_escape()` 要求行進方向 ≥ 0.25 m 空間才動，也不動 → 連續 3 點失敗判定受困。使用者按繼續後順利跑完。
+- **做了什麼**
+  - `map_server._drive_to()`：從目前位置到目標的直線整段在規劃用可走區內 → 直接直線循跡；否則呼叫 `/move_base/make_plan`
+    （只借全域規劃器算繞障路線，不讓 move_base 開車），RDP（0.04 m）簡化後逐段直線循跡。
+  - 每個路點依序嘗試 `line → own_nav → move_base → (脫困) move_base`，事件記錄每次改用下一種的原因。
+  - `ESCAPE_CLEAR` 0.25 → 0.18。
+  - 新增 `docs/專案架構說明.html`（白話全貌＋未來規劃），根目錄 `README.md` 加「目前狀態／下次從這裡開始」，`docs/README.md` 連結。
+- **影響檔案**：`turtlebot3_ccpp/scripts/map_server.py`、`docs/專案架構說明.html`（新）、`README.md`、`docs/README.md`
+- **結果 / 驗證**
+  - 假 ROS 模擬（第三次實測地圖、3% 輪速誤差，**move_base 開車設成永遠停滯**、`make_plan` 回傳 L 形折線、強迫 > 0.5 m 的跨區走 make_plan）：
+    82/82 路點全到（line 72、own_nav 10，其中 3 次用 make_plan），move_base 開車 0 次，實際覆蓋率 96.95%。
+  - 車上（26f1a1f）啟動系統後實際呼叫 `/move_base/make_plan` 成功（回傳 9 點）、`/scan` 5 Hz；測完已停止系統。
+  - **尚未實車跑覆蓋。**
+- **待辦 / 已知問題**：見根目錄 README「下次從這裡開始」與架構說明第 12 章。
+
+---
+
 ## 2026-11-11　feat(coverage)：覆蓋執行改善——直線循跡（A）、導航調校（B）、線距重疊＋外圈（C）、真實掃過範圍與紀錄（D）
 
 - **類型**：feat / tune
