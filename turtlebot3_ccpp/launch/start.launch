@@ -73,6 +73,12 @@
              寫在舊參數位置即可，costmap 啟動時會自動搬進 inflation_layer。
              只改全域：局部 costmap（DWA 避障）維持官方值。 -->
         <param name="global_costmap/inflation_radius" value="0.25" />
+        <!-- 區域 costmap（DWA 用）也縮到 0.25 m，與全域一致。官方 1.0 m 在 1 m 寬的場地裡整片都是高代價，
+             DWA 每一步都嫌危險而「failed to produce path」（2026-11-11 實測一次覆蓋 1127 次），車子停停走走、走歪 -->
+        <param name="local_costmap/inflation_radius"  value="0.25" />
+        <!-- 控制頻率 10 → 5 Hz：樹莓派同時跑 SLAM，實測常趕不上 10 Hz（Control loop missed its desired rate）。
+             掃描線改由 map_server 自己直線循跡，move_base 只負責跨區移動與備援，5 Hz 足夠 -->
+        <param name="controller_frequency"            value="5.0" />
     </node>
 
     <!-- 4. Flask 地圖網頁伺服器 + 覆蓋路徑執行 + SLAM 生命週期管理

@@ -216,6 +216,7 @@ section[data-tab] { display: none; } section[data-tab].on { display: block; }
                 <div class="chips" id="chips"></div>
                 <div class="note">路點：○ 待走 ● 已到 ◎ 目前目標；✕ 跳過（紅＝無法到達、橘＝停滯），數字為路點序號。<br>
                     黃點＝SLAM 留下的零星雜點，規劃路徑時當作空地（實際行駛仍會用光達即時避障）。<br>
+                    綠色帶＝車子實際掃過的範圍（車身寬），沒被綠色蓋到的地方就是沒掃到。<br>
                     字母 A、B、C… 是 cell 的走訪順序。</div>
             </details>
         </div>
@@ -560,6 +561,7 @@ const LAYERS = [
     { id: 'cells',   label: 'cell',     color: '#7ee787', type: 'cells', on: true },
     { id: 'covpath', label: '覆蓋路徑', color: '#c084fc', type: 'path',  on: true },
     { id: 'wps',     label: '路點',     color: '#f0f6fc', type: 'wps',   on: true },
+    { id: 'swath',   label: '實際掃過範圍', color: '#3fb950', type: 'swath', on: true },
     { id: 'trail',   label: '軌跡',     color: '#e3b341', type: 'trail', on: true },
     { id: 'robot',   label: '機器人',   color: '#3fb950', type: 'robot', on: true },
 ];
@@ -631,6 +633,7 @@ function draw() {
     if (!cov) return;
     if (layer('cells').on && cov.cells_px?.length) drawCells(cov.cells_px);
     if (layer('covpath').on && cov.path_px?.length > 1) drawCovPath(cov.path_px, layer('covpath').color, cov.done);
+    if (layer('swath').on && robot.path?.length > 1) drawSwath(robot.path, layer('swath').color, cov.cover_r || 0.089, robot.resolution);
     if (layer('trail').on && robot.path?.length > 1) drawTrail(robot.path, layer('trail').color);
     if (layer('wps').on && cov.path_px?.length) drawWaypoints(cov.path_px, cov.done, cov.skipped || [], cov.state === 'running');
     if (layer('robot').on && robot.pos) drawRobot(robot.pos.x, robot.pos.y, layer('robot').color);
@@ -703,6 +706,17 @@ function drawWaypoints(pts, done, skipped, running) {
         label(String(done + 1), x + rr, y - rr, '#58a6ff');
     }
     ctx.restore();
+}
+
+/** 實際掃過範圍：沿行走軌跡畫車身寬（2 × cover_r）的半透明帶，一次描整條線，重疊處不會變深 */
+function drawSwath(path, color, coverR, res) {
+    ctx.save();
+    ctx.strokeStyle = color; ctx.globalAlpha = 0.38;
+    ctx.lineWidth = 2 * coverR / (res || 0.05);
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    ctx.beginPath(); ctx.moveTo(path[0][0], path[0][1]);
+    for (let i = 1; i < path.length; i++) ctx.lineTo(path[i][0], path[i][1]);
+    ctx.stroke(); ctx.restore();
 }
 
 function drawTrail(path, color) {

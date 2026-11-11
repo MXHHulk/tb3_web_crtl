@@ -236,6 +236,7 @@ const LAYERS = [
     { id: 'cells',   label: 'cell 分解',      color: '#7ee787', type: 'cells', on: true },
     { id: 'covpath', label: '覆蓋路徑',       color: '#c084fc', type: 'path',  on: true },
     { id: 'wps',     label: '規劃路點',       color: '#f0f6fc', type: 'wps',   on: true },
+    { id: 'swath',   label: '實際掃過範圍',   color: '#3fb950', type: 'swath', on: true },
     { id: 'trail',   label: '行走軌跡',       color: '#e3b341', type: 'trail', on: true },
     { id: 'robot',   label: '機器人',         color: '#3fb950', type: 'robot', on: true },
 ];
@@ -335,6 +336,8 @@ function draw() {
     if (layerOn('cells')   && cov.cells_px.length)  drawCells(cov.cells_px);
     if (layerOn('covpath') && cov.path_px.length > 1)
         drawCovPath(cov.path_px, LAYERS.find(l => l.id === 'covpath').color, cov.done);
+    if (layerOn('swath')   && robot.path.length > 1)
+        drawSwath(robot.path, LAYERS.find(l => l.id === 'swath').color, cov.cover_r || 0.089, robot.resolution);
     if (layerOn('trail')   && robot.path.length > 1)
         drawTrail(robot.path, LAYERS.find(l => l.id === 'trail').color);
     if (layerOn('wps')     && cov.path_px.length)     // 疊在軌跡之上，跳過標記才不會被蓋住
@@ -445,6 +448,17 @@ function drawWaypoints(pts, done, skipped, running) {
         label(String(done + 1), x + rr, y - rr, '#58a6ff');
     }
     ctx.restore();
+}
+
+/** 實際掃過範圍：沿行走軌跡畫車身寬（2 × cover_r）的半透明帶，一次描整條線，重疊處不會變深 */
+function drawSwath(path, color, coverR, res) {
+    ctx.save();
+    ctx.strokeStyle = color; ctx.globalAlpha = 0.38;
+    ctx.lineWidth = 2 * coverR / (res || 0.05);
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    ctx.beginPath(); ctx.moveTo(path[0][0], path[0][1]);
+    for (let i = 1; i < path.length; i++) ctx.lineTo(path[i][0], path[i][1]);
+    ctx.stroke(); ctx.restore();
 }
 
 function drawTrail(path, color) {

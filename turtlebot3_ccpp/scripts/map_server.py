@@ -21,7 +21,7 @@ import csv, io, json, math, os, signal, socket, subprocess, sys, threading, time
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 from coverage_planner import (plan as plan_coverage, SPACING as COV_SPACING,
                               MARGIN as COV_MARGIN, apply_safety_margin, coverage_ratio,
-                              remove_noise)
+                              remove_noise, COVER_R as COV_COVER_R)
 
 import numpy as np
 import rospkg, rospy
@@ -78,6 +78,20 @@ ESCAPE_V     = 0.05 # 脫困直線速度（m/s）
 ESCAPE_DIST  = 0.12 # 脫困移動距離（公尺）
 ESCAPE_CLEAR = 0.25 # 行進方向雷射扇形內最近障礙須大於此值才動（公尺，自雷射量起）
 BODY_R       = 0.11 # 車身半徑（公尺）：脫困前檢查地圖上會掃過的範圍用
+
+# ── 直線循跡（掃描線、外圈由自己控制，不經 DWA） ──
+LINE_V       = 0.12   # 直行速度（m/s）
+LINE_V_MIN   = 0.04   # 接近線尾時的最低速度（m/s）
+LINE_W_MAX   = 1.2    # 直行時角速度上限（rad/s）
+LINE_K_HEAD  = 2.0    # 角速度 = K_HEAD ×（方向誤差 + atan(K_CTE × 側向偏移 / 速度)）
+LINE_K_CTE   = 2.5
+LINE_TOL     = 0.03   # 線尾到達判定（公尺，沿線方向剩餘距離）
+ROT_START    = 0.25   # 方向誤差超過此值（rad，約 14°）先原地轉正再走
+ROT_TOL      = 0.05   # 原地轉正到此誤差內（rad，約 3°）
+ROT_W_MAX    = 0.9    # 原地旋轉角速度上限（rad/s）
+ROT_W_MIN    = 0.25   # 原地旋轉最低角速度（太小馬達轉不動）
+FRONT_STOP   = 0.13   # 行進方向 ±20° 雷射最近距離小於此（公尺，自雷射量起）就停下，交給 move_base 處理
+TURN_KEEP    = 0.26   # 下一段方向變化小於此（rad，約 15°）時線尾不減速，直接接下一段
 # COV_SPACING / COV_MARGIN 來自 coverage_planner 模組
 
 # ── 自動建圖（explore_lite） ──
@@ -119,6 +133,8 @@ cov_status = {'state': 'idle', 'done': 0, 'total': 0, 'msg': ''}
 cov_path   = []   # [(wx, wy), ...] 全部路點，世界座標
 cov_cells  = []   # [[(wx, wy), ...], ...] 每個 cell 的路點
 cov_via    = []   # [bool, ...] 與 cov_path 等長；True = 掃描線上的中途點
+cov_kind   = []   # ['line'/'move', ...] 與 cov_path 等長；到達該點的方式（line＝自己直線循跡、move＝move_base）
+cov_rec    = {}   # 本任務紀錄（停止後繼續會接著記）：t_start / events / timeline / path / t_tl
 cov_info   = {}   # task / plan_ms / plan_cov / plan_len / area / n_runs / n_cells / n_critical / axis_deg / ratio
 cov_skips  = []   # [[路點序號, 原因], ...] 被跳過的路點，供網頁標示
 cov_grid   = {}   # 規劃當下的 free / res / ox / oy：實際覆蓋率沿用同一張圖算，分母才和規劃覆蓋率一致
@@ -299,6 +315,20 @@ def pose_tick(_evt):
     with cov_lock:
         recording = cov_status['state'] == 'running'
 
+    if recording:
+        now = time.time()
+        with cov_lock:
+            if 'path' in cov_rec:
+                t = round(now - cov_rec['t_start'], 1)
+                cp_ = cov_rec['path']
+                if not cp_ or (rx - cp_[-1][1]) ** 2 + (ry - cp_[-1][2]) ** 2 >= 0.0025:
+                    cp_.append((t, round(rx, 3), round(ry, 3)))
+                if now - cov_rec['t_tl'] >= 1.0:
+                    cov_rec['t_tl'] = now
+                    cov_rec['timeline'].append((t, cov_status['done'], cov_rec.get('mode', ''),
+                                                round(rx, 3), round(ry, 3), round(math.degrees(pose[2]), 1),
+                                                battery_v['v'] if battery_v['v'] is not None else ''))
+
     with exp_lock:
         if exp_status['state'] in ('exploring', 'returning') and 'path' in exp_rec:
             ep = exp_rec['path']
@@ -313,7 +343,7 @@ def pose_tick(_evt):
             robot_path.append([rx, ry])
         else:
             dx, dy = rx - robot_path[-1][0], ry - robot_path[-1][1]
-            if dx*dx + dy*dy >= 0.01:   # 每 0.1 m 記一點
+            if dx*dx + dy*dy >= 0.0025: # 每 5 cm 記一點（網頁「實際掃過範圍」用，太稀疏轉彎處會缺角）
                 robot_path.append([rx, ry])
                 if len(robot_path) > 10000:
                     robot_path.pop(0)
@@ -742,7 +772,7 @@ def _explore_write_log(rid):
         f.writelines(f'{t:7.1f}s  {txt}\n' for t, txt in rec['events'])
 
     if png and meta:
-        K = 4
+        K = 8
         img = Image.open(io.BytesIO(png)).convert('RGB')
         img = img.resize((img.width * K, img.height * K), Image.NEAREST)
         d = ImageDraw.Draw(img)
@@ -918,6 +948,108 @@ def _escape(fid):
     return moved
 
 
+def _cov_ev(text):
+    """覆蓋任務事件（相對任務開始秒數），寫進紀錄檔。"""
+    with cov_lock:
+        if 'events' in cov_rec and len(cov_rec['events']) < 3000:
+            cov_rec['events'].append((round(time.time() - cov_rec['t_start'], 1), text))
+
+
+def _wrap(a):
+    return math.atan2(math.sin(a), math.cos(a))
+
+
+def _drive(v, w):
+    tw = Twist()
+    tw.linear.x, tw.angular.z = v, w
+    cmd_pub.publish(tw)
+
+
+def _follow_line(fid, p0, p1, stop_at_end=True):
+    """
+    自己控制車子從 p0 沿直線開到 p1（不經 move_base／DWA），回傳 'ok' / 'blocked' / 'stalled' / 'stopped'。
+
+    1. 方向誤差大於 ROT_START 先原地轉正（轉到 ROT_TOL 內）
+    2. 直行：角速度 = K_HEAD ×（方向誤差 + atan(K_CTE × 側向偏移 / 速度)），把車拉回線上（Stanley 式）
+       接近線尾減速；stop_at_end=False（下一段幾乎同方向）時不減速、到了直接交棒
+    3. 行進方向雷射太近 → 'blocked'；位移與轉角都沒進展超過 STALL_SEC → 'stalled'
+    掃描線、外圈都在去雜點＋安全邊距後的可走區內，所以直線本身不會撞牆；雷射檢查是防地圖上沒有的東西。
+    """
+    if cmd_pub is None:
+        return 'stalled'
+    x0, y0 = p0
+    x1, y1 = p1
+    L = math.hypot(x1 - x0, y1 - y0)
+    if L < 1e-3:
+        return 'ok'
+    ux, uy = (x1 - x0) / L, (y1 - y0) / L
+    heading = math.atan2(uy, ux)
+    rate = rospy.Rate(20)
+    anchor, anchor_t = None, rospy.get_time()
+    rotating = None
+    t_limit = rospy.get_time() + L / LINE_V_MIN + 15.0
+
+    def running():
+        with cov_lock:
+            return cov_status['state'] == 'running'
+
+    try:
+        while not rospy.is_shutdown():
+            if not running():
+                return 'stopped'
+            pose = _robot_pose(fid)
+            now = rospy.get_time()
+            if pose is None:
+                _drive(0.0, 0.0)
+                rate.sleep()
+                continue
+            px, py, yaw = pose
+            s_along = (px - x0) * ux + (py - y0) * uy        # 沿線已走距離
+            cte = -(px - x0) * uy + (py - y0) * ux           # 側向偏移（車在線左側為正）
+            remain = L - s_along
+            eh = _wrap(heading - yaw)
+
+            if remain <= (LINE_TOL if stop_at_end else 0.05):
+                return 'ok'
+
+            # 停滯偵測（同 _go_to）
+            if (anchor is None or math.hypot(px - anchor[0], py - anchor[1]) > STALL_DIST
+                    or abs(_wrap(yaw - anchor[2])) > STALL_YAW):
+                anchor, anchor_t = pose, now
+            elif now - anchor_t > STALL_SEC:
+                return 'stalled'
+            if now > t_limit:
+                return 'stalled'
+
+            # 1. 原地轉正
+            if rotating is None:
+                rotating = abs(eh) > ROT_START
+            if rotating:
+                if abs(eh) < ROT_TOL:
+                    rotating = False
+                else:
+                    w = max(ROT_W_MIN, min(ROT_W_MAX, 1.5 * abs(eh)))
+                    _drive(0.0, math.copysign(w, eh))
+                    rate.sleep()
+                    continue
+
+            # 2. 直行
+            near = _scan_min(0.0, math.radians(20))
+            if near is not None and near < FRONT_STOP:
+                return 'blocked'
+            v = LINE_V if not stop_at_end else max(LINE_V_MIN, min(LINE_V, 1.2 * remain))
+            steer = eh - math.atan2(LINE_K_CTE * cte, v + 0.05)
+            w = max(-LINE_W_MAX, min(LINE_W_MAX, LINE_K_HEAD * steer))
+            if abs(eh) > 0.6:                                # 偏太多：先別往前衝
+                v = 0.0
+            _drive(v, w)
+            rate.sleep()
+        return 'stopped'
+    finally:
+        if stop_at_end:
+            _drive(0.0, 0.0)
+
+
 def run_coverage(start_idx=0):
     """執行緒進入點：計時並在結束時（完成、停止、錯誤皆然）把本次指標寫進 RUN_LOG。"""
     with cov_lock:
@@ -929,7 +1061,13 @@ def run_coverage(start_idx=0):
             if cov_clock['t0'] is not None:
                 cov_clock['elapsed'] += time.time() - cov_clock['t0']
                 cov_clock['t0'] = None
+        if cmd_pub is not None:
+            cmd_pub.publish(Twist())                   # 直線循跡中被中斷也要停車
         _log_run()
+        try:
+            _cov_write_log()
+        except Exception as e:
+            rospy.logerr('[coverage] 寫紀錄失敗：%s', e)
 
 
 def _run_coverage(start_idx=0):
@@ -955,8 +1093,10 @@ def _run_coverage(start_idx=0):
     with cov_lock:
         path = list(cov_path)
         via  = list(cov_via) if len(cov_via) == len(cov_path) else [False] * len(cov_path)
+        kind = list(cov_kind) if len(cov_kind) == len(cov_path) else ['move'] * len(cov_path)
         fid  = map_data.get('frame_id', 'map')
         cov_status.update(state='running', total=len(path), done=start_idx, msg='')
+    _cov_ev(f'開始執行（從路點 {start_idx + 1}/{len(path)}）')
 
     n = len(path)
     fails, fail_pose = 0, None     # 連續失敗的路點數、這串失敗開始時車子的位置
@@ -975,11 +1115,37 @@ def _run_coverage(start_idx=0):
         else:
             yaw = 0.0
 
-        reached = False
+        # 直線循跡的條件：這段是 line、而且車子就在上一個路點附近（剛跳過的點後面接 line 不算）
+        pose = _robot_pose(fid)
+        use_line = (kind[i] == 'line' and i > 0 and pose is not None
+                    and math.hypot(pose[0] - path[i - 1][0], pose[1] - path[i - 1][1]) < 0.20)
+        if use_line:
+            nxt_line = i + 1 < n and kind[i + 1] == 'line'
+            keep = nxt_line and abs(_wrap(math.atan2(path[i + 1][1] - y, path[i + 1][0] - x)
+                                          - math.atan2(y - path[i - 1][1], x - path[i - 1][0]))) < TURN_KEEP
+        t_wp = time.time()
+
+        reached, method = False, ''
         for attempt in range(RETRY_MAX + 1):
-            result = _go_to(client, fid, x, y, yaw, near=VIA_NEAR if via[i] else None)
+            if use_line and attempt == 0:
+                client.cancel_all_goals()                # move_base 可能還在追前一個（中途點）目標
+                with cov_lock:
+                    cov_rec['mode'] = 'line'
+                result = _follow_line(fid, path[i - 1], (x, y), stop_at_end=not keep)
+                method = 'line'
+                if result in ('blocked', 'stalled'):
+                    _cov_ev(f'路點 {i+1}/{n} 直線循跡{"前方有障礙" if result == "blocked" else "停滯"}，改用 move_base')
+            else:
+                with cov_lock:
+                    cov_rec['mode'] = 'move'
+                result = _go_to(client, fid, x, y, yaw, near=VIA_NEAR if via[i] else None)
+                method = 'move_base'
             if result == 'stopped':
                 return
+            if result in ('blocked',) and attempt == 0:
+                continue                                  # 直接換 move_base 再試，不算一次失敗
+            if result == 'stalled' and method == 'line' and attempt == 0:
+                continue
             pose = _robot_pose(fid)
             if result == 'ok' or (pose is not None
                                   and math.hypot(pose[0] - x, pose[1] - y) < GOAL_NEAR):
@@ -994,8 +1160,10 @@ def _run_coverage(start_idx=0):
 
         if reached:
             fails, fail_pose = 0, None
+            _cov_ev(f'到達 {i+1}/{n}（{method}，{time.time() - t_wp:.1f}s）')
             continue
 
+        _cov_ev(f'跳過 {i+1}/{n}（{why}）')
         rospy.logwarn(f'[coverage] 路點 {i+1}/{n} 跳過（{why}）')
         with cov_lock:
             cov_status['msg'] = f'路點 {i+1}/{n} 跳過（{why}）'
@@ -1014,6 +1182,7 @@ def _run_coverage(start_idx=0):
 
         first = i - fails + 1
         rospy.logerr(f'[coverage] 連續 {fails} 個路點失敗且車子幾乎沒動，判定受困，停止於路點 {first+1}')
+        _cov_ev(f'受困停止於路點 {first+1}/{n}')
         with cov_lock:
             del cov_skips[-fails:]              # 受困期間的跳過不算數，繼續時從 first 重走
             cov_status.update(state='error', done=first,
@@ -1025,6 +1194,7 @@ def _run_coverage(start_idx=0):
     with cov_lock:
         if cov_status['state'] == 'running':
             cov_status.update(state='done', done=n)
+    _cov_ev('全部路點完成')
 
 
 def _path_len(pts):
@@ -1098,6 +1268,64 @@ def _log_run():
             w.writerow(row)
     except OSError as e:
         rospy.logwarn('[coverage] 寫入 %s 失敗：%s', RUN_LOG, e)
+
+
+def _cov_write_log():
+    """
+    覆蓋任務每次結束（完成、停止、受困皆然）覆寫同一任務的紀錄（停止後繼續會累積）：
+      data/coverage/<task>_path.csv      行走軌跡（每 5 cm）
+      data/coverage/<task>_timeline.csv  每秒：路點進度、控制方式（line/move）、位置朝向、電壓
+      data/coverage/<task>_events.txt    指標摘要＋事件（到達、改用 move_base、跳過、受困…）
+      data/coverage/<task>_map.png       地圖＋規劃路線（紫細線）＋實際掃過範圍（綠，車身寬）＋軌跡（紅）＋跳過（✕）
+    """
+    with cov_lock:
+        if 'task' not in cov_rec:
+            return
+        rec = {k: (list(v) if isinstance(v, list) else v) for k, v in cov_rec.items()}
+        plan_w, skips = list(cov_path), [list(x) for x in cov_skips]
+    out_dir = os.path.join(PKG, 'data', 'coverage')
+    os.makedirs(out_dir, exist_ok=True)
+    base = os.path.join(out_dir, rec['task'])
+    m = cov_metrics()
+
+    with open(base + '_path.csv', 'w', newline='', encoding='utf-8-sig') as f:
+        w = csv.writer(f)
+        w.writerow(['t_s', 'x', 'y'])
+        w.writerows(rec['path'])
+    with open(base + '_timeline.csv', 'w', newline='', encoding='utf-8-sig') as f:
+        w = csv.writer(f)
+        w.writerow(['t_s', 'waypoint', 'mode', 'x', 'y', 'yaw_deg', 'battery_v'])
+        w.writerows(rec['timeline'])
+    with open(base + '_events.txt', 'w', encoding='utf-8') as f:
+        f.write(json.dumps(m, ensure_ascii=False, indent=2) + '\n\n')
+        f.writelines(f'{t:7.1f}s  {txt}\n' for t, txt in rec['events'])
+
+    with map_lock:
+        png, meta = map_png, dict(map_meta)
+    if not (png and meta):
+        return
+    K = 8
+    img = Image.open(io.BytesIO(png)).convert('RGB')
+    img = img.resize((img.width * K, img.height * K), Image.NEAREST)
+    over = Image.new('RGBA', img.size, (0, 0, 0, 0))
+    d = ImageDraw.Draw(over)
+    to_px = lambda x, y: tuple(c * K for c in world_to_px(x, y, meta))
+    pts = [to_px(x, y) for _, x, y in rec['path']]
+    sw = max(1, round(2 * COV_COVER_R / meta['resolution'] * K))
+    if len(pts) > 1:
+        d.line(pts, fill=(40, 180, 80, 110), width=sw, joint='curve')
+    plan_px = [to_px(x, y) for x, y in plan_w]
+    if len(plan_px) > 1:
+        d.line(plan_px, fill=(170, 60, 220, 200), width=1)
+    if len(pts) > 1:
+        d.line(pts, fill=(220, 40, 40, 255), width=2)
+    for idx, _why in skips:
+        if 0 <= idx < len(plan_px):
+            x, y = plan_px[idx]
+            d.line((x - 6, y - 6, x + 6, y + 6), fill=(255, 140, 0, 255), width=3)
+            d.line((x - 6, y + 6, x + 6, y - 6), fill=(255, 140, 0, 255), width=3)
+    Image.alpha_composite(img.convert('RGBA'), over).convert('RGB').save(base + '_map.png')
+    rospy.loginfo('[coverage] 紀錄已寫入 %s_*', base)
 
 
 def world_to_px(wx, wy, meta):
@@ -1246,6 +1474,7 @@ def coverage_start():
     with cov_lock:
         cov_path[:]  = r['waypoints']
         cov_via[:]   = r['via']
+        cov_kind[:]  = r['kind']
         cov_cells[:] = r['cells']
         cov_skips.clear()
         cov_grid.update(free=free, res=meta['resolution'],
@@ -1268,6 +1497,11 @@ def coverage_start():
             n_noise    = int(noise.sum()),
         )
         cov_status.update(state='running', done=0, total=len(r['waypoints']), msg='')
+        cov_rec.clear()
+        cov_rec.update(task=cov_info['task'], t_start=time.time(), t_tl=0.0, mode='',
+                       events=[], timeline=[], path=[])
+    _cov_ev(f"規劃完成：路點 {len(r['waypoints'])}（直線 {r['kind'].count('line')}、導航 {r['kind'].count('move')}），"
+            f"外圈頂點 {len(r['perimeter'])}，雜點 {int(noise.sum())} 格")
 
     threading.Thread(target=run_coverage, daemon=True).start()
     return jsonify({'ok': True, 'total': len(r['waypoints']), **cov_info})
@@ -1334,6 +1568,7 @@ def coverage_status():
     st['manual'] = manual_allowed()
     st['slam_managed'] = slam_cfg['manage']
     st['explore'] = explore_snapshot()
+    st['cover_r'] = COV_COVER_R
     return jsonify(st)
 
 
@@ -1409,6 +1644,7 @@ def slam_restart():
         with cov_lock:
             cov_path[:]  = []
             cov_via[:]   = []
+            cov_kind[:]  = []
             cov_cells[:] = []
             cov_skips.clear()
             cov_info.clear()

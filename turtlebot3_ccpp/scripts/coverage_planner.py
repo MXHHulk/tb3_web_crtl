@@ -9,17 +9,29 @@
   3. _slice_runs          沿短軸切掃描帶，對每條帶的中心線取樣，切出連續可走區間
   4. _build_cells         區間數改變處即為臨界點，把空間分解成數個 cell
   5. plan                 每個 cell 各自蛇行，再以貪婪最近鄰決定 cell 走訪順序
+  6. _perimeter           最後沿可走區外緣補走一圈，掃到掃描線兩端內縮留下的牆邊帶
+
+每個路點都帶一個「怎麼到達」的類別（kind）：
+  'line' 從上一點直線開過來（掃描線、cell 內換行、外圈的一段），執行端用自己的直線循跡控制
+  'move' 需要導航（進入新的 cell、開到外圈起點，中間可能隔著障礙），執行端交給 move_base
 """
 import numpy as np
-from scipy.ndimage import binary_dilation, distance_transform_edt, label as nd_label
+from scipy.ndimage import (binary_dilation, binary_erosion, binary_fill_holes,
+                           distance_transform_edt, label as nd_label)
 
-SPACING = 0.18   # 掃描線間距（公尺）；覆蓋寬度 ≈ 0.20 m，留 10% 重疊
+SPACING = 0.14   # 掃描線間距（公尺）。Burger 車身寬 0.178 m，0.14 m 約重疊 20%：
+                 # 原本 0.18 m 與車身同寬，走得再直也只是剛好接上，稍微歪一點就留縫（2026-11-11 實測）
 MARGIN  = 0.10   # 障礙物安全邊距（公尺） ≈ 機器人半徑（直徑 0.20 m）
 END_TRIM = 0.09  # 掃描線兩端各內縮（公尺）。端點離障礙 ≈ MARGIN + END_TRIM ≈ 0.19 m，
                  # 大於 Burger 外接圓半徑（0.11~0.15 m），車子在線尾才轉得了身；
                  # 只靠 MARGIN 時端點離牆僅 0.10~0.125 m，原地轉向會掃到牆而卡死。
                  # 與側向一致：第一條掃描線本來就離可走區邊界 SPACING / 2。
-COVER_R  = 0.10  # 覆蓋半徑（公尺）：路線兩側各這麼寬的範圍算「掃過」，與 SPACING 的覆蓋寬度假設一致
+COVER_R  = 0.089 # 覆蓋半徑（公尺）＝ Burger 車身半寬：路線兩側各這麼寬的範圍算「掃過」。
+                 # 原本 0.10 比車身還寬，覆蓋率會算得比實際好看
+PERIM_INSET = 1  # 外圈離可走區邊緣再往內幾格（5 cm/格）：可走區邊緣距障礙 ≈ MARGIN，外圈中心 ≈ 0.15 m，
+                 # 車身側邊離牆約 6 cm；再貼近的話，光達把牆畫厚 1 格就會擦到
+PERIM_MIN_LEN = 0.6   # 外圈總長小於此（公尺）就不走（場地太小，掃描線已涵蓋）
+RDP_EPS  = 0.02  # 外圈輪廓簡化的容許誤差（公尺）：把鋸齒狀的格子邊界拉成直線段
 VIA_STEP = 0.25  # 掃描線上中途點的最大間距（公尺）。只給頭尾兩點時 navfn 會依 costmap
                  # 成本自己找路，長線常被拉彎；每隔一小段給一個點，路線就被釘在掃描線上。
 
@@ -235,6 +247,86 @@ def _cell_waypoints(chain, runs, reverse, flip, via_step=VIA_STEP):
     return wps, via
 
 
+def _seg_free(free, res, ox, oy, p, q):
+    """p→q 直線（以 1/4 格取樣）是否整段都在可走格上。"""
+    H, W = free.shape
+    p, q = np.asarray(p, dtype=float), np.asarray(q, dtype=float)
+    n = int(np.ceil(np.hypot(*(q - p)) / (res / 4))) + 1
+    xy = p + np.outer(np.linspace(0.0, 1.0, n), q - p)
+    c = np.round((xy[:, 0] - ox) / res).astype(int)
+    r = np.round((xy[:, 1] - oy) / res).astype(int)
+    if r.min() < 0 or r.max() >= H or c.min() < 0 or c.max() >= W:
+        return False
+    return bool(free[r, c].all())
+
+
+def _trace_outer(mask):
+    """
+    Moore 鄰域輪廓追蹤：回傳單一連通區塊外緣的格子序列 [(row, col), ...]（順時針、不重複起點）。
+    起點取最上排最左的格子，此時它的西邊必為背景，從西方開始順時針找下一個前景格。
+    """
+    H, W = mask.shape
+    D = [(0, -1), (-1, -1), (-1, 0), (-1, 1), (0, 1), (1, 1), (1, 0), (1, -1)]   # 西起順時針
+    rs, cs = np.where(mask)
+    start = (int(rs[0]), int(cs[0]))
+    cur, b, out = start, 0, [start]
+    for _ in range(4 * int(mask.sum()) + 8):
+        nxt = None
+        for k in range(1, 9):
+            d = (b + k) % 8
+            r, c = cur[0] + D[d][0], cur[1] + D[d][1]
+            if 0 <= r < H and 0 <= c < W and mask[r, c]:
+                pd = (b + k - 1) % 8                          # 前一個檢查過的（背景）鄰格
+                pr, pc = cur[0] + D[pd][0], cur[1] + D[pd][1]
+                nxt, b = (r, c), D.index((pr - r, pc - c))
+                break
+        if nxt is None or nxt == start:
+            break
+        cur = nxt
+        out.append(cur)
+    return out
+
+
+def _rdp(pts, eps):
+    """Ramer–Douglas–Peucker 折線簡化（pts: N×2）。"""
+    if len(pts) < 3:
+        return pts
+    a, b = pts[0], pts[-1]
+    ab = b - a
+    L = np.hypot(*ab)
+    v = pts - a
+    d = (np.abs(ab[0] * v[:, 1] - ab[1] * v[:, 0]) / L) if L > 1e-9 else np.hypot(v[:, 0], v[:, 1])
+    i = int(np.argmax(d))
+    if d[i] <= eps:
+        return np.array([a, b])
+    return np.vstack([_rdp(pts[:i + 1], eps)[:-1], _rdp(pts[i:], eps)])
+
+
+def _perimeter(free, res, ox, oy, inset=PERIM_INSET, eps=RDP_EPS):
+    """
+    沿最大一塊可走區的外緣（往內 inset 格）繞一圈，回傳簡化後的頂點 [(x, y), ...]（首尾不重複）。
+    區塊內的洞（例如場地中間的箱子）先填平，只走外圈。
+    """
+    region = binary_erosion(free, iterations=inset) if inset > 0 else free.copy()
+    lab, n = nd_label(region)
+    if n == 0:
+        return []
+    sizes = np.bincount(lab.ravel())
+    sizes[0] = 0
+    region = binary_fill_holes(lab == int(np.argmax(sizes)))
+    rc = _trace_outer(region)
+    if len(rc) < 4:
+        return []
+    xy = np.array([(ox + c * res, oy + r * res) for r, c in rc], dtype=float)
+    closed = np.vstack([xy, xy[:1]])
+    simp = _rdp(closed, eps)[:-1]                          # 去掉重複的起點
+    # 簡化後的每段都要在（未填洞前的）可走區內，否則退回原始輪廓點
+    ring = np.vstack([simp, simp[:1]])
+    if not all(_seg_free(free, res, ox, oy, ring[k], ring[k + 1]) for k in range(len(simp))):
+        simp = xy
+    return [(float(x), float(y)) for x, y in simp]
+
+
 def _line_bounds(via):
     """由中途旗標還原每條掃描線在路點列中的 (頭, 尾) 索引；非中途點依序兩兩成對。"""
     ends = [i for i, v in enumerate(via) if not v]
@@ -271,7 +363,7 @@ def coverage_ratio(free, res, ox, oy, segs, radius=COVER_R):
 
 
 def plan(free, res, ox, oy, spacing=SPACING, start=None, end_trim=END_TRIM,
-         via_step=VIA_STEP):
+         via_step=VIA_STEP, perimeter=True):
     """
     完整的覆蓋路徑規劃，回傳含診斷資訊的 dict。
 
@@ -283,17 +375,20 @@ def plan(free, res, ox, oy, spacing=SPACING, start=None, end_trim=END_TRIM,
       start   : (x, y) 機器人起點世界座標；None 則從短軸投影最小的一端開始
       end_trim: 掃描線兩端各內縮的距離（公尺），見 END_TRIM
       via_step: 掃描線中途點最大間距（公尺），見 VIA_STEP；inf = 只給頭尾
+      perimeter: 最後是否沿外緣補走一圈（見 _perimeter）
     輸出 dict
       waypoints : [(x, y), ...] 依序走訪的路點（掃描線已依 VIA_STEP 補上中途點）
       via       : [bool, ...] 與 waypoints 等長；True = 掃描線上的中途點
-      sweeps    : [((x0, y0), (x1, y1)), ...] 依走訪順序的掃描線（不含換行銜接），算覆蓋率用
+      kind      : ['line'/'move', ...] 與 waypoints 等長；到達該點的方式（見模組說明）
+      sweeps    : [((x0, y0), (x1, y1)), ...] 依走訪順序的掃描線與外圈各段（不含換行銜接），算覆蓋率用
+      perimeter : [(x, y), ...] 外圈頂點（未補中途點）；沒有外圈時為 []
       cells     : [[(x, y), ...], ...] 各 cell 的路點，已依走訪順序排列
       axes      : (重心, 長軸, 短軸, 特徵值)
       n_runs    : 連續可走區間總數
       critical  : 臨界點清單 [(run 序號, 'split'/'merge'), ...]
     """
-    empty = {'waypoints': [], 'via': [], 'sweeps': [], 'cells': [], 'axes': None,
-             'n_runs': 0, 'critical': []}
+    empty = {'waypoints': [], 'via': [], 'kind': [], 'sweeps': [], 'perimeter': [],
+             'cells': [], 'axes': None, 'n_runs': 0, 'critical': []}
 
     rows, cols = np.where(free)
     if len(rows) < 3:
@@ -327,7 +422,7 @@ def plan(free, res, ox, oy, spacing=SPACING, start=None, end_trim=END_TRIM,
     cur = (np.asarray(start, dtype=float) if start is not None
            else pts[np.lexsort((proj_a, proj_b))[0]])
 
-    remaining, ordered, waypoints, via = set(range(len(cells))), [], [], []
+    remaining, ordered, waypoints, via, kind = set(range(len(cells))), [], [], [], []
     ordered_via = []
     while remaining:
         best, best_d = None, None
@@ -344,12 +439,38 @@ def plan(free, res, ox, oy, spacing=SPACING, start=None, end_trim=END_TRIM,
         ordered_via.append(vf)
         waypoints += wps
         via       += vf
+        # 進入 cell 的第一點要導航過去；之後掃描線與換行都是短直線，確認整段可走才直接開
+        kind      += ['move'] + ['line' if _seg_free(free, res, ox, oy, wps[k - 1], wps[k]) else 'move'
+                                 for k in range(1, len(wps))]
         cur = np.asarray(wps[-1], dtype=float)
+
+    sweeps = [(wps[i], wps[j]) for wps, vf in zip(ordered, ordered_via)
+              for i, j in _line_bounds(vf)]
+
+    # ── 5. 外圈：從離目前位置最近的頂點起繞一圈回到原點 ─────
+    ring = _perimeter(free, res, ox, oy) if perimeter else []
+    if ring:
+        ring_len = sum(np.hypot(*(np.subtract(ring[(k + 1) % len(ring)], ring[k])))
+                       for k in range(len(ring)))
+        if ring_len < PERIM_MIN_LEN:
+            ring = []
+    if ring:
+        k0 = int(np.argmin([np.hypot(*(np.asarray(p) - cur)) for p in ring]))
+        ring = ring[k0:] + ring[:k0]
+        loop = ring + ring[:1]
+        waypoints.append(loop[0]); via.append(False); kind.append('move')
+        for k in range(1, len(loop)):
+            seg = _densify(loop[k - 1], loop[k], via_step)[1:]
+            waypoints += seg
+            via       += [True] * (len(seg) - 1) + [False]
+            kind      += ['line'] * len(seg)
+            sweeps.append((loop[k - 1], loop[k]))
 
     return {'waypoints': waypoints,
             'via':       via,
-            'sweeps':    [(wps[i], wps[j]) for wps, vf in zip(ordered, ordered_via)
-                          for i, j in _line_bounds(vf)],
+            'kind':      kind,
+            'sweeps':    sweeps,
+            'perimeter': ring,
             'cells': ordered,
             'axes': (center, axis_a, axis_b, eigvals),
             'n_runs': len(runs),
