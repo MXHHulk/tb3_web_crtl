@@ -16,7 +16,7 @@ TurtleBot3 地圖伺服器（Module A）
   兩者任一成立時，手動遙控被拒絕，另一個也不能開始（避免兩邊同時對 move_base／/cmd_vel 下指令）。
 按下停止、完成、或發生錯誤都會離開上述狀態，自動切回可手動。
 """
-import csv, io, math, os, signal, socket, subprocess, sys, threading, time
+import csv, io, json, math, os, signal, socket, subprocess, sys, threading, time
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 from coverage_planner import (plan as plan_coverage, SPACING as COV_SPACING,
@@ -29,7 +29,7 @@ from geometry_msgs.msg import Twist
 from nav_msgs.msg import OccupancyGrid
 from rosgraph_msgs.msg import Log
 from sensor_msgs.msg import BatteryState, LaserScan
-from PIL import Image
+from PIL import Image, ImageDraw
 from scipy.ndimage import binary_erosion, binary_dilation, label as nd_label
 import tf2_ros
 
@@ -47,6 +47,8 @@ try:
 except rospkg.ResourceNotFound:
     PKG = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 RUN_LOG = os.path.join(PKG, 'data', 'coverage_runs.csv')   # 每次執行結束追加一列指標
+EXP_LOG = os.path.join(PKG, 'data', 'explore_runs.csv')    # 每次自動建圖結束追加一列摘要
+EXP_DIR = os.path.join(PKG, 'data', 'explore')             # 每次自動建圖的過程、軌跡、事件、地圖疊圖
 
 app = Flask(__name__)
 
@@ -142,6 +144,7 @@ exp_status = {'state': 'idle', 'msg': '', 't0': None, 'elapsed': 0.0, 'map_file'
               'countdown': None}
 exp_flags  = {'lite_done': False, 'stop': False, 'run': 0}   # explore_lite 回報結束／使用者按停止／第幾輪
 EXP_BUSY   = ('countdown', 'exploring', 'saving', 'returning')
+exp_rec    = {}   # 本輪紀錄：task / t_start / t0 / batt0 / area0 / home / events / timeline / path / home_result / reason
 battery_v  = {'v': None}
 
 
@@ -289,6 +292,12 @@ def pose_tick(_evt):
     with cov_lock:
         recording = cov_status['state'] == 'running'
 
+    with exp_lock:
+        if exp_status['state'] in ('exploring', 'returning') and 'path' in exp_rec:
+            ep = exp_rec['path']
+            if not ep or (rx - ep[-1][1]) ** 2 + (ry - ep[-1][2]) ** 2 >= 0.0025:   # 每 5 cm 記一點
+                ep.append((round(time.time() - exp_rec['t_start'], 1), round(rx, 3), round(ry, 3)))
+
     with robot_lock:
         robot_pos.update(x=rx, y=ry)
         if not recording:
@@ -415,8 +424,12 @@ def explore_kill(timeout=8.0):
 
 def rosout_callback(msg):
     """explore_lite 找不到可去的邊界時會印 "Exploration stopped."，視為它認為探索完成。"""
-    if msg.name.endswith('/explore') and 'Exploration stopped' in msg.msg:
+    if not msg.name.endswith('/explore'):
+        return
+    if 'Exploration stopped' in msg.msg:
         exp_flags['lite_done'] = True
+    if msg.level >= Log.INFO:
+        _ev('explore_lite: ' + msg.msg.strip())
 
 
 def battery_callback(msg):
@@ -450,6 +463,12 @@ def explore_start(delay=0.0):
                           t0=None, elapsed=0.0, map_file=None,
                           countdown=round(delay) if delay > 0 else None)
     exp_flags.update(lite_done=False, stop=False, run=exp_flags['run'] + 1)
+    with exp_lock, map_lock:
+        exp_rec.clear()
+        exp_rec.update(task=time.strftime('%Y%m%d-%H%M%S'), t_start=time.time(), t0=None,
+                       batt0=battery_v['v'], area0=map_stats['area'], home=None,
+                       events=[], timeline=[], path=[], home_result=None, reason=None)
+    _ev(f'開始（倒數 {round(delay)} 秒）' if delay > 0 else '開始')
     teleop_halt()
     threading.Thread(target=_explore_run, args=(delay, exp_flags['run']), daemon=True).start()
     return True, f'{round(delay)} 秒後開始自動建圖' if delay > 0 else '開始自動建圖'
@@ -459,6 +478,8 @@ def explore_stop(msg='已停止'):
     """使用者按停止（或重啟 SLAM）：停在當下，不存圖、不回起點。"""
     with exp_lock:
         busy = exp_status['state'] in EXP_BUSY
+    if busy:
+        _ev('停止：' + msg)
     exp_flags['stop'] = True
     if _mb['client'] is not None:
         _mb['client'].cancel_all_goals()            # 先取消目標讓車停下，再收 explore_lite
@@ -475,8 +496,15 @@ def _explore_run(delay, rid):
         _explore_body(delay, rid)
     except Exception as e:
         rospy.logerr('[explore] 例外：%s', e)
+        _ev(f'例外：{e}')
         explore_kill()
         _set_exp(state='error', msg=f'自動建圖發生錯誤：{e}', countdown=None)
+    finally:
+        time.sleep(0.5)                 # 讓按停止的那一方先把狀態寫成 stopped
+        try:
+            _explore_write_log(rid)
+        except Exception as e:
+            rospy.logerr('[explore] 寫紀錄失敗：%s', e)
 
 
 def _explore_body(delay, rid):
@@ -498,7 +526,10 @@ def _explore_body(delay, rid):
     home = _robot_pose(fid)
 
     t0 = time.time()
+    with exp_lock:
+        exp_rec.update(t0=t0, home=home)
     _set_exp(state='exploring', t0=t0, countdown=None, msg='')
+    _ev('起點 ' + (f'({home[0]:.2f}, {home[1]:.2f}) 朝向 {math.degrees(home[2]):.0f}°' if home else '未知（TF 查不到）'))
     explore_launch()
 
     with map_lock:
@@ -514,6 +545,7 @@ def _explore_body(delay, rid):
         if area > last_area + EXPLORE_GROW:
             last_area, last_grow = area, now
         _set_exp(elapsed=round(now - t0, 1))
+        _timeline_tick('exploring', fid)
 
         if exp_proc is None or exp_proc.poll() is not None:
             reason = 'explore_lite 意外結束，已存下目前地圖'
@@ -531,16 +563,24 @@ def _explore_body(delay, rid):
         return
 
     # 收尾：停探索 → 存圖 → 回起點
+    with exp_lock:
+        exp_rec['reason'] = reason
+    _ev('結束探索：' + reason)
     _set_exp(state='saving', msg=reason)
     explore_kill()
     client.cancel_all_goals()
     teleop_halt()
     path = _save_map()
     _set_exp(map_file=os.path.basename(path) if path else None)
+    _ev('地圖已存：' + os.path.basename(path) if path else '存地圖失敗')
 
     if home is not None and not halted():
         _set_exp(state='returning')
-        _go_home(client, fid, home, halted)
+        _ev('開回起點')
+        res = _go_home(client, fid, home, halted)
+        with exp_lock:
+            exp_rec['home_result'] = res
+        _ev('回起點結果：' + res)
     if halted():
         return
     with exp_lock:
@@ -578,14 +618,131 @@ def _go_home(client, fid, home, halted):
     goal.target_pose.pose.orientation.z = qz
     goal.target_pose.pose.orientation.w = qw
     client.send_goal(goal)
-    t_end = time.time() + HOME_TIMEOUT
+    t_end, last_tl = time.time() + HOME_TIMEOUT, 0.0
     while time.time() < t_end and not rospy.is_shutdown():
         if halted():
             client.cancel_all_goals()
-            return
+            return 'stopped'
         if client.wait_for_result(rospy.Duration(0.5)):
-            return
+            return 'reached' if client.get_state() == GoalStatus.SUCCEEDED else 'failed'
+        if time.time() - last_tl >= 1.0:
+            _timeline_tick('returning', fid)
+            last_tl = time.time()
     client.cancel_all_goals()
+    return 'timeout'
+
+
+# ── 自動建圖紀錄：給事後分析實際成效用 ──
+def _ev(text):
+    """記一筆事件（相對開始的秒數）。"""
+    with exp_lock:
+        if 'events' not in exp_rec or len(exp_rec['events']) >= 500:
+            return
+        exp_rec['events'].append((round(time.time() - exp_rec['t_start'], 1), text))
+    rospy.loginfo('[explore] %s', text)
+
+
+def _path_dist(pts):
+    return sum(math.hypot(b[1] - a[1], b[2] - a[2]) for a, b in zip(pts, pts[1:]))
+
+
+def _timeline_tick(state, fid):
+    """每秒一列：已知面積、邊界數、車子位置、累計行走距離、電池。"""
+    pose = _robot_pose(fid)
+    with map_lock:
+        area, front = map_stats['area'], map_stats['frontiers']
+    with exp_lock:
+        if 'timeline' not in exp_rec:
+            return
+        exp_rec['timeline'].append((
+            round(time.time() - exp_rec['t_start'], 1), state, area, front,
+            round(pose[0], 3) if pose else '', round(pose[1], 3) if pose else '',
+            round(math.degrees(pose[2]), 1) if pose else '',
+            round(_path_dist(exp_rec['path']), 2),
+            battery_v['v'] if battery_v['v'] is not None else ''))
+
+
+def _explore_write_log(rid):
+    """
+    一輪自動建圖結束（完成、停止、錯誤皆然）後寫出：
+      data/explore_runs.csv                 每輪一列摘要（utf-8-sig，Excel 可直接開）
+      data/explore/<task>_timeline.csv      每秒一列過程
+      data/explore/<task>_path.csv          行走軌跡（每 5 cm 一點）
+      data/explore/<task>_events.txt        摘要＋事件（含 explore_lite 自己印的訊息）
+      data/explore/<task>_map.png           最後的地圖疊上軌跡（綠＝起點、藍＝終點）
+    """
+    with exp_lock:
+        if not exp_rec or exp_flags['run'] != rid:
+            return
+        rec = {k: (list(v) if isinstance(v, list) else v) for k, v in exp_rec.items()}
+        st = dict(exp_status)
+    result = st['state']
+    if exp_flags['stop'] or result in EXP_BUSY:
+        result = 'stopped'
+    task = rec['task']
+    os.makedirs(EXP_DIR, exist_ok=True)
+    base = os.path.join(EXP_DIR, task)
+
+    with map_lock:
+        fid = map_data.get('frame_id', 'map')
+        area_end, front_end = map_stats['area'], map_stats['frontiers']
+        png, meta = map_png, dict(map_meta)
+    pose = _robot_pose(fid)
+    home = rec.get('home')
+    home_err = (round(math.hypot(pose[0] - home[0], pose[1] - home[1]), 3)
+                if pose is not None and home is not None else '')
+    t0 = rec.get('t0')
+    summary = {
+        'task':          task,
+        'start':         time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(rec['t_start'])),
+        'result':        result,
+        'reason':        rec.get('reason') or st.get('msg') or '',
+        'total_s':       round(time.time() - rec['t_start'], 1),
+        'explore_s':     round(time.time() - t0, 1) if t0 else 0.0,
+        'area_start_m2': rec.get('area0'),
+        'area_end_m2':   area_end,
+        'frontiers_end': front_end,
+        'path_len_m':    round(_path_dist(rec['path']), 2),
+        'home_result':   rec.get('home_result') or '',
+        'home_err_m':    home_err,
+        'batt_start_v':  rec['batt0'] if rec.get('batt0') is not None else '',
+        'batt_end_v':    battery_v['v'] if battery_v['v'] is not None else '',
+        'map_file':      st.get('map_file') or '',
+        'params':        json.dumps({**EXPLORE_PARAMS, 'EXPLORE_IDLE_S': EXPLORE_IDLE_S,
+                                     'EXPLORE_MAX_S': EXPLORE_MAX_S}, ensure_ascii=False),
+    }
+    new = not os.path.exists(EXP_LOG)
+    with open(EXP_LOG, 'a', newline='', encoding='utf-8-sig' if new else 'utf-8') as f:
+        w = csv.DictWriter(f, fieldnames=list(summary))
+        if new:
+            w.writeheader()
+        w.writerow(summary)
+
+    with open(base + '_timeline.csv', 'w', newline='', encoding='utf-8-sig') as f:
+        w = csv.writer(f)
+        w.writerow(['t_s', 'state', 'area_m2', 'frontiers', 'x', 'y', 'yaw_deg', 'dist_m', 'battery_v'])
+        w.writerows(rec['timeline'])
+    with open(base + '_path.csv', 'w', newline='', encoding='utf-8-sig') as f:
+        w = csv.writer(f)
+        w.writerow(['t_s', 'x', 'y'])
+        w.writerows(rec['path'])
+    with open(base + '_events.txt', 'w', encoding='utf-8') as f:
+        f.write(json.dumps(summary, ensure_ascii=False, indent=2) + '\n\n')
+        f.writelines(f'{t:7.1f}s  {txt}\n' for t, txt in rec['events'])
+
+    if png and meta:
+        K = 4
+        img = Image.open(io.BytesIO(png)).convert('RGB')
+        img = img.resize((img.width * K, img.height * K), Image.NEAREST)
+        d = ImageDraw.Draw(img)
+        pts = [tuple(c * K for c in world_to_px(x, y, meta)) for _, x, y in rec['path']]
+        if len(pts) > 1:
+            d.line(pts, fill=(220, 40, 40), width=3)
+        for sel, col in ((pts[:1], (30, 170, 60)), (pts[-1:], (40, 90, 220))):
+            for x, y in sel:
+                d.ellipse((x - 7, y - 7, x + 7, y + 7), outline=col, width=3)
+        img.save(base + '_map.png')
+    rospy.loginfo('[explore] 紀錄已寫入 %s_*', base)
 
 
 def auto_explore_waiter():

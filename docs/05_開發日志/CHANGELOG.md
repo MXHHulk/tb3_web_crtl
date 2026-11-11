@@ -4,6 +4,25 @@
 
 ---
 
+## 2026-11-11　feat(explore)：自動建圖紀錄（摘要、每秒過程、軌跡、事件、軌跡疊圖）
+
+- **類型**：feat
+- **做了什麼**：`map_server.py` 每輪自動建圖結束（完成、停止、錯誤皆然）寫出：
+  - `data/explore_runs.csv`：每輪一列摘要——結果、結束原因、總時間／探索時間、起訖已知面積、剩餘邊界、
+    行走距離、回起點結果與誤差、起訖電壓、地圖檔名、當次參數。
+  - `data/explore/<task>_timeline.csv`：每秒一列（狀態、已知面積、邊界數、x/y/朝向、累計距離、電壓），探索與回起點階段都記。
+  - `data/explore/<task>_path.csv`：行走軌跡，每 5 cm 一點（只在探索與回起點時記，不影響覆蓋軌跡 `robot_path`）。
+  - `data/explore/<task>_events.txt`：摘要＋事件時間線，含 explore_lite 自己在 `/rosout` 印的 INFO 以上訊息、使用者按停止。
+  - `data/explore/<task>_map.png`：最後的地圖放大 4 倍，疊上紅色軌跡（綠圈起點、藍圈終點）。
+  - `_go_home()` 改為回傳 reached／failed／timeout／stopped。
+- **為什麼**：使用者要在 1.06 × 1.47 m 的簡易場地實測，事後讓 Claude 讀紀錄評估實際成效；原本只有文字日誌和最終地圖，看不出過程與路線。
+- **影響檔案**：`turtlebot3_ccpp/scripts/map_server.py`
+- **結果 / 驗證**：本地以假 ROS 模組載入 map_server，用合成地圖模擬一輪（走一圈、回起點），
+  五個檔案皆正確產生，CSV 欄位與疊圖正確。尚未在車上實跑。
+- **待辦 / 已知問題**：`data/` 不在同步範圍，要用 scp 取回分析。
+
+---
+
 ## 2026-11-11　feat(explore)：自動建圖（frontier 探索）與開機自動啟動
 
 - **類型**：feat
