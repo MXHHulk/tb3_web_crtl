@@ -4,6 +4,55 @@
 
 ---
 
+## 2026-11-11　feat(explore)：自動建圖（frontier 探索）與開機自動啟動
+
+- **類型**：feat
+- **做了什麼**（設計見 `docs/01_學習資料/開機自動建圖說明.html`）
+  - `map_server.py`
+    - 以子行程管理 `explore_lite`（`rosrun explore_lite explore`，參數在 `EXPLORE_PARAMS`），寫法同 SLAM 管理。
+    - 新增探索狀態 `exp_status`：idle → countdown → exploring → saving → returning → done（或 stopped／error）。
+      `manual_allowed()` 改為「覆蓋執行中或建圖中都不能遙控」；建圖中不能開始／繼續覆蓋，覆蓋中不能開始建圖。
+    - 完成條件（任一）：explore_lite 在 `/rosout_agg` 印出 "Exploration stopped"、已知面積 90 秒沒變大、超過 10 分鐘、`/battery_state` < 10.8 V。
+      收尾：收掉 explore_lite → 取消 move_base 目標 → `map_saver` 存到 `maps/explore_<時間>.pgm/.yaml` → 開回起點（90 秒逾時）。
+    - `map_callback()` 多算已知空地面積與邊界段數（空地且碰到未知、長度 ≥ 0.3 m 的相連段），給網頁顯示。
+    - 新路由 `/explore/start`、`/explore/stop`；`/coverage/status` 多回傳 `explore`，`manual` 改用 `manual_allowed()`。
+    - 參數 `~auto_explore`：true 時等地圖、車子位置、move_base 都就緒後倒數 10 秒自動開始。
+    - 共用一個 move_base action client，按停止時能立刻取消目標；每輪探索有編號，停止後馬上再開始不會讓舊執行緒復活。
+    - 重啟 SLAM 前會先停止自動建圖。
+  - `start.launch`：新增 `auto_explore` 參數（預設 false），傳給 map_server。
+  - `launcher.py`
+    - 設定檔 `~/.ros/ccpp_launcher/config.json`（`autostart`、`auto_explore`、`model`），`/api/config` 讀寫；放在家目錄，同步程式不會蓋掉。
+    - 開機自動啟動：**只在系統開機 5 分鐘內**控制台啟動時才做（同步程式造成的重啟不會自動開系統）；
+      先等 `/dev/ttyACM0`（OpenCR）、`/dev/ttyUSB0`（光達）、網路 IP，最多 3 分鐘，都到齊再等 5 秒才啟動。
+    - `start()` 可帶 `auto_explore`；轉接白名單加 `explore/start|stop`；`/api/status` 多回傳 `boot`、`config`。
+  - `launcher.html`：「操作」頁加「自動建圖」卡片（開始／停止、已知面積、剩餘邊界、時間），建圖中鎖搖桿與覆蓋；
+    頂端步驟改「② 建圖」並依建圖狀態提示；「系統」頁加「開機自動啟動系統」「啟動後自動建圖」開關（開啟自動建圖需再確認）。
+- **為什麼**：使用者要車子開機後自己把地圖建好，不用遙控繞場地。
+- **影響檔案**：`turtlebot3_ccpp/scripts/map_server.py`、`launcher.py`、`launch/start.launch`、`web/launcher.html`
+- **結果 / 驗證**（車上 172.20.10.5）
+  - 車上 `explore_lite` 2.1.4、`map_server` 已安裝。
+  - 設定開關可存檔；控制台因同步而重啟時正確顯示「不是在開機時啟動，不自動啟動」。
+  - 啟動系統後 `/coverage/status` 的 `explore` 正確（已知 5.73 m²、10 段邊界），`/explore/stop`、遙控零速度正常；
+    map_server 有訂閱 `/rosout_agg`、`/battery_state`；`map_saver` 指令實測可存出 .pgm/.yaml。測完已停止系統。
+  - **未實測**（車子會自己移動，需要有人在旁）：實際跑完一次自動建圖、完成判定、回起點；真正重開機的開機自動啟動。
+- **待辦 / 已知問題**
+  - 實測後可能要調 `min_frontier_size`、`EXPLORE_IDLE_S`、`EXPLORE_MAX_S`。
+  - 建圖時速度沿用 DWA 官方上限，若太快可降 `max_vel_x`。
+
+---
+
+## 2026-11-11　refactor：車上程式集中到 `turtlebot3_ccpp/`
+
+- **類型**：refactor
+- **做了什麼**：`scripts/ launch/ web/ test/ tools/ CMakeLists.txt package.xml` 移入 `turtlebot3_ccpp/`（本機 `maps/` 一併移入，不進版控），
+  與車上 `~/catkin_ws/src/turtlebot3_ccpp` 一對一；`sync_to_robot.sh` 改打包 `HEAD:turtlebot3_ccpp`；新增根目錄 `README.md` 說明結構與改程式流程；
+  `docs/README.md` 的 `coverage_bench` 指令改新路徑。
+- **為什麼**：使用者要所有上車的程式集中在一個資料夾，和文件分開。
+- **結果 / 驗證**：同步 f4aa390 到車上，沒有任何檔案被刪除或變動（內容與先前相同）。
+- **待辦 / 已知問題**：`docs/01_學習資料` 各章內文的 `scripts/...` 路徑是相對於套件資料夾來寫的，未逐一改寫。
+
+---
+
 ## 2026-11-10　feat(launcher)：車上常駐控制台（手機開熱點即可啟動／觀察專案）＋同步腳本
 
 - **類型**：feat / chore
