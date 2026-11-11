@@ -6,12 +6,15 @@ TurtleBot3 地圖伺服器（Module A）
   - /coverage/start|resume|stop|status → 牛耕式路徑規劃 + move_base 執行，並回傳 cell 分解結果
   - /teleop                     → 手動遙控（與覆蓋執行互斥）
   - /slam/restart               → 重啟 SLAM 重新建圖（本節點負責 SLAM 的生命週期）
+  - /explore/start|stop         → 自動建圖：以子行程管理 explore_lite（frontier 探索），
+                                  自行判斷完成 → 存地圖 → 開回起點；~auto_explore=true 時啟動後自動開始
 路徑規劃核心由 coverage_planner 模組提供。
 
-模式互斥規則（單一真相來源＝cov_status['state']）：
-  state == 'running'  → 覆蓋執行中，手動遙控被拒絕
-  其他狀態            → 可手動遙控
-按下停止、覆蓋完成、或發生錯誤都會離開 running，自動切回可手動。
+模式互斥規則：
+  覆蓋 cov_status['state'] == 'running'          → 覆蓋執行中
+  探索 exp_status['state'] ∈ EXP_BUSY            → 自動建圖中（含倒數、存圖、回起點）
+  兩者任一成立時，手動遙控被拒絕，另一個也不能開始（避免兩邊同時對 move_base／/cmd_vel 下指令）。
+按下停止、完成、或發生錯誤都會離開上述狀態，自動切回可手動。
 """
 import csv, io, math, os, signal, socket, subprocess, sys, threading, time
 
@@ -24,9 +27,10 @@ import rospkg, rospy
 from flask import Flask, Response, jsonify, request, send_file
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import OccupancyGrid
-from sensor_msgs.msg import LaserScan
+from rosgraph_msgs.msg import Log
+from sensor_msgs.msg import BatteryState, LaserScan
 from PIL import Image
-from scipy.ndimage import binary_erosion, binary_dilation
+from scipy.ndimage import binary_erosion, binary_dilation, label as nd_label
 import tf2_ros
 
 try:
@@ -73,6 +77,28 @@ ESCAPE_CLEAR = 0.25 # 行進方向雷射扇形內最近障礙須大於此值才�
 BODY_R       = 0.11 # 車身半徑（公尺）：脫困前檢查地圖上會掃過的範圍用
 # COV_SPACING / COV_MARGIN 來自 coverage_planner 模組
 
+# ── 自動建圖（explore_lite） ──
+EXPLORE_PARAMS = {                  # 傳給 explore_lite 的私有參數
+    'robot_base_frame':      'base_footprint',
+    'costmap_topic':         'map',          # 直接讀 SLAM 地圖找邊界
+    'costmap_updates_topic': 'map_updates',
+    'visualize':             'false',
+    'planner_frequency':     '0.33',         # 每 3 秒重新挑一次目標
+    'progress_timeout':      '30.0',         # 30 秒沒進展就把該目標列入黑名單
+    'potential_scale':       '3.0',          # 越大越在意「近」
+    'orientation_scale':     '0.0',
+    'gain_scale':            '1.0',          # 越大越在意「大片」
+    'transform_tolerance':   '0.3',
+    'min_frontier_size':     '0.5',          # 短於此長度（公尺）的邊界不理會
+}
+EXPLORE_DELAY   = 10.0   # auto_explore：地圖與 move_base 就緒後倒數幾秒才開始（給人反應、可按停止）
+EXPLORE_MAX_S   = 600.0  # 最長探索時間（秒），超過就收尾
+EXPLORE_IDLE_S  = 90.0   # 已知面積這麼久都沒變大 → 視為完成（避免卡在搆不到的邊界）
+EXPLORE_GROW    = 0.05   # 「變大」的門檻（m²）
+FRONTIER_MIN    = 0.30   # 網頁顯示用：長度至少這麼長（公尺）的邊界才計入「剩餘邊界」
+BATT_MIN        = 10.8   # 電池電壓低於此值（V）就停止探索（Burger 3S 鋰電池）
+HOME_TIMEOUT    = 90.0   # 探索完開回起點最多等幾秒
+
 # ════════════════════════════════════════════════════════
 #  共享狀態
 # ════════════════════════════════════════════════════════
@@ -108,11 +134,28 @@ slam_lock = threading.Lock()
 slam_proc = None
 slam_cfg  = {'manage': True, 'method': 'gmapping'}
 
+map_stats = {'area': 0.0, 'frontiers': 0}   # 已知空地面積（m²）、夠長的邊界段數；map_callback 更新
+
+exp_lock   = threading.Lock()
+exp_proc   = None
+exp_status = {'state': 'idle', 'msg': '', 't0': None, 'elapsed': 0.0, 'map_file': None,
+              'countdown': None}
+exp_flags  = {'lite_done': False, 'stop': False, 'run': 0}   # explore_lite 回報結束／使用者按停止／第幾輪
+EXP_BUSY   = ('countdown', 'exploring', 'saving', 'returning')
+battery_v  = {'v': None}
+
+
+def _exploring():
+    with exp_lock:
+        return exp_status['state'] in EXP_BUSY
+
 
 def manual_allowed():
-    """手動遙控是否被允許（覆蓋執行中一律禁止）。"""
+    """手動遙控是否被允許（覆蓋執行中、自動建圖中一律禁止）。"""
     with cov_lock:
-        return cov_status['state'] != 'running'
+        if cov_status['state'] == 'running':
+            return False
+    return not _exploring()
 
 
 # ════════════════════════════════════════════════════════
@@ -187,7 +230,17 @@ def map_callback(msg):
 
     r0, r1, c0, c1 = _crop(known, h, w)
 
+    # 自動建圖進度：已知空地面積、邊界段數（空地且上下左右碰到未知；相連的算一段）
+    res = msg.info.resolution
+    frontier = free & binary_dilation(~known)
+    lab, n = nd_label(frontier, structure=np.ones((3, 3), dtype=bool))
+    if n:
+        sizes = np.bincount(lab.ravel())[1:]
+        n = int((sizes * res >= FRONTIER_MIN).sum())
+    stats = {'area': round(float(free.sum()) * res * res, 2), 'frontiers': int(n)}
+
     with map_lock:
+        map_stats.update(stats)
         map_png     = _to_png(gray[r0:r1, c0:c1])
         map_eroded  = _to_png(gray_e[r0:r1, c0:c1])
         map_dilated = _to_png(gray_d[r0:r1, c0:c1])
@@ -317,6 +370,236 @@ def slam_kill(timeout=10.0):
         rospy.logerr('[slam] 結束失敗：%s', e)
     finally:
         slam_proc = None
+
+
+# ════════════════════════════════════════════════════════
+#  自動建圖（explore_lite frontier 探索）
+#
+#  explore_lite 只負責「挑下一個邊界、丟給 move_base」。何時算完成、存圖、回起點由這裡決定：
+#    1. explore_lite 在 /rosout 說 "Exploration stopped"（找不到可去的邊界）
+#    2. 已知面積 EXPLORE_IDLE_S 秒沒變大（剩下的邊界搆不到）
+#    3. 超過 EXPLORE_MAX_S
+#    4. 電池低於 BATT_MIN
+#  任一成立 → 收掉 explore_lite → 存地圖到 maps/ → 開回起點 → done。
+# ════════════════════════════════════════════════════════
+def _set_exp(**kw):
+    with exp_lock:
+        exp_status.update(kw)
+
+
+def explore_launch():
+    global exp_proc
+    cmd = ['rosrun', 'explore_lite', 'explore', '__name:=explore']
+    cmd += [f'_{k}:={v}' for k, v in EXPLORE_PARAMS.items()]
+    rospy.loginfo('[explore] 啟動 explore_lite')
+    exp_proc = subprocess.Popen(cmd, preexec_fn=os.setsid)
+
+
+def explore_kill(timeout=8.0):
+    global exp_proc
+    proc, exp_proc = exp_proc, None
+    if proc is None or proc.poll() is not None:
+        return
+    try:
+        os.killpg(os.getpgid(proc.pid), signal.SIGINT)
+        proc.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            proc.wait(timeout=3.0)
+        except Exception as e:
+            rospy.logerr('[explore] 強制結束失敗：%s', e)
+    except Exception as e:
+        rospy.logerr('[explore] 結束失敗：%s', e)
+
+
+def rosout_callback(msg):
+    """explore_lite 找不到可去的邊界時會印 "Exploration stopped."，視為它認為探索完成。"""
+    if msg.name.endswith('/explore') and 'Exploration stopped' in msg.msg:
+        exp_flags['lite_done'] = True
+
+
+def battery_callback(msg):
+    battery_v['v'] = msg.voltage
+
+
+_mb = {'client': None}
+
+
+def _mb_client(timeout=5.0):
+    """自動建圖共用同一個 move_base action client：按停止時才能立刻取消（新建的 client 還沒連上，取消訊息會掉）。"""
+    if not HAS_MB:
+        return None
+    if _mb['client'] is None:
+        _mb['client'] = actionlib.SimpleActionClient('move_base', MoveBaseAction)
+    return _mb['client'] if _mb['client'].wait_for_server(rospy.Duration(timeout)) else None
+
+
+def explore_start(delay=0.0):
+    """開始自動建圖（delay > 0 時先倒數）。回傳 (ok, msg)。"""
+    with cov_lock:
+        if cov_status['state'] == 'running':
+            return False, '自動覆蓋執行中，請先按結束'
+    with map_lock:
+        if map_data.get('data') is None:
+            return False, '地圖尚未就緒，請等 SLAM 啟動'
+    with exp_lock:
+        if exp_status['state'] in EXP_BUSY:
+            return False, '已在自動建圖中'
+        exp_status.update(state='countdown' if delay > 0 else 'exploring', msg='',
+                          t0=None, elapsed=0.0, map_file=None,
+                          countdown=round(delay) if delay > 0 else None)
+    exp_flags.update(lite_done=False, stop=False, run=exp_flags['run'] + 1)
+    teleop_halt()
+    threading.Thread(target=_explore_run, args=(delay, exp_flags['run']), daemon=True).start()
+    return True, f'{round(delay)} 秒後開始自動建圖' if delay > 0 else '開始自動建圖'
+
+
+def explore_stop(msg='已停止'):
+    """使用者按停止（或重啟 SLAM）：停在當下，不存圖、不回起點。"""
+    with exp_lock:
+        busy = exp_status['state'] in EXP_BUSY
+    exp_flags['stop'] = True
+    if _mb['client'] is not None:
+        _mb['client'].cancel_all_goals()            # 先取消目標讓車停下，再收 explore_lite
+    explore_kill()
+    if _mb['client'] is not None:
+        _mb['client'].cancel_all_goals()            # explore_lite 收尾前可能又送了一個
+    teleop_halt()
+    if busy:
+        _set_exp(state='stopped', msg=msg, countdown=None)
+
+
+def _explore_run(delay, rid):
+    try:
+        _explore_body(delay, rid)
+    except Exception as e:
+        rospy.logerr('[explore] 例外：%s', e)
+        explore_kill()
+        _set_exp(state='error', msg=f'自動建圖發生錯誤：{e}', countdown=None)
+
+
+def _explore_body(delay, rid):
+    halted = lambda: exp_flags['stop'] or exp_flags['run'] != rid   # 停止，或已有新一輪開始
+    # 倒數（可被停止中斷）
+    t_end = time.time() + delay
+    while time.time() < t_end:
+        if halted():
+            return
+        _set_exp(countdown=max(0, round(t_end - time.time())))
+        time.sleep(0.2)
+
+    client = _mb_client()
+    if client is None:
+        _set_exp(state='error', msg='move_base 未啟動（等待 5 秒逾時）', countdown=None)
+        return
+    with map_lock:
+        fid = map_data.get('frame_id', 'map')
+    home = _robot_pose(fid)
+
+    t0 = time.time()
+    _set_exp(state='exploring', t0=t0, countdown=None, msg='')
+    explore_launch()
+
+    with map_lock:
+        last_area = map_stats['area']
+    last_grow, reason = t0, None
+    while not rospy.is_shutdown():
+        time.sleep(1.0)
+        if halted():
+            return
+        now = time.time()
+        with map_lock:
+            area = map_stats['area']
+        if area > last_area + EXPLORE_GROW:
+            last_area, last_grow = area, now
+        _set_exp(elapsed=round(now - t0, 1))
+
+        if exp_proc is None or exp_proc.poll() is not None:
+            reason = 'explore_lite 意外結束，已存下目前地圖'
+        elif exp_flags['lite_done']:
+            reason = '已找不到可探索的邊界'
+        elif now - last_grow > EXPLORE_IDLE_S:
+            reason = f'地圖 {int(EXPLORE_IDLE_S)} 秒沒有變大，剩下的邊界到不了'
+        elif now - t0 > EXPLORE_MAX_S:
+            reason = f'達到最長探索時間 {int(EXPLORE_MAX_S // 60)} 分鐘'
+        elif battery_v['v'] is not None and 5.0 < battery_v['v'] < BATT_MIN:
+            reason = f'電池電壓過低（{battery_v["v"]:.2f} V），請充電'
+        if reason:
+            break
+    else:
+        return
+
+    # 收尾：停探索 → 存圖 → 回起點
+    _set_exp(state='saving', msg=reason)
+    explore_kill()
+    client.cancel_all_goals()
+    teleop_halt()
+    path = _save_map()
+    _set_exp(map_file=os.path.basename(path) if path else None)
+
+    if home is not None and not halted():
+        _set_exp(state='returning')
+        _go_home(client, fid, home, halted)
+    if halted():
+        return
+    with exp_lock:
+        exp_status['elapsed'] = round(time.time() - t0, 1)
+        saved = '，地圖已存成 ' + exp_status['map_file'] if exp_status['map_file'] else '，但存地圖失敗'
+    _set_exp(state='done', msg=reason + saved)
+    rospy.loginfo('[explore] 完成：%s', reason)
+
+
+def _save_map():
+    """用 ROS 官方 map_server 套件的 map_saver 把目前 /map 存成 .pgm + .yaml，回傳路徑（不含副檔名）。"""
+    out_dir = os.path.join(PKG, 'maps')
+    os.makedirs(out_dir, exist_ok=True)
+    path = os.path.join(out_dir, 'explore_' + time.strftime('%Y%m%d_%H%M%S'))
+    try:
+        r = subprocess.run(['rosrun', 'map_server', 'map_saver', '-f', path, '__name:=ccpp_map_saver'],
+                           capture_output=True, text=True, timeout=20)
+        if r.returncode == 0 and os.path.exists(path + '.yaml'):
+            rospy.loginfo('[explore] 地圖已存：%s', path)
+            return path
+        rospy.logerr('[explore] map_saver 失敗：%s', r.stderr[-300:])
+    except Exception as e:
+        rospy.logerr('[explore] map_saver 例外：%s', e)
+    return None
+
+
+def _go_home(client, fid, home, halted):
+    """開回探索起點（朝向也轉回去）。可被停止中斷，逾時就放棄、停在原地。"""
+    qz, qw = _yaw_to_quat(home[2])
+    goal = MoveBaseGoal()
+    goal.target_pose.header.frame_id    = fid
+    goal.target_pose.header.stamp       = rospy.Time.now()
+    goal.target_pose.pose.position.x    = home[0]
+    goal.target_pose.pose.position.y    = home[1]
+    goal.target_pose.pose.orientation.z = qz
+    goal.target_pose.pose.orientation.w = qw
+    client.send_goal(goal)
+    t_end = time.time() + HOME_TIMEOUT
+    while time.time() < t_end and not rospy.is_shutdown():
+        if halted():
+            client.cancel_all_goals()
+            return
+        if client.wait_for_result(rospy.Duration(0.5)):
+            return
+    client.cancel_all_goals()
+
+
+def auto_explore_waiter():
+    """~auto_explore=true：等地圖、車子位置、move_base 都就緒，再以倒數方式開始自動建圖。"""
+    while not rospy.is_shutdown():
+        with map_lock:
+            ready = map_data.get('data') is not None
+        with robot_lock:
+            ready = ready and robot_pos['x'] is not None
+        if ready and _mb_client(2.0) is not None:
+            break
+        time.sleep(1.0)
+    ok, msg = explore_start(delay=EXPLORE_DELAY)
+    rospy.loginfo('[explore] 自動建圖：%s', msg)
 
 
 # ════════════════════════════════════════════════════════
@@ -746,6 +1029,8 @@ def get_scan():
 
 @app.route('/coverage/start', methods=['POST'])
 def coverage_start():
+    if _exploring():
+        return jsonify({'ok': False, 'msg': '自動建圖中，請等建圖完成或先按停止'})
     with cov_lock:
         if cov_status['state'] == 'running':
             return jsonify({'ok': False, 'msg': '已在執行中'})
@@ -817,6 +1102,8 @@ def coverage_stop():
 @app.route('/coverage/resume', methods=['POST'])
 def coverage_resume():
     """沿用同一條路徑，從中斷處（cov_status['done']）接著走，不重新規劃。"""
+    if _exploring():
+        return jsonify({'ok': False, 'msg': '自動建圖中，請等建圖完成或先按停止'})
     teleop_halt()                                  # 交出 /cmd_vel 控制權前先停車
     with cov_lock:
         if cov_status['state'] == 'running':
@@ -861,16 +1148,41 @@ def coverage_status():
 
     st['info']    = info
     st['metrics'] = cov_metrics()
-    st['manual'] = st['state'] != 'running'
+    st['manual'] = manual_allowed()
     st['slam_managed'] = slam_cfg['manage']
+    st['explore'] = explore_snapshot()
     return jsonify(st)
+
+
+def explore_snapshot():
+    with exp_lock:
+        ex = {k: v for k, v in exp_status.items() if k != 't0'}
+        if exp_status['state'] == 'exploring' and exp_status['t0']:
+            ex['elapsed'] = round(time.time() - exp_status['t0'], 1)
+    with map_lock:
+        ex.update(area=map_stats['area'], frontiers=map_stats['frontiers'])
+    ex['busy'] = ex['state'] in EXP_BUSY
+    ex['max_s'] = EXPLORE_MAX_S
+    return ex
+
+
+@app.route('/explore/start', methods=['POST'])
+def explore_start_route():
+    ok, msg = explore_start()
+    return jsonify({'ok': ok, 'msg': msg}), (200 if ok else 409)
+
+
+@app.route('/explore/stop', methods=['POST'])
+def explore_stop_route():
+    explore_stop()
+    return jsonify({'ok': True, 'msg': '已停止自動建圖'})
 
 
 @app.route('/teleop', methods=['POST'])
 def teleop():
     """手動遙控。body: {v: -1..1, w: -1..1}（比例值，後端乘上速度上限）。"""
     if not manual_allowed():
-        return jsonify({'ok': False, 'msg': '覆蓋執行中，請先按結束'}), 409
+        return jsonify({'ok': False, 'msg': '自動執行中（覆蓋或建圖），請先按結束／停止'}), 409
 
     body = request.get_json(silent=True) or {}
     try:
@@ -898,6 +1210,7 @@ def slam_restart():
     with cov_lock:
         if cov_status['state'] == 'running':
             cov_status['state'] = 'stopped'
+    explore_stop('重新建圖，自動建圖已停止')
     teleop_halt()
 
     with slam_lock:
@@ -939,6 +1252,7 @@ def main():
     port = rospy.get_param('~port', 8080)
     slam_cfg['manage'] = bool(rospy.get_param('~manage_slam', True))
     slam_cfg['method'] = str(rospy.get_param('~slam_methods', 'gmapping'))
+    auto_explore = bool(rospy.get_param('~auto_explore', False))
 
     if not HAS_MB:
         rospy.logwarn('未安裝 move_base_msgs，覆蓋執行功能不可用')
@@ -950,6 +1264,9 @@ def main():
 
     rospy.Subscriber('/map',  OccupancyGrid, map_callback,  queue_size=1)
     rospy.Subscriber('/scan', LaserScan,     scan_callback, queue_size=1)
+    rospy.Subscriber('/rosout_agg', Log,          rosout_callback,  queue_size=50)
+    rospy.Subscriber('/battery_state', BatteryState, battery_callback, queue_size=1)
+    rospy.on_shutdown(explore_kill)
 
     if slam_cfg['manage']:
         rospy.on_shutdown(slam_kill)
@@ -970,6 +1287,9 @@ def main():
         target=lambda: app.run(host='0.0.0.0', port=port, threaded=True, use_reloader=False),
         daemon=True,
     ).start()
+    if auto_explore:
+        rospy.loginfo('[explore] auto_explore=true：地圖與 move_base 就緒後自動開始建圖')
+        threading.Thread(target=auto_explore_waiter, daemon=True).start()
     rospy.spin()
 
 

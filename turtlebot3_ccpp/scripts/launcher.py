@@ -35,6 +35,14 @@ MODELS    = ('burger', 'waffle', 'waffle_pi')
 STOP_WAIT = 20.0    # 送 SIGINT 後等 roslaunch 自己收尾的秒數，逾時才 SIGTERM / SIGKILL
 LOG_KEEP  = 20      # 最多保留幾份 roslaunch 日誌
 
+# 開機自動啟動：設定檔放車上家目錄（不在套件資料夾內，同步程式不會蓋掉）
+CONFIG_PATH = os.path.join(LOG_DIR, 'config.json')
+CONFIG_DEFAULT = {'autostart': False, 'auto_explore': False, 'model': 'burger'}
+BOOT_WINDOW = 300.0     # 系統開機這麼多秒內控制台啟動才算「開機」；之後的重啟（例如同步程式）不自動啟動
+BOOT_WAIT   = 180.0     # 最多等硬體就緒幾秒
+BOOT_SETTLE = 5.0       # 硬體都出現後再多等幾秒（OpenCR 剛上電需要初始化）
+BOOT_DEVICES = {'/dev/ttyACM0': '底盤板 OpenCR', '/dev/ttyUSB0': '光達'}
+
 app = Flask(__name__)
 
 lock  = threading.Lock()
@@ -46,7 +54,26 @@ cache = {                       # 背景輪詢結果（狀態 API 直接回傳�
     'web_ready': False, 'nodes': [], 'battery': None, 'coverage': None,
     't_nodes': 0.0,
 }
+boot  = {'state': 'off', 'msg': ''}   # 開機自動啟動進度：off / waiting / started / failed / skipped
 T_BOOT = time.time()
+
+
+def load_config():
+    cfg = dict(CONFIG_DEFAULT)
+    try:
+        with open(CONFIG_PATH) as f:
+            cfg.update({k: v for k, v in json.load(f).items() if k in CONFIG_DEFAULT})
+    except (OSError, ValueError):
+        pass
+    return cfg
+
+
+def save_config(cfg):
+    os.makedirs(LOG_DIR, exist_ok=True)
+    tmp = CONFIG_PATH + '.tmp'
+    with open(tmp, 'w') as f:
+        json.dump(cfg, f, indent=2)
+    os.replace(tmp, CONFIG_PATH)
 
 
 # ════════════════════════════════════════════════════════
@@ -143,7 +170,7 @@ def _prune_logs():
         pass
 
 
-def start(model):
+def start(model, auto_explore=False):
     with lock:
         if run['proc'] is not None and run['proc'].poll() is None:
             return False, '已經在執行中'
@@ -156,11 +183,13 @@ def start(model):
         _prune_logs()
         log_path = os.path.join(LOG_DIR, time.strftime('%Y%m%d_%H%M%S') + '.log')
         run.update(model=model, ip=ips[0], log=log_path, exit_code=None, t0=time.time(),
-                   state='running', msg=f'以 {ips[0]} 啟動')
+                   state='running', msg=f'以 {ips[0]} 啟動' + ('，就緒後自動建圖' if auto_explore else ''))
         logf = open(log_path, 'w', buffering=1)
-        logf.write(f'# ccpp launcher: model={model} ROS_MASTER_URI=http://{ips[0]}:11311\n')
+        logf.write(f'# ccpp launcher: model={model} auto_explore={auto_explore} '
+                   f'ROS_MASTER_URI=http://{ips[0]}:11311\n')
+        args = f'model:={model} auto_explore:={"true" if auto_explore else "false"}'
         run['proc'] = subprocess.Popen(
-            ['bash', '-c', f'{ROS_SETUP} && exec roslaunch turtlebot3_ccpp start.launch model:={model}'],
+            ['bash', '-c', f'{ROS_SETUP} && exec roslaunch turtlebot3_ccpp start.launch {args}'],
             stdout=logf, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
             env=ros_env(ips[0]), preexec_fn=os.setsid)
         logf.close()            # 子行程已繼承檔案描述子
@@ -316,18 +345,66 @@ def api_status():
             'coverage':  cache['coverage'],
             'models':    MODELS,
         }
+        out['boot'] = dict(boot)
     out['system'] = system_info()
     out['launcher_uptime_s'] = int(time.time() - T_BOOT)
+    out['config'] = load_config()
     return jsonify(out)
 
 
 @app.route('/api/start', methods=['POST'])
 def api_start():
-    model = (request.get_json(silent=True) or {}).get('model', 'burger')
+    body = request.get_json(silent=True) or {}
+    model = body.get('model', 'burger')
     if model not in MODELS:
         return jsonify(ok=False, msg=f'不支援的型號：{model}'), 400
-    ok, msg = start(model)
+    ok, msg = start(model, auto_explore=bool(body.get('auto_explore', False)))
     return jsonify(ok=ok, msg=msg), (200 if ok else 409)
+
+
+@app.route('/api/config', methods=['GET', 'POST'])
+def api_config():
+    cfg = load_config()
+    if request.method == 'POST':
+        body = request.get_json(silent=True) or {}
+        for k in ('autostart', 'auto_explore'):
+            if k in body:
+                cfg[k] = bool(body[k])
+        if body.get('model') in MODELS:
+            cfg['model'] = body['model']
+        save_config(cfg)
+    return jsonify(ok=True, config=cfg)
+
+
+# ════════════════════════════════════════════════════════
+#  開機自動啟動：只在「系統剛開機」時做，控制台之後因同步程式而重啟不會再自動啟動
+# ════════════════════════════════════════════════════════
+def _boot_autostart():
+    cfg = load_config()
+    if not cfg['autostart']:
+        return
+    uptime = float((read_file('/proc/uptime', '0') or '0').split()[0])
+    if uptime > BOOT_WINDOW:
+        boot.update(state='skipped', msg='控制台不是在開機時啟動（例如剛同步程式），不自動啟動')
+        return
+    t_end = time.time() + BOOT_WAIT
+    while True:
+        missing = [name for dev, name in BOOT_DEVICES.items() if not os.path.exists(dev)]
+        if not host_ips():
+            missing.append('網路 IP')
+        if not missing:
+            break
+        if time.time() > t_end:
+            boot.update(state='failed', msg='等不到：' + '、'.join(missing) + '，請檢查接線後手動啟動')
+            print('[boot]', boot['msg'], flush=True)
+            return
+        boot.update(state='waiting', msg='開機自動啟動：等待 ' + '、'.join(missing))
+        time.sleep(1.0)
+    boot.update(state='waiting', msg='硬體已就緒，準備啟動…')
+    time.sleep(BOOT_SETTLE)
+    ok, msg = start(cfg['model'], auto_explore=cfg['auto_explore'])
+    boot.update(state='started' if ok else 'failed', msg=('開機自動啟動：' if ok else '開機自動啟動失敗：') + msg)
+    print('[boot]', boot['msg'], flush=True)
 
 
 @app.route('/api/stop', methods=['POST'])
@@ -373,7 +450,8 @@ def api_power():
 # ── 轉接 map_server（8080）：手機只開 8000 一個網址，同源呼叫，不必處理跨來源 ──
 PROXY_GET  = {'map.png', 'map_margin.png', 'map_eroded.png', 'map_dilated.png',
               'robot_state', 'scan', 'coverage/status', 'coverage/runs.csv'}
-PROXY_POST = {'coverage/start', 'coverage/stop', 'coverage/resume', 'teleop', 'slam/restart'}
+PROXY_POST = {'coverage/start', 'coverage/stop', 'coverage/resume', 'teleop', 'slam/restart',
+              'explore/start', 'explore/stop'}
 
 
 @app.route('/<path:p>', methods=['GET', 'POST'])
@@ -406,6 +484,7 @@ def proxy(p):
 def main():
     threading.Thread(target=_poller, daemon=True).start()
     threading.Thread(target=_battery_poller, daemon=True).start()
+    threading.Thread(target=_boot_autostart, daemon=True).start()
     print(f'[launcher] http://{(host_ips() or ["127.0.0.1"])[0]}:{PORT}', flush=True)
     app.run(host='0.0.0.0', port=PORT, threaded=True, use_reloader=False)
 

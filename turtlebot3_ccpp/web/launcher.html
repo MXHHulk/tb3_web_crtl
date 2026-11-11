@@ -68,6 +68,9 @@ details summary { cursor: pointer; color: var(--dim); font-size: .85em; font-wei
 details summary::-webkit-details-marker { display: none; }
 details summary::before { content: '▸ '; } details[open] summary::before { content: '▾ '; }
 .empty { color: var(--dim); font-size: .88em; }
+label.sw { display: flex; gap: 12px; align-items: flex-start; padding: 8px 0; cursor: pointer; }
+label.sw input { width: 24px; height: 24px; margin-top: 2px; flex-shrink: 0; accent-color: var(--accent); }
+label.sw small { display: block; color: var(--dim); font-size: .82em; line-height: 1.5; margin-top: 2px; }
 
 /* ── 地圖 ── */
 .mapbox { margin-top: 12px; background: #010409; border: 1px solid var(--line); border-radius: 12px;
@@ -134,7 +137,7 @@ section[data-tab] { display: none; } section[data-tab].on { display: block; }
         </div>
         <div class="steps">
             <div class="step" id="st1">① 啟動系統</div>
-            <div class="step" id="st2">② 遙控建圖</div>
+            <div class="step" id="st2">② 建圖</div>
             <div class="step" id="st3">③ 自動覆蓋</div>
         </div>
         <div class="guide" id="guide">連線中…</div>
@@ -157,6 +160,20 @@ section[data-tab] { display: none; } section[data-tab].on { display: block; }
             <canvas id="canvas" hidden></canvas>
             <div id="waiting">等待地圖資料…</div>
             <div class="mapinfo" id="mapinfo" hidden></div>
+        </div>
+
+        <div class="card">
+            <h2>自動建圖（車子自己找沒看過的地方）</h2>
+            <div class="g2">
+                <button class="b-blue" id="btnExpStart">▶ 自動建圖</button>
+                <button class="b-stop" id="btnExpStop" disabled>■ 停止</button>
+            </div>
+            <div class="stats" style="margin-top:10px">
+                <div class="stat"><div class="k">已知面積</div><div class="v" id="expArea">—</div></div>
+                <div class="stat"><div class="k">剩餘邊界</div><div class="v" id="expFront">—</div></div>
+                <div class="stat"><div class="k">建圖時間</div><div class="v" id="expTime">—</div></div>
+            </div>
+            <div class="meta" id="expText" style="margin-top:8px">也可以用下面的搖桿自己開著繞一圈。</div>
         </div>
 
         <div class="card">
@@ -190,7 +207,7 @@ section[data-tab] { display: none; } section[data-tab].on { display: block; }
                     <b id="speedVal">50%</b>
                 </div>
             </div>
-            <div class="lock" id="padLock" hidden>自動覆蓋中，遙控已鎖定；按「結束」可解鎖。</div>
+            <div class="lock" id="padLock" hidden></div>
         </div>
 
         <div class="card">
@@ -259,6 +276,16 @@ section[data-tab] { display: none; } section[data-tab].on { display: block; }
             <label class="meta" for="model">車型</label>
             <select id="model"></select>
         </div>
+    </div>
+
+    <div class="card">
+        <h2>開機設定</h2>
+        <label class="sw"><input type="checkbox" id="cfgAuto"><span><b>開機自動啟動系統</b>
+            <small>車子上電後，等底盤板、光達、網路都就緒就自動啟動，不用按按鈕。</small></span></label>
+        <label class="sw"><input type="checkbox" id="cfgExplore"><span><b>啟動後自動建圖</b>
+            <small>開機自動啟動時，地圖出現後倒數 10 秒就自己開始建圖。建完會存地圖並開回起點。<br>
+            ⚠ 車子會自己移動，請確認場地安全、車子放在地上。</small></span></label>
+        <div class="meta" id="bootState"></div>
     </div>
 
     <div class="card">
@@ -340,7 +367,9 @@ async function post(path, body) {
 
 const sysAlive  = () => sys && ['running', 'external', 'stopping'].includes(sys.state);
 const mapReady  = () => sys && sys.web_ready && cov;
-const covManual = () => !cov || cov.state !== 'running';
+const expOf     = () => (cov && cov.explore) || null;
+const expBusy   = () => !!(expOf() && expOf().busy);
+const covManual = () => !cov || (cov.state !== 'running' && !expBusy());
 
 // ── 分頁 ──
 document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
@@ -362,27 +391,36 @@ const COV_TXT = { idle: '待命', running: '覆蓋中', stopped: '已中斷', do
 function renderTop() {
     const st = sys ? sys.state : 'offline';
     const [txt, cls] = SYS_TXT[st] || [st, 'c-dim'];
-    let label = txt;
-    if (st === 'running' && !sys.web_ready) label = '啟動中';
-    if (cov && cov.state === 'running') label = '覆蓋中';
-    for (const id of ['sysPill', 'sysPill2']) {
-        $(id).textContent = id === 'sysPill' ? label : txt;
-        $(id).className = 'pill ' + (label === '啟動中' && id === 'sysPill' ? 'c-warn' : cov && cov.state === 'running' && id === 'sysPill' ? 'c-acc' : cls);
-    }
+    const ex = expOf();
+    let label = txt, pcls = cls;
+    if (st === 'running' && !sys.web_ready) { label = '啟動中'; pcls = 'c-warn'; }
+    if (ex && ex.busy)                      { label = '建圖中'; pcls = 'c-acc'; }
+    if (cov && cov.state === 'running')     { label = '覆蓋中'; pcls = 'c-acc'; }
+    $('sysPill').textContent = label;  $('sysPill').className = 'pill ' + pcls;
+    $('sysPill2').textContent = txt;   $('sysPill2').className = 'pill ' + cls;
 
     // 三步驟與提示
     let step = 1, g;
     const remain = cov && cov.done < cov.total;
     if (!sys)                         g = '連不到車子：確認手機和車子連在同一個熱點，再重新整理。';
     else if (st === 'stopping')       g = '系統停止中…';
-    else if (!sysAlive())             g = st === 'exited' ? '系統異常結束，到「系統」看日誌後再按啟動。' : '按「啟動系統」。';
+    else if (!sysAlive())             g = st === 'exited' ? '系統異常結束，到「系統」看日誌後再按啟動。'
+                                        : sys.boot && sys.boot.state === 'waiting' ? sys.boot.msg : '按「啟動系統」。';
     else if (!sys.web_ready || !cov)  g = '系統啟動中，硬體、光達、SLAM 約需 20～40 秒…';
+    else if (ex && ex.busy) {
+        step = 2;
+        g = { countdown: `${ex.countdown ?? ''} 秒後開始自動建圖（車子會自己移動），要取消按「停止」。`,
+              exploring: `自動建圖中：已知 ${ex.area} m²，剩 ${ex.frontiers} 段邊界。要中斷按「停止」。`,
+              saving:    '建圖完成，存地圖中…',
+              returning: '地圖已存好，開回起點中…' }[ex.state];
+    }
     else if (cov.state === 'running') { step = 3; g = `自動覆蓋中：路點 ${cov.done} / ${cov.total}。要中斷按「結束」。`; }
     else if (cov.state === 'done')    { step = 4; g = '✓ 覆蓋完成！到「數據」看覆蓋率；要再跑一次直接按「開始」。'; }
     else if (['stopped', 'error'].includes(cov.state) && remain) {
         step = 3; g = '任務已中斷：把車移到空曠處後按「繼續」，或按「開始」重新規劃。';
     }
-    else { step = 2; g = '用搖桿把車開著繞場地一圈，地圖完整後按「開始」自動覆蓋。'; }
+    else if (ex && ex.state === 'done') { step = 3; g = '✓ 地圖建好了。確認地圖沒問題後，按「自動覆蓋」的「開始」。'; }
+    else { step = 2; g = '按「自動建圖」讓車子自己畫地圖，或用搖桿開著繞場地一圈；地圖完整後按「開始」自動覆蓋。'; }
     $('guide').textContent = g;
     ['st1', 'st2', 'st3'].forEach((id, i) => {
         $(id).className = 'step' + (i + 1 < step ? ' done' : i + 1 === step ? ' now' : '');
@@ -399,6 +437,7 @@ function renderSys() {
     $('btnBoot').disabled = busy || !sys || alive;
     $('btnBoot').textContent = alive ? '啟動中…' : '▶ 啟動系統';
     $('bootMsg').textContent = !sys ? '連不到車子。' : alive ? '硬體、光達、SLAM 啟動中，約 20～40 秒。'
+        : sys.boot && ['waiting', 'failed'].includes(sys.boot.state) ? sys.boot.msg
         : st === 'exited' ? (sys.msg || '系統異常結束') + '，可到「系統」看日誌。' : '啟動後約 40 秒會出現地圖。';
 
     $('btnStart').disabled = busy || !sys || alive;
@@ -412,6 +451,15 @@ function renderSys() {
         try { sel.value = localStorage.getItem('tb3.model') || 'burger'; } catch (e) {}
     }
     sel.disabled = alive;
+
+    // 開機設定（使用者剛點過的那一刻不要被輪詢結果蓋回去）
+    if (sys.config && Date.now() - cfgTouched > 4000) {
+        $('cfgAuto').checked = sys.config.autostart;
+        $('cfgExplore').checked = sys.config.auto_explore;
+    }
+    $('cfgExplore').disabled = !$('cfgAuto').checked;
+    const bt = sys.boot || {};
+    $('bootState').textContent = bt.state && bt.state !== 'off' ? '本次開機：' + bt.msg : '';
 
     const meta = [];
     if (alive && sys.model) meta.push(sys.model);
@@ -456,6 +504,24 @@ function startSys() {
     try { localStorage.setItem('tb3.model', m); } catch (e) {}
     sysAction('/api/start', { model: m }, '啟動中…');
 }
+let cfgTouched = 0;
+async function saveCfg() {
+    cfgTouched = Date.now();
+    if (!$('cfgAuto').checked) $('cfgExplore').checked = false;
+    $('cfgExplore').disabled = !$('cfgAuto').checked;
+    const body = { autostart: $('cfgAuto').checked, auto_explore: $('cfgExplore').checked,
+                   model: $('model').value || 'burger' };
+    try {
+        const r = await post('/api/config', body);
+        toast(r.ok ? (body.autostart ? (body.auto_explore ? '已設定：開機自動啟動＋自動建圖' : '已設定：開機自動啟動')
+                                     : '已關閉開機自動啟動') : '儲存失敗');
+    } catch (e) { toast('儲存失敗：連不到車子'); }
+}
+$('cfgAuto').onchange = saveCfg;
+$('cfgExplore').onchange = () => {
+    if ($('cfgExplore').checked && !confirm('開機後車子會自己移動建圖。確定要開啟嗎？')) { $('cfgExplore').checked = false; return; }
+    saveCfg();
+};
 $('btnBoot').onclick = startSys;
 $('btnStart').onclick = startSys;
 $('btnStop').onclick = () => { if (confirm('停止整個系統？自動覆蓋會中斷、車子會停下。')) sysAction('/api/stop', {}, '停止中…'); };
@@ -694,20 +760,36 @@ async function pollMap() {
 //  自動覆蓋
 // ════════════════════════════════════════════════════════
 function renderCov() {
-    const c = cov, running = c && c.state === 'running';
-    $('btnCovStart').disabled  = !c || running;
-    $('btnCovResume').disabled = !(c && ['stopped', 'error'].includes(c.state) && c.done < c.total);
+    const c = cov, running = c && c.state === 'running', ex = expOf(), exBusy = expBusy();
+    $('btnCovStart').disabled  = !c || running || exBusy;
+    $('btnCovResume').disabled = exBusy || !(c && ['stopped', 'error'].includes(c.state) && c.done < c.total);
     $('btnCovStop').disabled   = !running;
+
+    // 自動建圖
+    $('btnExpStart').disabled = !c || running || exBusy;
+    $('btnExpStop').disabled  = !exBusy;
+    setV('expArea', ex ? ex.area + ' m²' : '—');
+    setV('expFront', ex ? String(ex.frontiers) : '—', ex && ex.busy && ex.frontiers === 0 ? 'good' : '');
+    setV('expTime', ex && ex.elapsed ? dur(ex.elapsed) : '—');
+    $('expText').textContent = !ex ? '—' : {
+        idle: '按下後車子會自己找沒看過的地方開過去；也可以用下面的搖桿自己開。',
+        countdown: `${ex.countdown ?? ''} 秒後開始，車子會自己移動。`,
+        exploring: '建圖中，搖桿與自動覆蓋已鎖定。',
+        saving: '存地圖中…', returning: '開回起點中…',
+        done: '✓ ' + ex.msg, stopped: ex.msg || '已停止', error: '錯誤：' + ex.msg }[ex.state] ?? ex.state;
     $('covBar').style.width = c && c.total ? (100 * c.done / c.total).toFixed(1) + '%' : '0';
     const txt = !c ? '—' : { idle: '待命：地圖建好後按「開始」', running: `覆蓋中　路點 ${c.done} / ${c.total}`,
         stopped: `已中斷　路點 ${c.done} / ${c.total}`, done: `完成 ✓　共 ${c.total} 個路點`,
         error: '錯誤：' + c.msg }[c.state] ?? c.state;
     $('covText').textContent = running && c.msg ? txt + '　' + c.msg : txt;
 
-    for (const b of $('pad').children) b.disabled = !c || running;
-    $('speed').disabled = !c || running;
-    $('padLock').hidden = !running;
-    if (running) teleopRelease(true);
+    const locked = running || exBusy;
+    for (const b of $('pad').children) b.disabled = !c || locked;
+    $('speed').disabled = !c || locked;
+    $('padLock').hidden = !locked;
+    $('padLock').textContent = running ? '自動覆蓋中，遙控已鎖定；按「結束」可解鎖。'
+                                       : '自動建圖中，遙控已鎖定；按自動建圖的「停止」可解鎖。';
+    if (locked) teleopRelease(true);
 
     // 數據分頁
     const M = c && c.metrics || {}, has = M.task != null;
@@ -752,7 +834,13 @@ $('csv').onclick = async e => {             // 還沒有紀錄時，map_server �
         setTimeout(() => URL.revokeObjectURL(url), 5000);
     } catch (err) { toast('下載失敗：連不到車子'); }
 };
-$('btnCovResume').onclick =() => { $('btnCovResume').disabled = true; covAction('/coverage/resume', '繼續中…', '從中斷處繼續'); };
+$('btnExpStart').onclick = () => {
+    if (!confirm('車子會自己移動、找沒看過的地方建圖。確定場地安全再開始？')) return;
+    teleopRelease(); $('btnExpStart').disabled = true;
+    covAction('/explore/start', '準備自動建圖…', '開始自動建圖');
+};
+$('btnExpStop').onclick = () => { covAction('/explore/stop', '停止中…', '已停止自動建圖，可以手動遙控'); };
+$('btnCovResume').onclick = () => { $('btnCovResume').disabled = true; covAction('/coverage/resume', '繼續中…', '從中斷處繼續'); };
 $('btnCovStop').onclick = () => { teleopRelease(); covAction('/coverage/stop', '結束中…', '已結束，可以手動遙控'); };
 
 // ════════════════════════════════════════════════════════

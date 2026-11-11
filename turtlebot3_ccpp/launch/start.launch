@@ -4,6 +4,9 @@
 
     <arg name="model"  default="burger" />
     <arg name="port"   default="8080"   />
+    <!-- 自動建圖：true 時，地圖與 move_base 就緒後倒數 10 秒自動開始 frontier 探索（explore_lite）。
+         平常手動啟動維持 false；車上控制台的「開機自動建圖」會帶 auto_explore:=true -->
+    <arg name="auto_explore" default="false" />
 
     <!-- 設定 TB3 型號環境變數 -->
     <env name="TURTLEBOT3_MODEL" value="$(arg model)" />
@@ -79,6 +82,7 @@
         <param name="port"         value="$(arg port)" />
         <param name="manage_slam"  value="true"        />
         <param name="slam_methods" value="gmapping"    />
+        <param name="auto_explore" value="$(arg auto_explore)" />
     </node>
 
     <!-- 註：test/ 底下皆為測量／檢視工具，非專案執行路徑，不掛在此 launch。
