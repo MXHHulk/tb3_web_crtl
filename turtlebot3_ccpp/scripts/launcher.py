@@ -448,7 +448,7 @@ def api_power():
 
 
 # ── 轉接 map_server（8080）：手機只開 8000 一個網址，同源呼叫，不必處理跨來源 ──
-PROXY_GET  = {'map.png', 'map_margin.png', 'map_eroded.png', 'map_dilated.png',
+PROXY_GET  = {'map.png', 'map_margin.png', 'map_noise.png', 'map_eroded.png', 'map_dilated.png',
               'robot_state', 'scan', 'coverage/status', 'coverage/runs.csv'}
 PROXY_POST = {'coverage/start', 'coverage/stop', 'coverage/resume', 'teleop', 'slam/restart',
               'explore/start', 'explore/stop'}

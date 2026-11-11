@@ -20,7 +20,8 @@ import csv, io, json, math, os, signal, socket, subprocess, sys, threading, time
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 from coverage_planner import (plan as plan_coverage, SPACING as COV_SPACING,
-                              MARGIN as COV_MARGIN, apply_safety_margin, coverage_ratio)
+                              MARGIN as COV_MARGIN, apply_safety_margin, coverage_ratio,
+                              remove_noise)
 
 import numpy as np
 import rospkg, rospy
@@ -105,7 +106,7 @@ HOME_TIMEOUT    = 90.0   # 探索完開回起點最多等幾秒
 #  共享狀態
 # ════════════════════════════════════════════════════════
 map_lock = threading.Lock()
-map_png = map_eroded = map_dilated = map_margin = None
+map_png = map_eroded = map_dilated = map_margin = map_noise = None
 map_meta = {}   # resolution, origin_x/y, r0, c0, crop_h
 map_data = {}   # data(np array), h, w, frame_id  ← 供覆蓋規劃用
 
@@ -185,7 +186,7 @@ def _crop(known, h, w):
 
 
 def map_callback(msg):
-    global map_png, map_eroded, map_dilated, map_margin, map_meta, map_data
+    global map_png, map_eroded, map_dilated, map_margin, map_noise, map_meta, map_data
     global str_time, last_prt_time, count
 
     # /map 接收頻率統計（除錯用）
@@ -225,11 +226,16 @@ def map_callback(msg):
     gray_d[free] = 255
     gray_d[binary_dilation(obs, kern, MORPH_ITER)] = 0
 
-    # 規劃用安全邊距：直接呼叫演算法本身的函式，確保畫面與規劃完全一致
-    safe = apply_safety_margin(data, COV_MARGIN, msg.info.resolution)
+    # 規劃用安全邊距：直接呼叫演算法本身的函式（先去雜點再膨脹），確保畫面與規劃完全一致
+    clean, noise = remove_noise(data)
+    safe = apply_safety_margin(clean, COV_MARGIN, msg.info.resolution)
     gray_m = np.full((h, w), 128, dtype=np.uint8)
-    gray_m[free] = 255
+    gray_m[clean == 0] = 255
     gray_m[safe] = 0
+
+    # 被當成雜點、規劃時忽略的格子（黑＝雜點，其餘白），網頁上以黃色標示
+    gray_n = np.full((h, w), 255, dtype=np.uint8)
+    gray_n[noise] = 0
 
     r0, r1, c0, c1 = _crop(known, h, w)
 
@@ -248,6 +254,7 @@ def map_callback(msg):
         map_eroded  = _to_png(gray_e[r0:r1, c0:c1])
         map_dilated = _to_png(gray_d[r0:r1, c0:c1])
         map_margin  = _to_png(gray_m[r0:r1, c0:c1])
+        map_noise   = _to_png(gray_n[r0:r1, c0:c1])
         map_meta = dict(
             resolution = msg.info.resolution,
             origin_x   = msg.info.origin.position.x,
@@ -354,8 +361,12 @@ def teleop_halt():
 def slam_launch():
     """以子行程啟動 SLAM（獨立行程群組，方便整組收掉）。"""
     global slam_proc
-    cmd = ['roslaunch', 'turtlebot3_slam', 'turtlebot3_slam.launch',
-           f"slam_methods:={slam_cfg['method']}", 'open_rviz:=false']
+    if slam_cfg['method'] == 'gmapping':
+        # 本套件的 gmapping 參數（config/gmapping_params.yaml），比官方版不容易留下假障礙
+        cmd = ['roslaunch', 'turtlebot3_ccpp', 'slam_gmapping.launch']
+    else:
+        cmd = ['roslaunch', 'turtlebot3_slam', 'turtlebot3_slam.launch',
+               f"slam_methods:={slam_cfg['method']}", 'open_rviz:=false']
     rospy.loginfo('[slam] 啟動：%s', ' '.join(cmd))
     slam_proc = subprocess.Popen(cmd, preexec_fn=os.setsid)
 
@@ -1062,6 +1073,7 @@ def cov_metrics():
         'n_critical': info.get('n_critical'),
         'axis_deg':   info.get('axis_deg'),
         'ratio':      info.get('ratio'),
+        'n_noise':    info.get('n_noise'),
     }
 
 
@@ -1073,6 +1085,11 @@ def _log_run():
     row = {'time': time.strftime('%Y-%m-%d %H:%M:%S'), **m}
     try:
         os.makedirs(os.path.dirname(RUN_LOG), exist_ok=True)
+        if os.path.exists(RUN_LOG):
+            with open(RUN_LOG, encoding='utf-8-sig') as f:
+                header = f.readline().strip().split(',')
+            if header != list(row):                # 欄位改過：舊檔改名保留，另開新檔
+                os.replace(RUN_LOG, RUN_LOG.replace('.csv', time.strftime('_old_%Y%m%d%H%M%S.csv')))
         new = not os.path.exists(RUN_LOG)
         with open(RUN_LOG, 'a', newline='', encoding='utf-8-sig') as f:
             w = csv.DictWriter(f, fieldnames=list(row))
@@ -1129,6 +1146,13 @@ def get_map_dilated():
 def get_map_margin():
     """規劃用安全邊距膨脹（與 coverage_planner 使用的完全相同）。"""
     with map_lock: d = map_margin
+    return _serve_png(d)
+
+
+@app.route('/map_noise.png')
+def get_map_noise():
+    """規劃時被當成雜點忽略的格子（黑＝雜點）。"""
+    with map_lock: d = map_noise
     return _serve_png(d)
 
 
@@ -1201,9 +1225,10 @@ def coverage_start():
 
     teleop_halt()                                  # 交出 /cmd_vel 控制權前先停車
 
-    t_plan = time.perf_counter()                   # 規劃時間含安全邊距膨脹
-    safe = apply_safety_margin(raw['data'], COV_MARGIN, meta['resolution'])
-    free = (raw['data'] == 0) & ~safe
+    t_plan = time.perf_counter()                   # 規劃時間含去雜點與安全邊距膨脹
+    clean, noise = remove_noise(raw['data'])       # SLAM 留下的零星假障礙不列入規劃
+    safe = apply_safety_margin(clean, COV_MARGIN, meta['resolution'])
+    free = (clean == 0) & ~safe
 
     with robot_lock:
         start = (robot_pos['x'], robot_pos['y']) if robot_pos['x'] is not None else None
@@ -1240,6 +1265,7 @@ def coverage_start():
             n_critical = len(r['critical']),
             axis_deg   = round(math.degrees(math.atan2(axis_a[1], axis_a[0])), 1),
             ratio      = round(float(max(eigvals) / min(eigvals)), 2),
+            n_noise    = int(noise.sum()),
         )
         cov_status.update(state='running', done=0, total=len(r['waypoints']), msg='')
 
@@ -1358,7 +1384,7 @@ def teleop():
 @app.route('/slam/restart', methods=['POST'])
 def slam_restart():
     """重啟 SLAM 重新建圖：停覆蓋 → 停車 → 收掉 SLAM → 清空狀態 → 重新啟動。"""
-    global map_png, map_eroded, map_dilated, map_margin
+    global map_png, map_eroded, map_dilated, map_margin, map_noise
 
     if not slam_cfg['manage']:
         return jsonify({'ok': False,
@@ -1374,7 +1400,7 @@ def slam_restart():
         slam_kill()
 
         with map_lock:
-            map_png = map_eroded = map_dilated = map_margin = None
+            map_png = map_eroded = map_dilated = map_margin = map_noise = None
             map_meta.clear()
             map_data.clear()
         with robot_lock:

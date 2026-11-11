@@ -3,6 +3,7 @@
 牛耕式覆蓋路徑規劃核心演算法（無 ROS 依賴，可被多個節點共用）
 
 流程：
+  0. remove_noise         去掉 SLAM 留下的零星假障礙（只影響規劃用的地圖）
   1. apply_safety_margin  障礙物形態學膨脹，得到可走格
   2. principal_axes       對可走格做 PCA，取長軸（掃描方向）與短軸（換行方向）
   3. _slice_runs          沿短軸切掃描帶，對每條帶的中心線取樣，切出連續可走區間
@@ -10,7 +11,7 @@
   5. plan                 每個 cell 各自蛇行，再以貪婪最近鄰決定 cell 走訪順序
 """
 import numpy as np
-from scipy.ndimage import binary_dilation, distance_transform_edt
+from scipy.ndimage import binary_dilation, distance_transform_edt, label as nd_label
 
 SPACING = 0.18   # 掃描線間距（公尺）；覆蓋寬度 ≈ 0.20 m，留 10% 重疊
 MARGIN  = 0.10   # 障礙物安全邊距（公尺） ≈ 機器人半徑（直徑 0.20 m）
@@ -21,6 +22,33 @@ END_TRIM = 0.09  # 掃描線兩端各內縮（公尺）。端點離障礙 ≈ MA
 COVER_R  = 0.10  # 覆蓋半徑（公尺）：路線兩側各這麼寬的範圍算「掃過」，與 SPACING 的覆蓋寬度假設一致
 VIA_STEP = 0.25  # 掃描線上中途點的最大間距（公尺）。只給頭尾兩點時 navfn 會依 costmap
                  # 成本自己找路，長線常被拉彎；每隔一小段給一個點，路線就被釘在掃描線上。
+
+
+NOISE_MAX_CELLS = 3   # 障礙團塊（8 鄰接相連）不超過這麼多格就視為雜點，規劃時忽略。
+                      # 5 cm 格 → 最多約 0.0075 m²；牆、箱子都遠大於此。極細的真實障礙（< 3 格）也會被忽略，
+                      # 但執行時 move_base 仍會用光達即時避開，最多是該路點被跳過。
+
+
+def remove_noise(data, max_cells=NOISE_MAX_CELLS):
+    """
+    去掉零星的假障礙（SLAM 偶發雜訊、反光留下的孤立點）。
+
+    輸入  data : OccupancyGrid 陣列（0=自由, 100=障礙, -1=未知）
+    輸出  (clean, noise)
+          clean : 複本，雜點改為 0（自由）
+          noise : bool 陣列，True = 被當成雜點移除的格子
+    """
+    obs = data == 100
+    lab, n = nd_label(obs, structure=np.ones((3, 3), dtype=bool))
+    if n == 0:
+        return data.copy(), np.zeros_like(obs)
+    sizes = np.bincount(lab.ravel())
+    small = sizes <= max_cells
+    small[0] = False                       # 0 是背景
+    noise = small[lab]
+    clean = data.copy()
+    clean[noise] = 0
+    return clean, noise
 
 
 def apply_safety_margin(data, margin, resolution):

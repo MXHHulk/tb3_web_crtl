@@ -215,6 +215,7 @@ section[data-tab] { display: none; } section[data-tab].on { display: block; }
                 <summary>地圖圖層與圖例</summary>
                 <div class="chips" id="chips"></div>
                 <div class="note">路點：○ 待走 ● 已到 ◎ 目前目標；✕ 跳過（紅＝無法到達、橘＝停滯），數字為路點序號。<br>
+                    黃點＝SLAM 留下的零星雜點，規劃路徑時當作空地（實際行駛仍會用光達即時避障）。<br>
                     字母 A、B、C… 是 cell 的走訪順序。</div>
             </details>
         </div>
@@ -555,6 +556,7 @@ $('logBox').addEventListener('toggle', pollLog);
 const LAYERS = [
     { id: 'orig',    label: '地圖',     color: '#c9d1d9', type: 'map', url: '/map.png',        on: true },
     { id: 'margin',  label: '安全邊距', color: '#ff7b72', type: 'map', url: '/map_margin.png', on: true },
+    { id: 'noise',   label: '雜點（規劃忽略）', color: '#facc15', type: 'map', url: '/map_noise.png', on: true },
     { id: 'cells',   label: 'cell',     color: '#7ee787', type: 'cells', on: true },
     { id: 'covpath', label: '覆蓋路徑', color: '#c084fc', type: 'path',  on: true },
     { id: 'wps',     label: '路點',     color: '#f0f6fc', type: 'wps',   on: true },
@@ -625,6 +627,7 @@ function draw() {
     if (layer('margin').on && imgCache.margin_c) {
         ctx.globalAlpha = 0.8; ctx.drawImage(imgCache.margin_c, 0, 0, W, H); ctx.globalAlpha = 1;
     }
+    if (layer('noise').on && imgCache.noise_c) ctx.drawImage(imgCache.noise_c, 0, 0, W, H);
     if (!cov) return;
     if (layer('cells').on && cov.cells_px?.length) drawCells(cov.cells_px);
     if (layer('covpath').on && cov.path_px?.length > 1) drawCovPath(cov.path_px, layer('covpath').color, cov.done);
@@ -744,6 +747,7 @@ async function pollMap() {
         wantImg ? Promise.all([
             loadImg('/map.png').then(i => { imgCache.orig = i; }),
             layer('margin').on ? loadImg('/map_margin.png').then(i => { imgCache.margin_c = colorize(i, layer('margin').color); }) : null,
+            layer('noise').on ? loadImg('/map_noise.png').then(i => { imgCache.noise_c = colorize(i, layer('noise').color); }) : null,
         ]) : Promise.resolve(),
     ]);
     mapBusy = false;

@@ -18,7 +18,7 @@ set -euo pipefail
 ROBOT="${ROBOT:-ubuntu@172.20.10.5}"
 DEST='catkin_ws/src/turtlebot3_ccpp'
 PKG='turtlebot3_ccpp'                       # repo 內的套件資料夾
-PATHS=(scripts launch web test tools CMakeLists.txt package.xml)   # 相對於套件資料夾
+PATHS=(scripts launch config web test tools CMakeLists.txt package.xml)   # 相對於套件資料夾
 BUILD=0
 [[ "${1:-}" == "--build" ]] && BUILD=1
 

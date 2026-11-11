@@ -1,0 +1,36 @@
+# gmapping 參數（本專案版）
+# 以 turtlebot3_slam/config/gmapping_params.yaml 為底，只改下面標 ★ 的項目。
+# 背景：2026-11-11 在 1.06 × 1.47 m 場地實測，官方參數建出的地圖空地中有零星假障礙、牆被畫成 2～3 格厚；
+#       車子位置估計本身正常（scan matching 分數穩定），問題在「障礙判定太寬鬆」與「更新太少」。
+
+map_update_interval: 2.0
+maxUrange: 2.0          # ★ 3.0 → 2.0：用來畫地圖的光達距離上限。小場地用不到遠距離，遠處斜射的點最容易是雜訊
+maxRange: 3.5           # ★ 新增：光達實際量程（LDS-01 ≈ 3.5 m）；超過 maxUrange 的讀值只用來標記空地
+sigma: 0.05
+kernelSize: 1
+lstep: 0.05
+astep: 0.05
+iterations: 5
+lsigma: 0.075
+ogain: 3.0
+lskip: 0
+minimumScore: 50
+srr: 0.1
+srt: 0.2
+str: 0.1
+stt: 0.2
+linearUpdate: 0.2       # ★ 1.0 → 0.2：每走 0.2 m 就把一圈光達畫進地圖（原本 1 m，小場地幾乎沒幾次更新，雜點很難被洗掉）
+angularUpdate: 0.1      # ★ 0.2 → 0.1：每轉約 6° 更新一次
+temporalUpdate: 0.5
+resampleThreshold: 0.5
+particles: 100
+xmin: -10.0
+ymin: -10.0
+xmax: 10.0
+ymax: 10.0
+delta: 0.05
+occ_thresh: 0.5         # ★ 新增（gmapping 預設 0.25）：一格被打到的比例要過半才算障礙，偶發的雜訊、反光不會留下來
+llsamplerange: 0.01
+llsamplestep: 0.01
+lasamplerange: 0.005
+lasamplestep: 0.005
