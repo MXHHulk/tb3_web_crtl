@@ -5,7 +5,10 @@
 
 map_update_interval: 2.0
 maxUrange: 2.0          # ★ 3.0 → 2.0：用來畫地圖的光達距離上限。小場地用不到遠距離，遠處斜射的點最容易是雜訊
-maxRange: 3.5           # ★ 新增：光達實際量程（LDS-01 ≈ 3.5 m）；超過 maxUrange 的讀值只用來標記空地
+# maxRange 刻意不設（預設＝光達 range_max − 0.01 ≈ 3.49 m）。
+# LDS-01 收不到反射時回報 0，slam_gmapping 會把它換成 range_max（3.5 m）；
+# 預設 3.49 時這種讀值 > maxRange 會被忽略。若設成 3.5，它會被當成「此方向 maxUrange 內全是空地」，
+# 憑空畫出一大圈空地、甚至擦掉牆（2026-11-11 實測踩過，一圈 360 筆有 153 筆是 0）。
 sigma: 0.05
 kernelSize: 1
 lstep: 0.05
