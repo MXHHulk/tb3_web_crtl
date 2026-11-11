@@ -4,6 +4,44 @@
 
 ---
 
+## 2026-11-11　feat(coverage)：覆蓋執行改善——直線循跡（A）、導航調校（B）、線距重疊＋外圈（C）、真實掃過範圍與紀錄（D）
+
+- **類型**：feat / tune
+- **背景**（任務 20261111-104832 的日誌與 CSV）：規劃 7.4 m 實走 10.2 m（多 38%）、436 秒（每路點 12 秒）、3 次受困；
+  `DWA planner failed to produce path` 出現 1127 次、控制迴圈 27 次趕不上 10 Hz。
+  規劃覆蓋率 76%、實際 71%，而且覆蓋半徑用 0.10 m（比車身寬 0.178 m 還寬）算，數字偏樂觀。
+  線距 0.18 m 與車身同寬，走歪就留縫；牆邊一圈（安全邊距＋線尾內縮）完全沒規劃。
+- **做了什麼**
+  - A：`map_server._follow_line()`：路點 kind 為 `line` 且車子就在上一個路點附近時，由自己控制直行——
+    方向誤差 > 14° 先原地轉正（到 3° 內），再以 `角速度 = 2.0 ×（方向誤差 − atan(2.5 × 側向偏移 / 速度)）` 修正前進，
+    線尾減速（下一段方向差 < 15° 則不減速直接接續）；前方 ±20° 雷射 < 0.13 m 或停滯 3 秒 → 改交 move_base（不算失敗），
+    其後沿用原本的脫困重試、跳過、受困停止流程。kind 為 `move`（進入新 cell、開到外圈起點）才用 move_base。
+    停止或結束時一律送零速度。
+  - B：`start.launch`：`local_costmap/inflation_radius` 1.0 → 0.25（與全域一致）、`controller_frequency` 10 → 5；
+    gmapping `linearUpdate` 0.2 → 0.3、`angularUpdate` 0.1 → 0.15（減輕樹莓派負擔）。
+  - C：`coverage_planner`：`SPACING` 0.18 → 0.14（重疊約 20%）、`COVER_R` 0.10 → 0.089（車身半寬）；
+    `plan()` 新增 `kind`（line/move，換行段確認整段可走才算 line）與 `perimeter`：最大可走區往內 1 格（中心離牆約 0.15 m）
+    填洞後以 Moore 鄰域追蹤外緣、RDP 簡化成直線段，從最近的頂點起繞一圈。`coverage_bench.py` 改傳 `perimeter=False`。
+  - D：網頁（手機＋電腦版）新增「實際掃過範圍」圖層：沿軌跡畫車身寬的半透明綠帶；覆蓋軌跡改每 5 cm 記一點；
+    `/coverage/status` 多回傳 `cover_r`。每次覆蓋結束寫 `data/coverage/<task>_{path.csv,timeline.csv,events.txt,map.png}`
+    （停止後繼續會累積同一任務；事件含每個路點用 line 或 move_base 到達、花幾秒、改用 move_base 的原因、跳過、受困）。
+- **影響檔案**：`turtlebot3_ccpp/scripts/map_server.py`、`scripts/coverage_planner.py`、`launch/start.launch`、
+  `config/gmapping_params.yaml`、`web/launcher.html`、`web/index.html`、`test/coverage_bench.py`
+- **結果 / 驗證**
+  - 用第二次實測地圖（explore_20261111_104808）離線比較，以真實車寬 0.089 m 計算規劃覆蓋率：
+    舊設定 69.7%（與實測 71% 吻合）→ 新設定無外圈 92.8% → 新設定＋外圈 100%；路點 32 → 71、路徑 6.1 → 14.7 m。
+  - 假 ROS 模擬（差速車模型，加 3% 輪速誤差與雜訊，move_base 以直線內插代替）：71 個路點全到（line 66、move_base 5），
+    軌跡離規劃路線平均 0.4 cm、95% 1.9 cm、最大 3.1 cm；以車身寬計實際覆蓋率 96.6%；紀錄檔四個都正確產生。
+  - 車上整套重啟後確認：`local_costmap` 的 `inflation_layer/inflation_radius=0.25`、`controller_frequency=5.0`、
+    gmapping 0.3／0.15、`cover_r=0.089`。**尚未實車跑覆蓋。**
+  - 驗證時遇到一次光達驅動啟動後沒有資料（`/scan` 無輸出、move_base 一直等 map 座標）；直接對 `/dev/ttyUSB0` 下啟動指令有正常資料，
+    整套再重啟一次就恢復。原因未明，先記錄。
+- **待辦 / 已知問題**
+  - 實車確認直線循跡參數（速度 0.12 m/s、增益）與外圈離牆距離是否合適；外圈轉角處車子離兩面牆約 0.15 m，第一次請在旁邊看。
+  - 控制台可考慮偵測「系統啟動後 /scan 沒資料」並在網頁提示。
+
+---
+
 ## 2026-11-11　feat(slam,coverage)：減少地圖假障礙——調 gmapping 參數（A）＋規劃前去雜點（B）
 
 - **類型**：feat / fix
