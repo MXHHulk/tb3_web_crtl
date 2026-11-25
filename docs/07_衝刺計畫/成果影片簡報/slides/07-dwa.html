@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<title>P7 問題三：DWA → 自寫循跡</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { width: 960pt; height: 540pt; position: relative; overflow: hidden; background: #08161B;
+         font-family: "Noto Sans TC", "Microsoft JhengHei", sans-serif; color: #F2F7F5; }
+  .abs { position: absolute; }
+  .bg  { left: 0; top: 0; width: 960pt; height: 540pt; }
+  .k   { font-weight: 900; font-style: italic; }
+  .num { font-family: "Bahnschrift", "Noto Sans TC", sans-serif; font-weight: 700; }
+  .mute { color: #8FB3B8; }
+</style>
+</head>
+<body>
+
+  <img class="abs bg" src="../assets/neo3_data.png">
+  <div class="abs" style="left: 48pt; top: 38pt; width: 680pt;">
+    <p style="font-size: 16pt; font-weight: 700; color: #DAFF3C;">問題三</p>
+    <h1 class="k" style="font-size: 34pt; margin-top: 2pt;">導航套件卡在牆邊，我們改成自己開</h1>
+    <p class="mute" style="font-size: 12pt; margin-top: 6pt;">實車・同一場地 1.06 × 1.47 m・兩種方式各 1 次（開發日誌 2026-11-11）；重複 3 次的平均待補</p>
+  </div>
+  <div class="abs" style="left: 52pt; top: 314pt; width: 300pt;">
+    <p class="mute" style="font-size: 16pt;">改善前　ROS 內建 DWA</p>
+  </div>
+  <div class="abs" style="left: 52pt; top: 365pt; width: 130pt;"><p class="mute" style="font-size: 14pt;">執行時間</p></div>
+  <div class="abs" style="left: 180pt; top: 360pt; width: 180pt;"><p class="num" style="font-size: 22pt;">436 → 322 s</p></div>
+  <div class="abs" style="left: 52pt; top: 399pt; width: 130pt;"><p class="mute" style="font-size: 14pt;">受困次數</p></div>
+  <div class="abs" style="left: 180pt; top: 394pt; width: 180pt;"><p class="num" style="font-size: 22pt;">3 → 1</p></div>
+  <div class="abs" style="left: 52pt; top: 433pt; width: 130pt;"><p class="mute" style="font-size: 14pt;">DWA 規劃失敗</p></div>
+  <div class="abs" style="left: 180pt; top: 428pt; width: 180pt;"><p class="num" style="font-size: 22pt;">1127 → 209</p></div>
+  <div class="abs" style="left: 52pt; top: 467pt; width: 130pt;"><p class="mute" style="font-size: 14pt;">實走／規劃距離</p></div>
+  <div class="abs" style="left: 180pt; top: 462pt; width: 180pt;"><p class="num" style="font-size: 22pt;">1.38 → 1.23</p></div>
+
+  <div class="abs" style="left: 380pt; top: 166pt; width: 550pt;">
+    <p style="font-size: 18pt; font-weight: 700; text-align: right;">改善後　自寫直線循跡</p>
+    <p class="num" style="font-size: 186pt; line-height: 1.0; text-align: right; color: #DAFF3C; letter-spacing: -3pt;">97.7%</p>
+    <p class="mute" style="font-size: 15pt; text-align: right; margin-top: 6pt;">同一場地的實際覆蓋率（改善前 71%）</p>
+  </div>
+</body>
+</html>

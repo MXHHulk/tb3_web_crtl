@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<title>方向 1 · 數據頁（P7）</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { width: 960pt; height: 540pt; position: relative; overflow: hidden;
+         background: #FFFFFF; font-family: "Noto Sans TC", "Microsoft JhengHei", sans-serif; color: #1F4E79; }
+  .abs { position: absolute; }
+  h1 { font-family: "Noto Serif TC", serif; font-weight: 700; font-size: 32pt; line-height: 1.3; color: #1F4E79; }
+  .lede { font-size: 18pt; line-height: 1.6; color: #2b3a48; }
+  .th { font-size: 13pt; color: #4d6478; }
+  .td { font-size: 18pt; color: #2b3a48; }
+  .num { font-family: "Bahnschrift", "Noto Sans TC", sans-serif; font-size: 24pt; color: #4d6478; text-align: right; }
+  .num.hi { color: #1F4E79; font-weight: 700; }
+  .chg { font-family: "Bahnschrift", "Noto Sans TC", sans-serif; font-size: 18pt; color: #1F4E79; text-align: right; }
+  .rule { height: 1pt; background: #b9dcfc; }
+  .rule.strong { background: #1F4E79; }
+  .note { font-size: 12pt; color: #4d6478; }
+</style>
+</head>
+<body>
+  <div class="abs" style="left: 56pt; top: 44pt; width: 860pt;">
+    <h1>改成自己沿掃描線直行，覆蓋率從 71% 升到 97.7%</h1>
+  </div>
+  <div class="abs" style="left: 56pt; top: 104pt; width: 820pt;">
+    <p class="lede">ROS 內建的 DWA 在小場地貼牆時，常判定「轉身會撞」而原地不動；我們改由自己控制車子直行，DWA 只留作備援。</p>
+  </div>
+
+  <!-- 表頭 -->
+  <div class="abs rule strong" style="left: 56pt; top: 222pt; width: 848pt;"></div>
+  <div class="abs" style="left: 56pt;  top: 230pt; width: 260pt;"><p class="th">實車指標</p></div>
+  <div class="abs" style="left: 390pt; top: 230pt; width: 150pt;"><p class="th" style="text-align:right;">改善前：DWA</p></div>
+  <div class="abs" style="left: 560pt; top: 230pt; width: 170pt;"><p class="th" style="text-align:right;">改善後：自寫循跡</p></div>
+  <div class="abs" style="left: 754pt; top: 230pt; width: 150pt;"><p class="th" style="text-align:right;">變化</p></div>
+  <div class="abs rule" style="left: 56pt; top: 254pt; width: 848pt;"></div>
+
+  <!-- 5 列，每列 40pt -->
+  <div class="abs" style="left: 56pt; top: 264pt; width: 300pt;"><p class="td" style="font-weight:700; color:#1F4E79;">實際覆蓋率</p></div>
+  <div class="abs" style="left: 390pt; top: 260pt; width: 150pt;"><p class="num">71%</p></div>
+  <div class="abs" style="left: 560pt; top: 260pt; width: 170pt;"><p class="num hi">97.7%</p></div>
+  <div class="abs" style="left: 754pt; top: 264pt; width: 150pt;"><p class="chg">+26.7 點</p></div>
+  <div class="abs rule" style="left: 56pt; top: 296pt; width: 848pt;"></div>
+
+  <div class="abs" style="left: 56pt; top: 306pt; width: 300pt;"><p class="td">執行時間</p></div>
+  <div class="abs" style="left: 390pt; top: 302pt; width: 150pt;"><p class="num">436 s</p></div>
+  <div class="abs" style="left: 560pt; top: 302pt; width: 170pt;"><p class="num hi">322 s</p></div>
+  <div class="abs" style="left: 754pt; top: 306pt; width: 150pt;"><p class="chg">−26%</p></div>
+  <div class="abs rule" style="left: 56pt; top: 338pt; width: 848pt;"></div>
+
+  <div class="abs" style="left: 56pt; top: 348pt; width: 300pt;"><p class="td">受困次數</p></div>
+  <div class="abs" style="left: 390pt; top: 344pt; width: 150pt;"><p class="num">3</p></div>
+  <div class="abs" style="left: 560pt; top: 344pt; width: 170pt;"><p class="num hi">1</p></div>
+  <div class="abs" style="left: 754pt; top: 348pt; width: 150pt;"><p class="chg">−2 次</p></div>
+  <div class="abs rule" style="left: 56pt; top: 380pt; width: 848pt;"></div>
+
+  <div class="abs" style="left: 56pt; top: 390pt; width: 300pt;"><p class="td">DWA 規劃失敗</p></div>
+  <div class="abs" style="left: 390pt; top: 386pt; width: 150pt;"><p class="num">1127</p></div>
+  <div class="abs" style="left: 560pt; top: 386pt; width: 170pt;"><p class="num hi">209</p></div>
+  <div class="abs" style="left: 754pt; top: 390pt; width: 150pt;"><p class="chg">−81%</p></div>
+  <div class="abs rule" style="left: 56pt; top: 422pt; width: 848pt;"></div>
+
+  <div class="abs" style="left: 56pt; top: 432pt; width: 330pt;"><p class="td">實走／規劃距離</p></div>
+  <div class="abs" style="left: 390pt; top: 428pt; width: 150pt;"><p class="num">1.38</p></div>
+  <div class="abs" style="left: 560pt; top: 428pt; width: 170pt;"><p class="num hi">1.23</p></div>
+  <div class="abs" style="left: 754pt; top: 432pt; width: 150pt;"><p class="chg">少繞 11%</p></div>
+  <div class="abs rule strong" style="left: 56pt; top: 464pt; width: 848pt;"></div>
+
+  <div class="abs" style="left: 56pt; top: 480pt; width: 848pt;">
+    <p class="note">實車・同一場地 1.06 × 1.47 m・兩種方式各 1 次（開發日誌 2026-11-11）；重複 3 次的平均待補</p>
+  </div>
+</body>
+</html>

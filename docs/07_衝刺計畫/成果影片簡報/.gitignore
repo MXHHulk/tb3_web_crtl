@@ -1,0 +1,6 @@
+# 可重新產生的東西不進版控
+tools/node_modules/
+tools/package-lock.json
+frames/
+video/
+__pycache__/

@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<title>08 問題一：穿過障礙</title>
+<link rel="stylesheet" href="base.css">
+<link rel="stylesheet" href="map.css">
+<style>.old { fill:none; stroke:#FF4FD8; stroke-width:.03; stroke-linecap:round; filter:url(#glow); }</style>
+<script src="../assets/scenes.js"></script>
+<script src="map.js"></script>
+<script src="engine.js"></script>
+</head>
+<body>
+<div class="stage">
+<p class="abs kicker" id="kick" style="left:96px; top:64px;">問題一</p>
+<h1 class="abs k title" id="t" style="left:96px; top:108px;">掃描線直接穿過障礙物</h1>
+<div id="mapbox" class="abs" style="left:40px; top:300px; width:1220px; height:640px;"></div>
+<p class="abs src" id="cap" style="left:96px; top:1000px;"><span class="pink">粉：舊版做法示意</span>　<span class="acid">黃：cell 分解後的真實規劃輸出</span>（2.0 × 1.0 m 場地，離線）</p>
+<div class="abs" id="old" style="left:1340px; top:330px; width:520px;">
+  <p class="mute" style="font-size:28px; font-weight:700;">舊版</p>
+  <p class="num pink" style="font-size:150px; line-height:1;">0%</p>
+  <p style="font-size:28px; line-height:1.5;">有效覆蓋：5 條掃描線全部橫跨障礙，最嚴重一條 75% 落在障礙內</p>
+</div>
+<div class="abs" id="new" style="left:1340px; top:700px; width:520px;">
+  <p class="mute" style="font-size:28px; font-weight:700;">cell 分解後</p>
+  <p class="num acid" style="font-size:110px; line-height:1;">穿牆 0 次</p>
+  <p class="mute" style="font-size:24px;">離線評估 14 種場地</p>
+</div>
+<p class="abs src" id="src" style="left:1340px; top:960px; width:540px;">開發日誌 2026-08-16（200 × 100 cm 含障礙場地，實機觀察）</p>
+</div>
+<script>
+const d = SCENES.field, M = MapSVG;
+document.getElementById('mapbox').innerHTML = M.open(d.bounds, 0.08, 'style="left:0; top:0; width:100%; height:100%;"')
+  + M.cells(d.wall, d.res, 'wall') + `<g class="obsg">${M.cells(d.obs, d.res, 'obs')}</g>`
+  + `<g id="oldg">${d.oldLines.map(l => M.poly(l, 'old')).join('')}</g>` + M.route(d.plan) + M.close();
+Scene({ duration: 12, tracks: [
+  { sel: '.wall', at: 0, dur: 0.5, fx: 'fade' }, { sel: '.obsg', at: 0.3, dur: 0.4, fx: 'fade' },
+  { sel: '#kick', at: 0.2, dur: 0.4, fx: 'up' }, { sel: '#t', at: 0.4, dur: 0.6, fx: 'up' },
+  { sel: '.old', at: 1.2, dur: 0.9, fx: 'draw', stagger: 0.25 },
+  { sel: '#old', at: 2.6, dur: 0.5, fx: 'up' },
+  { sel: '#oldg', at: 5.6, dur: 0.6, fx: 'fade', max: 0.25, ease: 'lin' },
+  { sel: '.rt-sweep', at: 5.8, dur: 3.6, fx: 'draw', ease: 'lin' },
+  { sel: '.rt-move', at: 9.2, dur: 0.4, fx: 'fade' },
+  { sel: '.rt-ring', at: 9.4, dur: 0.9, fx: 'draw' },
+  { sel: '#new', at: 7.0, dur: 0.5, fx: 'up' },
+  { sel: '#cap', at: 1.6, dur: 0.6, fx: 'fade' }, { sel: '#src', at: 3.4, dur: 0.6, fx: 'fade' },
+], onTime: (t) => {
+  // 舊線先完整亮著，5.6 s 後退成暗影
+  const g = document.getElementById('oldg');
+  if (t < 5.6) g.style.opacity = 1; else g.style.opacity = Math.max(0.25, 1 - (t - 5.6) / 0.6 * 0.75);
+}});
+</script>
+</body>
+</html>

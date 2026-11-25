@@ -1,0 +1,28 @@
+/* 成果影片動畫簡報：共用樣式（配色定案：深青綠底、霓虹黃綠主角、青／粉輔助） */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 100%; height: 100%; background: #050d10; overflow: hidden; }
+.stage { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; transform-origin: 0 0; overflow: hidden;
+  background: #08161b url(../assets/neo3_grain.png) center / cover;
+  font-family: "Noto Sans TC", "Microsoft JhengHei", sans-serif; color: #F2F7F5; }
+.abs { position: absolute; }
+.k   { font-weight: 900; font-style: italic; letter-spacing: -1px; }
+.num { font-family: "Bahnschrift", "Noto Sans TC", sans-serif; font-weight: 700; }
+.mute { color: #8FB3B8; }
+.acid { color: #DAFF3C; }
+.cyan { color: #39E6FF; }
+.pink { color: #FF4FD8; }
+.kicker { font-size: 32px; font-weight: 700; color: #DAFF3C; }
+.title  { font-size: 76px; line-height: 1.2; }
+.lede   { font-size: 40px; line-height: 1.55; font-weight: 500; }
+.src    { font-size: 24px; color: #8FB3B8; }
+.vtext  { position: absolute; left: 30px; writing-mode: vertical-rl; transform: rotate(180deg);
+  font-family: "Bahnschrift", sans-serif; font-size: 18px; letter-spacing: 7px; color: rgba(57,230,255,.55); }
+.tag { position: absolute; height: 64px; padding: 0 44px 0 40px; display: flex; align-items: center;
+  background: #DAFF3C; color: #08161B; clip-path: polygon(24px 0, 100% 0, calc(100% - 24px) 100%, 0 100%); }
+.tag p { font-size: 44px; font-weight: 900; font-style: italic; }
+svg { position: absolute; overflow: visible; }
+/* 待拍區：暗色出血，不畫框 */
+.ph { position: absolute; background: #0c2329; }
+.ph .rec { position: absolute; left: 40px; bottom: 36px; font-size: 26px; color: #8FB3B8; }
+.ph .rec b { color: #FF4FD8; font-family: "Bahnschrift", sans-serif; letter-spacing: 3px; margin-right: 14px; }
+.ph .scan { position: absolute; left: 0; right: 0; height: 2px; background: rgba(218,255,60,.35); }

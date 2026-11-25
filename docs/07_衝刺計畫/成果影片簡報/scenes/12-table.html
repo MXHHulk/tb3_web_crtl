@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<title>12 數據總表</title>
+<link rel="stylesheet" href="base.css">
+<link rel="stylesheet" href="map.css">
+<style>.pend { color:#DAFF3C !important; }</style>
+<script src="../assets/scenes.js"></script>
+<script src="map.js"></script>
+<script src="engine.js"></script>
+</head>
+<body>
+<div class="stage">
+<p class="abs kicker" id="kick" style="left:96px; top:64px;">數據總表</p>
+<h1 class="abs k title" id="t" style="left:96px; top:108px;">每組實驗重複三次以上</h1>
+<div class="abs rule" id="r0" style="left:96px; top:330px; width:1730px; height:3px; background:#DAFF3C;"></div>
+<p class="abs mute th" style="left:96px; top:280px; width:250px; font-size:26px;">實驗</p>
+<p class="abs mute th" style="left:346px; top:280px; width:470px; font-size:26px;">條件</p>
+<p class="abs mute th" style="left:816px; top:280px; width:190px; font-size:26px;">覆蓋率</p>
+<p class="abs mute th" style="left:1006px; top:280px; width:170px; font-size:26px;">時間</p>
+<p class="abs mute th" style="left:1176px; top:280px; width:150px; font-size:26px;">受困</p>
+<p class="abs mute th" style="left:1326px; top:280px; width:170px; font-size:26px;">轉彎數</p>
+<p class="abs mute th" style="left:1496px; top:280px; width:330px; font-size:26px;">類型</p>
+<p class="abs cell R0 " style="left:96px; top:370px; width:230px; font-size:34px; font-weight:900; color:#F2F7F5; line-height:1.35;">執行方式</p>
+<p class="abs cell R0 " style="left:346px; top:370px; width:450px; font-size:34px; font-weight:500; color:#F2F7F5; line-height:1.35;">DWA vs 自寫循跡</p>
+<p class="abs cell R0 pend" style="left:816px; top:370px; width:170px; font-size:32px; font-weight:500; color:#F2F7F5; line-height:1.35;">【待填】</p>
+<p class="abs cell R0 pend" style="left:1006px; top:370px; width:150px; font-size:32px; font-weight:500; color:#F2F7F5; line-height:1.35;">【待填】</p>
+<p class="abs cell R0 pend" style="left:1176px; top:370px; width:130px; font-size:32px; font-weight:500; color:#F2F7F5; line-height:1.35;">【待填】</p>
+<p class="abs cell R0 " style="left:1326px; top:370px; width:150px; font-size:32px; font-weight:500; color:#F2F7F5; line-height:1.35;">—</p>
+<p class="abs cell R0 " style="left:1496px; top:370px; width:310px; font-size:24px; font-weight:500; color:#8FB3B8; line-height:1.35;">實車，各 ≥3 次平均</p>
+<div class="abs rule R0r" style="left:96px; top:488px; width:1730px; height:1px; background:#2a4a50;"></div>
+<p class="abs cell R1 " style="left:96px; top:520px; width:230px; font-size:34px; font-weight:900; color:#F2F7F5; line-height:1.35;">掃描方向</p>
+<p class="abs cell R1 " style="left:346px; top:520px; width:450px; font-size:34px; font-weight:500; color:#F2F7F5; line-height:1.35;">PCA vs 沿地圖軸（斜放 0/15/30/45°）</p>
+<p class="abs cell R1 " style="left:816px; top:520px; width:170px; font-size:32px; font-weight:500; color:#F2F7F5; line-height:1.35;">—</p>
+<p class="abs cell R1 " style="left:1006px; top:520px; width:150px; font-size:32px; font-weight:500; color:#F2F7F5; line-height:1.35;">—</p>
+<p class="abs cell R1 " style="left:1176px; top:520px; width:130px; font-size:32px; font-weight:500; color:#F2F7F5; line-height:1.35;">—</p>
+<p class="abs cell R1 pend" style="left:1326px; top:520px; width:150px; font-size:32px; font-weight:500; color:#F2F7F5; line-height:1.35;">【待填】</p>
+<p class="abs cell R1 " style="left:1496px; top:520px; width:310px; font-size:24px; font-weight:500; color:#8FB3B8; line-height:1.35;">離線，修 cell 碎裂後重跑</p>
+<div class="abs rule R1r" style="left:96px; top:638px; width:1730px; height:1px; background:#2a4a50;"></div>
+<p class="abs cell R2 " style="left:96px; top:670px; width:230px; font-size:34px; font-weight:900; color:#F2F7F5; line-height:1.35;">擺放角度</p>
+<p class="abs cell R2 " style="left:346px; top:670px; width:450px; font-size:34px; font-weight:500; color:#F2F7F5; line-height:1.35;">0° vs 30°</p>
+<p class="abs cell R2 pend" style="left:816px; top:670px; width:170px; font-size:32px; font-weight:500; color:#F2F7F5; line-height:1.35;">【待填】</p>
+<p class="abs cell R2 pend" style="left:1006px; top:670px; width:150px; font-size:32px; font-weight:500; color:#F2F7F5; line-height:1.35;">【待填】</p>
+<p class="abs cell R2 pend" style="left:1176px; top:670px; width:130px; font-size:32px; font-weight:500; color:#F2F7F5; line-height:1.35;">【待填】</p>
+<p class="abs cell R2 pend" style="left:1326px; top:670px; width:150px; font-size:32px; font-weight:500; color:#F2F7F5; line-height:1.35;">【待填】</p>
+<p class="abs cell R2 " style="left:1496px; top:670px; width:310px; font-size:24px; font-weight:500; color:#8FB3B8; line-height:1.35;">實車</p>
+<div class="abs rule R2r" style="left:96px; top:788px; width:1730px; height:1px; background:#2a4a50;"></div>
+<p class="abs lede" id="sum" style="left:96px; top:850px; width:1700px; font-size:36px;">自寫循跡讓覆蓋率穩定在 <span class="acid">【待填】</span> 以上，車子斜放時轉彎數也比沿地圖座標軸少 <span class="acid">【待填】</span>。</p>
+<p class="abs src" id="src" style="left:96px; top:990px;">【待填】＝實驗完成後才填，不放假設值</p>
+</div>
+<script>
+Scene({ duration: 14, tracks: [
+  { sel: '#kick', at: 0.2, dur: 0.4, fx: 'up' }, { sel: '#t', at: 0.4, dur: 0.6, fx: 'up' },
+  { sel: '#r0', at: 1.0, dur: 0.6, fx: 'grow' }, { sel: '.th', at: 1.2, dur: 0.4, fx: 'fade', stagger: 0.06 },
+  { sel: '.R0', at: 2.0, dur: 0.4, fx: 'up', stagger: 0.07 }, { sel: '.R0r', at: 2.3, dur: 0.5, fx: 'grow' },
+  { sel: '.R1', at: 3.2, dur: 0.4, fx: 'up', stagger: 0.07 }, { sel: '.R1r', at: 3.5, dur: 0.5, fx: 'grow' },
+  { sel: '.R2', at: 4.4, dur: 0.4, fx: 'up', stagger: 0.07 }, { sel: '.R2r', at: 4.7, dur: 0.5, fx: 'grow' },
+  { sel: '#sum', at: 6.0, dur: 0.5, fx: 'up' }, { sel: '#src', at: 6.6, dur: 0.6, fx: 'fade' },
+  { sel: '.pend', at: 7.4, dur: 0.3, fx: 'pulse' },
+]});
+</script>
+</body>
+</html>

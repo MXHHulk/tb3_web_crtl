@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<title>01 開場</title>
+<link rel="stylesheet" href="base.css">
+<link rel="stylesheet" href="map.css">
+<style></style>
+<script src="../assets/scenes.js"></script>
+<script src="map.js"></script>
+<script src="engine.js"></script>
+</head>
+<body>
+<div class="stage">
+<svg id="map" class="abs" style="left:700px; top:-250px; width:1560px; height:1560px;"></svg>
+<div class="abs" style="left:0; top:0; width:1200px; height:1080px; background:linear-gradient(90deg, rgba(8,22,27,.94) 45%, rgba(8,22,27,0));"></div>
+<p class="vtext" style="top:300px;">BOUSTROPHEDON COVERAGE / TURTLEBOT3</p>
+<h1 class="abs k" id="t" style="left:92px; top:268px; font-size:160px; line-height:1.15;">牛耕式演算法</h1>
+<div class="tag" id="tag" style="left:92px; top:556px;"><p>以 TurtleBot3 實作</p></div>
+<div class="abs" style="left:96px; top:686px;">
+  <p class="lede l">車子不必擺正。</p>
+  <p class="lede l">自動建圖之後，走遍每一寸地面。</p>
+</div>
+<p class="abs mute" id="names" style="left:96px; top:930px; font-size:26px;">指導老師 卓世明　｜　陳紹桓、陳柏屹</p>
+<p class="abs mute" id="legend" style="left:96px; top:978px; font-size:22px;">背景路徑為規劃程式真實輸出（3.0×2.6 m 合成場地斜放 30°）：<span class="acid">黃 掃描</span>・<span class="cyan">青 外圈</span>・<span class="pink">粉 障礙物</span></p>
+</div>
+<script>
+const d = SCENES.cover, M = MapSVG;
+document.getElementById('map').outerHTML = M.open(d.bounds, 0.1, 'id="map" class="abs" style="left:700px; top:-250px; width:1560px; height:1560px;"')
+  + M.cells(d.wall, d.res, 'wall') + `<g class="obsg">${M.cells(d.obs, d.res, 'obs')}</g>` + M.route(d.plan) + M.close();
+Scene({ duration: 10, tracks: [
+  { sel: '.wall', at: 0, dur: 1.0, fx: 'fade', max: 1 },
+  { sel: '.obsg', at: 0.6, dur: 0.4, fx: 'fade' },
+  { sel: '.rt-sweep', at: 0.8, dur: 5.4, fx: 'draw', ease: 'lin' },
+  { sel: '.rt-move', at: 5.6, dur: 0.6, fx: 'fade' },
+  { sel: '.rt-ring', at: 6.0, dur: 1.4, fx: 'draw' },
+  { sel: '#t', at: 1.0, dur: 0.6, fx: 'up', dy: 40 },
+  { sel: '#tag', at: 1.7, dur: 0.45, fx: 'grow' },
+  { sel: '.l', at: 2.3, dur: 0.5, fx: 'up', stagger: 0.35 },
+  { sel: '#names', at: 3.2, dur: 0.6, fx: 'fade' },
+  { sel: '#legend', at: 6.6, dur: 0.6, fx: 'fade' },
+]});
+</script>
+</body>
+</html>

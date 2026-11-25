@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<title>11 實機展示：擺正 vs 斜放</title>
+<link rel="stylesheet" href="base.css">
+<link rel="stylesheet" href="map.css">
+<style></style>
+<script src="../assets/scenes.js"></script>
+<script src="map.js"></script>
+<script src="engine.js"></script>
+</head>
+<body>
+<div class="stage">
+<div class="ph" id="p0" style="left:0; top:0; width:952px; height:1080px;"><div class="scan" id="s0"></div>
+  <p class="rec"><b>REC</b>待拍 S2：車子擺正，完整覆蓋（俯拍＋手機畫面，8 倍快轉）</p></div>
+<div class="ph" id="p1" style="left:968px; top:0; width:952px; height:1080px;"><div class="scan" id="s1"></div>
+  <p class="rec"><b>REC</b>待拍 S3：車子斜放約 30°，完整覆蓋</p></div>
+<p class="abs num" id="a0" style="left:56px; top:150px; font-size:240px; line-height:1; color:rgba(242,247,245,.9);">0°</p>
+<p class="abs num acid" id="a1" style="left:1024px; top:150px; font-size:240px; line-height:1;">30°</p>
+<div class="abs" id="tbar" style="left:0; top:0; width:1920px; height:130px; background:linear-gradient(180deg, rgba(8,22,27,.95), rgba(8,22,27,0));"></div>
+<h1 class="abs k" id="t" style="left:56px; top:36px; font-size:60px;">同一個房間，擺法不同，路徑一樣貼著牆平行掃</h1>
+</div>
+<script>
+Scene({ duration: 22, tracks: [
+  { sel: '.ph', at: 0, dur: 0.6, fx: 'fade', stagger: 0.2 },
+  { sel: '#t', at: 0.5, dur: 0.6, fx: 'up' },
+  { sel: '#a0', at: 1.2, dur: 0.5, fx: 'up' }, { sel: '#a1', at: 1.6, dur: 0.5, fx: 'up' },
+  { sel: '.rec', at: 2.2, dur: 0.6, fx: 'fade', stagger: 0.2 },
+], onTime: (t) => {
+  for (let k = 0; k < 2; k++) document.getElementById('s' + k).style.top = (((t * 140) + k * 400) % 1080) + 'px';
+}});
+</script>
+</body>
+</html>
