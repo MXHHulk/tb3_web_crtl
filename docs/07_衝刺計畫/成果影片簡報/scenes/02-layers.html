@@ -47,7 +47,7 @@ const tr = [
 document.querySelectorAll('.cnt').forEach((el, k) => {
   el.id = 'c' + k; tr.push({ sel: '#c' + k, at: 6.0 + k * 0.25, dur: 1.4, fx: 'count', from: 0, to: +el.dataset.n });
 });
-Scene({ duration: 14, tracks: tr });
+Scene({ duration: 14, steps: [2.9, 4.9, 9.0], tracks: tr });
 </script>
 </body>
 </html>

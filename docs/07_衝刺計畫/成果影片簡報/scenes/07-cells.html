@@ -46,7 +46,7 @@ cells.forEach((cl, i) => {
   tr.push({ sel: '.cp' + i, at: at + 0.2, dur: per - 0.4, fx: 'draw', ease: 'lin' });
   if (i > 0) tr.push({ sel: '.mv' + i, at: at - 0.1, dur: 0.3, fx: 'fade' });
 });
-Scene({ duration: 14, tracks: tr });
+Scene({ duration: 14, steps: [2.6, 11.0], tracks: tr });
 </script>
 </body>
 </html>

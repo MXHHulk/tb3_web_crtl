@@ -1,7 +1,7 @@
 /* 成果影片動畫簡報：共用時間軸引擎
  *
- * 每鏡一個 HTML，呼叫 Scene({ duration, tracks, onTime })。
- * - 瀏覽器開啟：自動播放一次，停在最後一格；空白鍵重播，← → 換鏡（照 index.html 的順序）
+ * 每鏡一個 HTML，呼叫 Scene({ duration, steps, tracks, onTime })。
+ * - 簡報模式（瀏覽器開啟）：按一下播一段，見下方「簡報模式」說明
  * - 匯出影片：tools/render.mjs 會設 window.__seekRender = true，再逐格呼叫 window.__seek(t) 截圖，
  *   所以畫面完全由 t 決定（不靠 CSS animation），同一個 t 永遠是同一張畫面。
  *
@@ -62,7 +62,8 @@
       }
       case 'pulse': {
         if (t < at) { el.style.opacity = 0; break; }
-        const w = 0.55 + 0.45 * Math.cos((t - at) * Math.PI * 1.6);
+        const clock = window.__seekRender ? t : (window.__wall || 0);
+        const w = 0.55 + 0.45 * Math.cos(clock * Math.PI * 1.6);
         el.style.opacity = clamp((t - at) / 0.3) * w; break;
       }
     }
@@ -80,7 +81,7 @@
         if (t < at && touched.has(el)) return;
         apply(el, tr, t, k); touched.add(el);
       });
-      if (cfg.onTime) cfg.onTime(t, { E, clamp });
+      if (cfg.onTime) cfg.onTime(t, { E, clamp, wall: window.__seekRender ? t : (window.__wall || 0) });
     }
     window.__duration = D;
     window.__seek = t => render(clamp(t, 0, D));
@@ -93,31 +94,70 @@
     };
     addEventListener('resize', fit); fit();
 
-    let t0 = null;
-    function loop(now) {
+    /* ── 簡報模式：按一下播一段 ─────────────────────────────
+     * cfg.steps＝每段播完要停的時間點（遞增，最後一個通常是 D）。進頁自動播第一段。
+     * 下一段：→ 空白 Enter PageDown 或滑鼠左鍵；播放中再按＝直接跳到這段結尾。
+     * 上一段：← PageUp Backspace（直接顯示上一段停住的畫面）；R 重播本鏡；F 全螢幕。
+     * 已在最後一段再按下一段＝換下一鏡；在第一段按上一段＝回上一鏡（顯示它播完的樣子）。 */
+    const steps = (cfg.steps && cfg.steps.length ? cfg.steps : [D]).map(v => Math.min(v, D));
+    window.__steps = steps;
+    let t = 0, k = 0, playing = false, last = null;
+    const here = location.pathname.split('/').pop().replace('.html', '');
+    const embedded = window.top !== window;
+    const startAtEnd = location.hash === '#end';
+
+    function frame(now) {
       if (window.__seekRender) return;
-      if (t0 == null) t0 = now;
-      const t = (now - t0) / 1000;
+      if (playing) {
+        if (last != null) t += (now - last) / 1000;
+        if (t >= steps[k]) { t = steps[k]; playing = false; }
+      }
+      last = now;
+      window.__wall = now / 1000;          // 給持續性的環境動畫（掃描線、呼吸閃爍）用
       render(t);
-      if (t < D) requestAnimationFrame(loop);
+      requestAnimationFrame(frame);
     }
+    function play(to) { k = to; playing = true; last = null; }
+    function goScene(dir) {
+      if (embedded) { window.parent.postMessage({ cmd: dir > 0 ? 'next' : 'prev' }, '*'); return; }
+      const i = ORDER.indexOf(here), j = i + dir;
+      if (j >= 0 && j < ORDER.length) location.href = ORDER[j] + '.html' + (dir < 0 ? '#end' : '');
+    }
+    function next() {
+      if (playing) { t = steps[k]; playing = false; return; }
+      if (k < steps.length - 1) play(k + 1); else goScene(1);
+    }
+    function prev() {
+      playing = false;
+      if (k > 0) { k -= 1; t = steps[k]; } else goScene(-1);
+    }
+    function replay() { t = 0; play(0); }
+    function act(key) {
+      if (['ArrowRight', ' ', 'Enter', 'PageDown', 'ArrowDown'].includes(key)) next();
+      else if (['ArrowLeft', 'PageUp', 'Backspace', 'ArrowUp'].includes(key)) prev();
+      else if (key === 'r' || key === 'R') replay();
+      else if (key === 'f' || key === 'F') {
+        if (embedded) window.parent.postMessage({ cmd: 'fs' }, '*');
+        else if (!document.fullscreenElement) document.documentElement.requestFullscreen(); else document.exitFullscreen();
+      }
+    }
+    window.__step = act;
+    window.__state = () => ({ k, t: +t.toFixed(2), playing });
+
     render(0);
     document.fonts.ready.then(() => {
       window.__ready = true;
-      if (!window.__seekRender) requestAnimationFrame(loop);
+      if (window.__seekRender) return;
+      if (startAtEnd) { k = steps.length - 1; t = steps[k]; } else play(0);
+      requestAnimationFrame(frame);
     });
-
     addEventListener('keydown', e => {
-      if (window.top !== window) {            // 在 index.html 裡：換鏡交給外層播放器
-        if (e.key === 'ArrowRight' || e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') {
-          window.parent.postMessage({ key: e.key }, '*'); return;
-        }
-      }
-      const here = location.pathname.split('/').pop().replace('.html', '');
-      const i = ORDER.indexOf(here);
-      if (e.key === ' ') { t0 = null; requestAnimationFrame(loop); e.preventDefault(); }
-      if (e.key === 'ArrowRight' && i < ORDER.length - 1) location.href = ORDER[i + 1] + '.html';
-      if (e.key === 'ArrowLeft' && i > 0) location.href = ORDER[i - 1] + '.html';
+      if (e.repeat) return;
+      if ([' ', 'PageDown', 'PageUp', 'Backspace', 'ArrowDown', 'ArrowUp'].includes(e.key)) e.preventDefault();
+      act(e.key);
     });
+    addEventListener('mousedown', e => { if (e.button === 0) next(); });
+    addEventListener('contextmenu', e => { e.preventDefault(); prev(); });
+    addEventListener('message', e => { if (e.data && e.data.key) act(e.data.key); });
   };
 })();

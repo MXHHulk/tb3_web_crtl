@@ -36,7 +36,7 @@ noise.forEach(([x, y], i) => {
   g += `<rect class="dotn n${i}" x="${x}" y="${y}" width="${R}" height="${R}"/>`;
 });
 document.getElementById('mapbox').innerHTML = g + MapSVG.close();
-Scene({ duration: 12, tracks: [
+Scene({ duration: 12, steps: [4.4, 8.2], tracks: [
   { sel: '.room', at: 0, dur: 0.6, fx: 'fade' },
   { sel: '#kick', at: 0.2, dur: 0.4, fx: 'up' }, { sel: '#t', at: 0.4, dur: 0.6, fx: 'up' },
   { sel: '.dotn', at: 1.2, dur: 0.3, fx: 'pop', stagger: 0.15 },

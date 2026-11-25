@@ -22,13 +22,13 @@
 <h1 class="abs k" id="t" style="left:56px; top:36px; font-size:60px;">同一個房間，擺法不同，路徑一樣貼著牆平行掃</h1>
 </div>
 <script>
-Scene({ duration: 22, tracks: [
+Scene({ duration: 22, steps: [3.0], tracks: [
   { sel: '.ph', at: 0, dur: 0.6, fx: 'fade', stagger: 0.2 },
   { sel: '#t', at: 0.5, dur: 0.6, fx: 'up' },
   { sel: '#a0', at: 1.2, dur: 0.5, fx: 'up' }, { sel: '#a1', at: 1.6, dur: 0.5, fx: 'up' },
   { sel: '.rec', at: 2.2, dur: 0.6, fx: 'fade', stagger: 0.2 },
-], onTime: (t) => {
-  for (let k = 0; k < 2; k++) document.getElementById('s' + k).style.top = (((t * 140) + k * 400) % 1080) + 'px';
+], onTime: (t, u) => {
+  for (let k = 0; k < 2; k++) document.getElementById('s' + k).style.top = (((u.wall * 140) + k * 400) % 1080) + 'px';
 }});
 </script>
 </body>

@@ -33,7 +33,7 @@
 const d = SCENES.cover, M = MapSVG;
 document.getElementById('corner').outerHTML = M.open(d.bounds, 0.1, 'id="corner" class="abs" style="left:1300px; top:-1120px; width:1560px; height:1560px; opacity:.55;"')
   + M.cells(d.wall, d.res, 'wall') + M.route(d.plan) + M.close();
-Scene({ duration: 14, tracks: [
+Scene({ duration: 14, steps: [2.6, 5.5, 7.6], tracks: [
   { sel: '.rt-sweep', at: 0, dur: 3.0, fx: 'draw', ease: 'lin' }, { sel: '.rt-ring', at: 2.6, dur: 0.6, fx: 'draw' },
   { sel: '#kick', at: 0.2, dur: 0.4, fx: 'up' }, { sel: '#t', at: 0.4, dur: 0.6, fx: 'up' },
   { sel: '#src', at: 1.0, dur: 0.6, fx: 'fade' },

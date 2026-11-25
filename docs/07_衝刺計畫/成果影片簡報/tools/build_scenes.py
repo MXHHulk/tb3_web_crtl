@@ -60,7 +60,7 @@ scene('01-cover', '01 開場', '''
 const d = SCENES.cover, M = MapSVG;
 document.getElementById('map').outerHTML = M.open(d.bounds, 0.1, 'id="map" class="abs" style="left:700px; top:-250px; width:1560px; height:1560px;"')
   + M.cells(d.wall, d.res, 'wall') + `<g class="obsg">${M.cells(d.obs, d.res, 'obs')}</g>` + M.route(d.plan) + M.close();
-Scene({ duration: 10, tracks: [
+Scene({ duration: 10, steps: [10], tracks: [
   { sel: '.wall', at: 0, dur: 1.0, fx: 'fade', max: 1 },
   { sel: '.obsg', at: 0.6, dur: 0.4, fx: 'fade' },
   { sel: '.rt-sweep', at: 0.8, dur: 5.4, fx: 'draw', ease: 'lin' },
@@ -114,7 +114,7 @@ const tr = [
 document.querySelectorAll('.cnt').forEach((el, k) => {
   el.id = 'c' + k; tr.push({ sel: '#c' + k, at: 6.0 + k * 0.25, dur: 1.4, fx: 'count', from: 0, to: +el.dataset.n });
 });
-Scene({ duration: 14, tracks: tr });
+Scene({ duration: 14, steps: [2.9, 4.9, 9.0], tracks: tr });
 ''')
 
 # ═══ 03 一鍵流程 ═══════════════════════════════════════
@@ -132,11 +132,11 @@ for k, (a, b) in enumerate(nodes):
     body += f'<p class="abs nd" id="n{k}" style="left:{x - 200}px; top:476px; width:400px; text-align:center; font-size:48px; font-weight:900; font-style:italic; color:#4d6f75;">{a}</p>\n'
     body += f'<p class="abs mute ns" style="left:{x - 200}px; top:650px; width:400px; text-align:center; font-size:26px;">{b}</p>\n'
 scene('03-flow', '03 一鍵流程', body, '''
-const X0 = 260, X1 = 1660, A = 1.4, B = 7.4;
-Scene({ duration: 10, tracks: [
+const X0 = 260, X1 = 1660, A = 1.8, B = 7.8;
+Scene({ duration: 10, steps: [1.7, 8.2], tracks: [
   { sel: '#kick', at: 0.2, dur: 0.4, fx: 'up' }, { sel: '#t', at: 0.4, dur: 0.6, fx: 'up' },
   { sel: '#track', at: 0.8, dur: 0.6, fx: 'grow' },
-  { sel: '.ns', at: 1.0, dur: 0.4, fx: 'fade', stagger: 0.1 },
+  { sel: '.ns', at: 0.8, dur: 0.4, fx: 'fade', stagger: 0.1 },
 ], onTime: (t, u) => {
   const p = u.clamp((t - A) / (B - A));
   const q = u.E.inout(p);
@@ -155,7 +155,7 @@ Scene({ duration: 10, tracks: [
 # ═══ 04 自動建圖 ═══════════════════════════════════════
 scene('04-mapping', '04 自動建圖', '''
 <img id="flip" class="abs" src="../assets/mapflip/00.png" style="left:60px; top:110px; width:960px; height:909px; image-rendering:pixelated;">
-<p class="abs src" id="cap" style="left:96px; top:1010px;">畫面：2026-06-27 實測 gmapping 建圖快照 47 張（每格 5 cm）；實機快轉待拍，剪輯時疊於此</p>
+<p class="abs src" id="cap" style="left:96px; top:1010px;">畫面：2026-06-27 實測 gmapping 建圖快照 47 張（每格 5 cm）；實機建圖快轉待拍</p>
 <p class="abs kicker" id="kick" style="left:1120px; top:120px;">自動建圖</p>
 <h1 class="abs k" id="t" style="left:1120px; top:166px; font-size:68px; line-height:1.25; width:760px;">自己找路建完地圖，<br>再開回起點</h1>
 <div class="abs st" style="left:1120px; top:440px;"><p class="num" style="font-size:110px; line-height:1;"><span id="s1">55</span><span style="font-size:44px;"> 秒</span></p><p class="mute" style="font-size:26px;">建完整張地圖</p></div>
@@ -165,16 +165,16 @@ scene('04-mapping', '04 自動建圖', '''
 ''', '''
 const N = 47, imgs = [];
 for (let i = 0; i < N; i++) { const im = new Image(); im.src = `../assets/mapflip/${String(i).padStart(2, '0')}.png`; imgs.push(im); }
-Scene({ duration: 14, tracks: [
+Scene({ duration: 14, steps: [6.2, 11.0], tracks: [
   { sel: '#flip', at: 0.0, dur: 0.6, fx: 'fade' },
   { sel: '#kick', at: 0.3, dur: 0.4, fx: 'up' }, { sel: '#t', at: 0.5, dur: 0.6, fx: 'up' },
-  { sel: '.st', at: 3.0, dur: 0.5, fx: 'up', stagger: 1.1 },
-  { sel: '#s1', at: 3.0, dur: 1.2, fx: 'count', from: 0, to: 55 },
-  { sel: '#s2', at: 4.1, dur: 1.2, fx: 'count', from: 0, to: 4.1, dec: 1 },
-  { sel: '#s3', at: 5.2, dur: 1.0, fx: 'count', from: 40, to: 3 },
+  { sel: '.st', at: 6.4, dur: 0.5, fx: 'up', stagger: 1.1 },
+  { sel: '#s1', at: 6.4, dur: 1.2, fx: 'count', from: 0, to: 55 },
+  { sel: '#s2', at: 7.5, dur: 1.2, fx: 'count', from: 0, to: 4.1, dec: 1 },
+  { sel: '#s3', at: 8.6, dur: 1.0, fx: 'count', from: 40, to: 3 },
   { sel: '#cap', at: 1.0, dur: 0.6, fx: 'fade' },
 ], onTime: (t, u) => {
-  const i = Math.round(u.clamp((t - 0.6) / 8.5) * (N - 1));
+  const i = Math.round(u.clamp((t - 0.6) / 5.4) * (N - 1));
   const el = document.getElementById('flip');
   const src = imgs[i].src;
   if (el.src !== src) el.src = src;
@@ -193,7 +193,7 @@ scene('05-tilted', '05 地圖是斜的', '''
 const d = SCENES.tilt, M = MapSVG;
 document.getElementById('mapbox').innerHTML = M.open(d.bounds, 0.1, 'id="map" style="left:0; top:0; width:100%; height:100%;"')
   + M.cells(d.wall, d.res, 'wall') + d.axisLines.map(l => M.poly(l, 'axl')).join('') + M.close();
-Scene({ duration: 10, tracks: [
+Scene({ duration: 10, steps: [3.2, 7.0], tracks: [
   { sel: '.wall', at: 0, dur: 0.6, fx: 'fade' },
   { sel: '#kick', at: 0.2, dur: 0.4, fx: 'up' }, { sel: '#t', at: 0.4, dur: 0.6, fx: 'up' },
   { sel: '#l1', at: 1.3, dur: 0.5, fx: 'up' },
@@ -223,7 +223,7 @@ document.getElementById('mapbox').innerHTML = M.open(d.bounds, 0.1, 'style="left
   + M.cells(d.wall, d.res, 'wall')
   + `<g id="pts">${d.points.map(p => `<circle cx="${p[0]}" cy="${p[1]}" r="0.011" class="pt"/>`).join('')}</g>`
   + arrow(a, L, 'axA') + arrow(b, Lb, 'axB') + M.route(d.plan) + M.close();
-Scene({ duration: 12, tracks: [
+Scene({ duration: 12, steps: [2.1, 4.2, 10.2], tracks: [
   { sel: '.wall', at: 0, dur: 0.6, fx: 'fade' },
   { sel: '#kick', at: 0.2, dur: 0.4, fx: 'up' }, { sel: '#t', at: 0.4, dur: 0.6, fx: 'up' },
   { sel: '#pts', at: 1.0, dur: 1.0, fx: 'fade' },
@@ -273,7 +273,7 @@ cells.forEach((cl, i) => {
   tr.push({ sel: '.cp' + i, at: at + 0.2, dur: per - 0.4, fx: 'draw', ease: 'lin' });
   if (i > 0) tr.push({ sel: '.mv' + i, at: at - 0.1, dur: 0.3, fx: 'fade' });
 });
-Scene({ duration: 14, tracks: tr });
+Scene({ duration: 14, steps: [2.6, 11.0], tracks: tr });
 ''', css='''.cp { fill:none; stroke-width:.026; stroke-linejoin:round; stroke-linecap:round; filter:url(#glow); }
 .mv { fill:none; stroke:#F2F7F5; stroke-width:.012; stroke-dasharray:.03 .03; opacity:.8; }
 .cl { font-family:Bahnschrift, sans-serif; font-weight:700; font-size:.075px; }''')
@@ -300,7 +300,7 @@ const d = SCENES.field, M = MapSVG;
 document.getElementById('mapbox').innerHTML = M.open(d.bounds, 0.08, 'style="left:0; top:0; width:100%; height:100%;"')
   + M.cells(d.wall, d.res, 'wall') + `<g class="obsg">${M.cells(d.obs, d.res, 'obs')}</g>`
   + `<g id="oldg">${d.oldLines.map(l => M.poly(l, 'old')).join('')}</g>` + M.route(d.plan) + M.close();
-Scene({ duration: 12, tracks: [
+Scene({ duration: 12, steps: [4.2, 10.6], tracks: [
   { sel: '.wall', at: 0, dur: 0.5, fx: 'fade' }, { sel: '.obsg', at: 0.3, dur: 0.4, fx: 'fade' },
   { sel: '#kick', at: 0.2, dur: 0.4, fx: 'up' }, { sel: '#t', at: 0.4, dur: 0.6, fx: 'up' },
   { sel: '.old', at: 1.2, dur: 0.9, fx: 'draw', stagger: 0.25 },
@@ -341,7 +341,7 @@ noise.forEach(([x, y], i) => {
   g += `<rect class="dotn n${i}" x="${x}" y="${y}" width="${R}" height="${R}"/>`;
 });
 document.getElementById('mapbox').innerHTML = g + MapSVG.close();
-Scene({ duration: 12, tracks: [
+Scene({ duration: 12, steps: [4.4, 8.2], tracks: [
   { sel: '.room', at: 0, dur: 0.6, fx: 'fade' },
   { sel: '#kick', at: 0.2, dur: 0.4, fx: 'up' }, { sel: '#t', at: 0.4, dur: 0.6, fx: 'up' },
   { sel: '.dotn', at: 1.2, dur: 0.3, fx: 'pop', stagger: 0.15 },
@@ -387,7 +387,7 @@ scene('10-problem3', '10 問題三：DWA → 自寫循跡', body, '''
 const d = SCENES.cover, M = MapSVG;
 document.getElementById('corner').outerHTML = M.open(d.bounds, 0.1, 'id="corner" class="abs" style="left:1300px; top:-1120px; width:1560px; height:1560px; opacity:.55;"')
   + M.cells(d.wall, d.res, 'wall') + M.route(d.plan) + M.close();
-Scene({ duration: 14, tracks: [
+Scene({ duration: 14, steps: [2.6, 5.5, 7.6], tracks: [
   { sel: '.rt-sweep', at: 0, dur: 3.0, fx: 'draw', ease: 'lin' }, { sel: '.rt-ring', at: 2.6, dur: 0.6, fx: 'draw' },
   { sel: '#kick', at: 0.2, dur: 0.4, fx: 'up' }, { sel: '#t', at: 0.4, dur: 0.6, fx: 'up' },
   { sel: '#src', at: 1.0, dur: 0.6, fx: 'fade' },
@@ -409,13 +409,13 @@ scene('11-demo', '11 實機展示：擺正 vs 斜放', '''
 <div class="abs" id="tbar" style="left:0; top:0; width:1920px; height:130px; background:linear-gradient(180deg, rgba(8,22,27,.95), rgba(8,22,27,0));"></div>
 <h1 class="abs k" id="t" style="left:56px; top:36px; font-size:60px;">同一個房間，擺法不同，路徑一樣貼著牆平行掃</h1>
 ''', '''
-Scene({ duration: 22, tracks: [
+Scene({ duration: 22, steps: [3.0], tracks: [
   { sel: '.ph', at: 0, dur: 0.6, fx: 'fade', stagger: 0.2 },
   { sel: '#t', at: 0.5, dur: 0.6, fx: 'up' },
   { sel: '#a0', at: 1.2, dur: 0.5, fx: 'up' }, { sel: '#a1', at: 1.6, dur: 0.5, fx: 'up' },
   { sel: '.rec', at: 2.2, dur: 0.6, fx: 'fade', stagger: 0.2 },
-], onTime: (t) => {
-  for (let k = 0; k < 2; k++) document.getElementById('s' + k).style.top = (((t * 140) + k * 400) % 1080) + 'px';
+], onTime: (t, u) => {
+  for (let k = 0; k < 2; k++) document.getElementById('s' + k).style.top = (((u.wall * 140) + k * 400) % 1080) + 'px';
 }});
 ''')
 
@@ -446,7 +446,7 @@ for r, row in enumerate(data):
 body += '<p class="abs lede" id="sum" style="left:96px; top:850px; width:1700px; font-size:36px;">自寫循跡讓覆蓋率穩定在 <span class="acid">【待填】</span> 以上，車子斜放時轉彎數也比沿地圖座標軸少 <span class="acid">【待填】</span>。</p>\n'
 body += '<p class="abs src" id="src" style="left:96px; top:990px;">【待填】＝實驗完成後才填，不放假設值</p>\n'
 scene('12-table', '12 數據總表', body, '''
-Scene({ duration: 14, tracks: [
+Scene({ duration: 14, steps: [5.2, 7.8], tracks: [
   { sel: '#kick', at: 0.2, dur: 0.4, fx: 'up' }, { sel: '#t', at: 0.4, dur: 0.6, fx: 'up' },
   { sel: '#r0', at: 1.0, dur: 0.6, fx: 'grow' }, { sel: '.th', at: 1.2, dur: 0.4, fx: 'fade', stagger: 0.06 },
   { sel: '.R0', at: 2.0, dur: 0.4, fx: 'up', stagger: 0.07 }, { sel: '.R0r', at: 2.3, dur: 0.5, fx: 'grow' },
@@ -465,7 +465,7 @@ scene('13-end', '13 結尾', '''
 <p class="abs mute" id="n2" style="left:0; top:670px; width:1920px; text-align:center; font-size:30px;">指導老師　卓世明</p>
 <p class="abs mute" id="n3" style="left:0; top:760px; width:1920px; text-align:center; font-size:26px;">牛耕式演算法——以 TurtleBot3 實作</p>
 ''', '''
-Scene({ duration: 8, tracks: [
+Scene({ duration: 8, steps: [3.4], tracks: [
   { sel: '#line', at: 0, dur: 1.2, fx: 'grow', origin: 'center center' },
   { sel: '#t', at: 1.0, dur: 0.7, fx: 'up', dy: 40 },
   { sel: '#n1', at: 1.8, dur: 0.5, fx: 'up' }, { sel: '#n2', at: 2.1, dur: 0.5, fx: 'up' },
@@ -476,36 +476,35 @@ Scene({ duration: 8, tracks: [
 
 # ═══ index.html：全部場景依序播放 ═════════════════════════
 idx = '''<!DOCTYPE html>
-<html lang="zh-Hant"><head><meta charset="UTF-8"><title>牛耕式演算法｜成果影片動畫簡報</title>
+<html lang="zh-Hant"><head><meta charset="UTF-8"><title>牛耕式演算法｜成果簡報</title>
 <style>
   html,body{margin:0;height:100%;background:#050d10;color:#8FB3B8;font-family:"Noto Sans TC",sans-serif;overflow:hidden}
   iframe{position:absolute;inset:0;width:100%;height:100%;border:0}
-  #hud{position:absolute;right:16px;bottom:12px;font-size:13px;opacity:.6}
+  #hud{position:absolute;right:16px;bottom:10px;margin:0;font-size:13px;opacity:.55;transition:opacity .4s}
+  #hud.hide{opacity:0}
 </style></head><body>
-<iframe id="f"></iframe>
+<iframe id="f" allow="fullscreen"></iframe>
 <p id="hud"></p>
 <script>
 const S = __S__;
-let i = +(localStorage.getItem('ccpp-scene') || 0), auto = false, timer = null;
+let i = +(localStorage.getItem('ccpp-scene') || 0), hideT = null;
 const f = document.getElementById('f'), hud = document.getElementById('hud');
-function go(k) {
-  i = Math.max(0, Math.min(S.length - 1, k)); localStorage.setItem('ccpp-scene', i);
-  f.src = 'scenes/' + S[i][0] + '.html';
-  hud.textContent = (i + 1) + ' / ' + S.length + '　' + S[i][1] + '　（← → 換鏡、空白鍵重播、A 自動連播）';
-  clearTimeout(timer);
-  f.onload = () => { f.contentWindow.focus(); if (auto) timer = setTimeout(() => go(i + 1), (f.contentWindow.__duration || 10) * 1000); };
+function go(k, atEnd) {
+  if (k < 0 || k >= S.length) return;
+  i = k; localStorage.setItem('ccpp-scene', i);
+  f.src = 'scenes/' + S[i][0] + '.html' + (atEnd ? '#end' : '');
+  hud.textContent = (i + 1) + ' / ' + S.length + '　' + S[i][1] + '　｜ → 或點一下：下一段　← ：上一段　R：重播　F：全螢幕';
+  hud.classList.remove('hide'); clearTimeout(hideT); hideT = setTimeout(() => hud.classList.add('hide'), 2500);
 }
-function key(k) {
-  if (k === 'ArrowRight') go(i + 1);
-  if (k === 'ArrowLeft') go(i - 1);
-  if (k === 'a' || k === 'A') { auto = !auto; go(i); }
-}
-addEventListener('message', e => e.data && e.data.key && key(e.data.key));
-addEventListener('keydown', e => {
-  if (e.key === 'ArrowRight') go(i + 1);
-  if (e.key === 'ArrowLeft') go(i - 1);
-  if (e.key === 'a' || e.key === 'A') { auto = !auto; go(i); }
+f.onload = () => f.contentWindow.focus();
+addEventListener('message', e => {
+  const c = e.data && e.data.cmd;
+  if (c === 'next') go(i + 1);
+  if (c === 'prev') go(i - 1, true);
+  if (c === 'fs') { if (!document.fullscreenElement) document.documentElement.requestFullscreen(); else document.exitFullscreen(); }
 });
+// 焦點在外層時（例如剛切全螢幕），把按鍵轉給場景
+addEventListener('keydown', e => { f.contentWindow.postMessage({ key: e.key }, '*'); e.preventDefault(); });
 go(i);
 </script></body></html>
 '''.replace('__S__', json.dumps([[n, t] for n, t in SCENES], ensure_ascii=False))

@@ -33,7 +33,7 @@ const d = SCENES.field, M = MapSVG;
 document.getElementById('mapbox').innerHTML = M.open(d.bounds, 0.08, 'style="left:0; top:0; width:100%; height:100%;"')
   + M.cells(d.wall, d.res, 'wall') + `<g class="obsg">${M.cells(d.obs, d.res, 'obs')}</g>`
   + `<g id="oldg">${d.oldLines.map(l => M.poly(l, 'old')).join('')}</g>` + M.route(d.plan) + M.close();
-Scene({ duration: 12, tracks: [
+Scene({ duration: 12, steps: [4.2, 10.6], tracks: [
   { sel: '.wall', at: 0, dur: 0.5, fx: 'fade' }, { sel: '.obsg', at: 0.3, dur: 0.4, fx: 'fade' },
   { sel: '#kick', at: 0.2, dur: 0.4, fx: 'up' }, { sel: '#t', at: 0.4, dur: 0.6, fx: 'up' },
   { sel: '.old', at: 1.2, dur: 0.9, fx: 'draw', stagger: 0.25 },

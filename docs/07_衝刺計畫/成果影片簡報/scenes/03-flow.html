@@ -34,11 +34,11 @@
 <p class="abs mute ns" style="left:1460px; top:650px; width:400px; text-align:center; font-size:26px;">覆蓋率・軌跡・時間</p>
 </div>
 <script>
-const X0 = 260, X1 = 1660, A = 1.4, B = 7.4;
-Scene({ duration: 10, tracks: [
+const X0 = 260, X1 = 1660, A = 1.8, B = 7.8;
+Scene({ duration: 10, steps: [1.7, 8.2], tracks: [
   { sel: '#kick', at: 0.2, dur: 0.4, fx: 'up' }, { sel: '#t', at: 0.4, dur: 0.6, fx: 'up' },
   { sel: '#track', at: 0.8, dur: 0.6, fx: 'grow' },
-  { sel: '.ns', at: 1.0, dur: 0.4, fx: 'fade', stagger: 0.1 },
+  { sel: '.ns', at: 0.8, dur: 0.4, fx: 'fade', stagger: 0.1 },
 ], onTime: (t, u) => {
   const p = u.clamp((t - A) / (B - A));
   const q = u.E.inout(p);

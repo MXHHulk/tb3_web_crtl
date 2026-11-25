@@ -1,33 +1,32 @@
 <!DOCTYPE html>
-<html lang="zh-Hant"><head><meta charset="UTF-8"><title>牛耕式演算法｜成果影片動畫簡報</title>
+<html lang="zh-Hant"><head><meta charset="UTF-8"><title>牛耕式演算法｜成果簡報</title>
 <style>
   html,body{margin:0;height:100%;background:#050d10;color:#8FB3B8;font-family:"Noto Sans TC",sans-serif;overflow:hidden}
   iframe{position:absolute;inset:0;width:100%;height:100%;border:0}
-  #hud{position:absolute;right:16px;bottom:12px;font-size:13px;opacity:.6}
+  #hud{position:absolute;right:16px;bottom:10px;margin:0;font-size:13px;opacity:.55;transition:opacity .4s}
+  #hud.hide{opacity:0}
 </style></head><body>
-<iframe id="f"></iframe>
+<iframe id="f" allow="fullscreen"></iframe>
 <p id="hud"></p>
 <script>
 const S = [["01-cover", "01 開場"], ["02-layers", "02 系統三層"], ["03-flow", "03 一鍵流程"], ["04-mapping", "04 自動建圖"], ["05-tilted", "05 地圖是斜的"], ["06-pca", "06 PCA 找主軸"], ["07-cells", "07 cell 分解"], ["08-problem1", "08 問題一：穿過障礙"], ["09-problem2", "09 問題二：假障礙"], ["10-problem3", "10 問題三：DWA → 自寫循跡"], ["11-demo", "11 實機展示：擺正 vs 斜放"], ["12-table", "12 數據總表"], ["13-end", "13 結尾"]];
-let i = +(localStorage.getItem('ccpp-scene') || 0), auto = false, timer = null;
+let i = +(localStorage.getItem('ccpp-scene') || 0), hideT = null;
 const f = document.getElementById('f'), hud = document.getElementById('hud');
-function go(k) {
-  i = Math.max(0, Math.min(S.length - 1, k)); localStorage.setItem('ccpp-scene', i);
-  f.src = 'scenes/' + S[i][0] + '.html';
-  hud.textContent = (i + 1) + ' / ' + S.length + '　' + S[i][1] + '　（← → 換鏡、空白鍵重播、A 自動連播）';
-  clearTimeout(timer);
-  f.onload = () => { f.contentWindow.focus(); if (auto) timer = setTimeout(() => go(i + 1), (f.contentWindow.__duration || 10) * 1000); };
+function go(k, atEnd) {
+  if (k < 0 || k >= S.length) return;
+  i = k; localStorage.setItem('ccpp-scene', i);
+  f.src = 'scenes/' + S[i][0] + '.html' + (atEnd ? '#end' : '');
+  hud.textContent = (i + 1) + ' / ' + S.length + '　' + S[i][1] + '　｜ → 或點一下：下一段　← ：上一段　R：重播　F：全螢幕';
+  hud.classList.remove('hide'); clearTimeout(hideT); hideT = setTimeout(() => hud.classList.add('hide'), 2500);
 }
-function key(k) {
-  if (k === 'ArrowRight') go(i + 1);
-  if (k === 'ArrowLeft') go(i - 1);
-  if (k === 'a' || k === 'A') { auto = !auto; go(i); }
-}
-addEventListener('message', e => e.data && e.data.key && key(e.data.key));
-addEventListener('keydown', e => {
-  if (e.key === 'ArrowRight') go(i + 1);
-  if (e.key === 'ArrowLeft') go(i - 1);
-  if (e.key === 'a' || e.key === 'A') { auto = !auto; go(i); }
+f.onload = () => f.contentWindow.focus();
+addEventListener('message', e => {
+  const c = e.data && e.data.cmd;
+  if (c === 'next') go(i + 1);
+  if (c === 'prev') go(i - 1, true);
+  if (c === 'fs') { if (!document.fullscreenElement) document.documentElement.requestFullscreen(); else document.exitFullscreen(); }
 });
+// 焦點在外層時（例如剛切全螢幕），把按鍵轉給場景
+addEventListener('keydown', e => { f.contentWindow.postMessage({ key: e.key }, '*'); e.preventDefault(); });
 go(i);
 </script></body></html>

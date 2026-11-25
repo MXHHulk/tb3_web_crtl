@@ -29,7 +29,7 @@ document.getElementById('mapbox').innerHTML = M.open(d.bounds, 0.1, 'style="left
   + M.cells(d.wall, d.res, 'wall')
   + `<g id="pts">${d.points.map(p => `<circle cx="${p[0]}" cy="${p[1]}" r="0.011" class="pt"/>`).join('')}</g>`
   + arrow(a, L, 'axA') + arrow(b, Lb, 'axB') + M.route(d.plan) + M.close();
-Scene({ duration: 12, tracks: [
+Scene({ duration: 12, steps: [2.1, 4.2, 10.2], tracks: [
   { sel: '.wall', at: 0, dur: 0.6, fx: 'fade' },
   { sel: '#kick', at: 0.2, dur: 0.4, fx: 'up' }, { sel: '#t', at: 0.4, dur: 0.6, fx: 'up' },
   { sel: '#pts', at: 1.0, dur: 1.0, fx: 'fade' },

@@ -23,7 +23,7 @@
 const d = SCENES.tilt, M = MapSVG;
 document.getElementById('mapbox').innerHTML = M.open(d.bounds, 0.1, 'id="map" style="left:0; top:0; width:100%; height:100%;"')
   + M.cells(d.wall, d.res, 'wall') + d.axisLines.map(l => M.poly(l, 'axl')).join('') + M.close();
-Scene({ duration: 10, tracks: [
+Scene({ duration: 10, steps: [3.2, 7.0], tracks: [
   { sel: '.wall', at: 0, dur: 0.6, fx: 'fade' },
   { sel: '#kick', at: 0.2, dur: 0.4, fx: 'up' }, { sel: '#t', at: 0.4, dur: 0.6, fx: 'up' },
   { sel: '#l1', at: 1.3, dur: 0.5, fx: 'up' },

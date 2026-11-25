@@ -28,7 +28,7 @@
 const d = SCENES.cover, M = MapSVG;
 document.getElementById('map').outerHTML = M.open(d.bounds, 0.1, 'id="map" class="abs" style="left:700px; top:-250px; width:1560px; height:1560px;"')
   + M.cells(d.wall, d.res, 'wall') + `<g class="obsg">${M.cells(d.obs, d.res, 'obs')}</g>` + M.route(d.plan) + M.close();
-Scene({ duration: 10, tracks: [
+Scene({ duration: 10, steps: [10], tracks: [
   { sel: '.wall', at: 0, dur: 1.0, fx: 'fade', max: 1 },
   { sel: '.obsg', at: 0.6, dur: 0.4, fx: 'fade' },
   { sel: '.rt-sweep', at: 0.8, dur: 5.4, fx: 'draw', ease: 'lin' },
