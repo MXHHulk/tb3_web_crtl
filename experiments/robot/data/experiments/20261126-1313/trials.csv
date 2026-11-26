@@ -1,0 +1,2 @@
+﻿trial,group,rep,nav_mode,scan_axis,tilt_target_deg,room_axis_in_map_deg,tilt_actual_deg,explore_task,explore_state,explore_area_m2,coverage_task,coverage_state,reached,total,skipped,n_stuck,n_escape,n_turns,actual_cov,plan_cov,exec_s,actual_len,plan_len,n_cells,batt_start_v,batt_end_v,version,started,note
+1,A*vsDWA,1,astar,pca,0,,,,failed,,,,,,,,,,,,,,,,11.970000267028809,,,2026-11-26 13:13:25,無法開始建圖：地圖尚未就緒，請等 SLAM 啟動

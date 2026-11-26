@@ -93,6 +93,7 @@ v1.0.0  系統穩定、文件齊全、可重複部署
 |-----|--------|------|
 | `v1.0.0` | fcf4941 | 改導航前的基準版本（直線循跡實測 97.7%）。2026-11-26 由 `v1.0-baseline` 改名 |
 | `v1.1.0` | feature/astar-nav 合併點 | 自寫 A* 導航＋nav_mode（astar／movebase 對照）、規劃與 20 Hz 循跡紀錄、循跡 K_CTE 1.0／上限 10°、紀錄版本＝程式啟動時。A* vs DWA 證明數據用此版 |
+| `v1.2.0` | feature/auto-experiment 合併點 | 自動實驗腳本、scan_axis（PCA／沿地圖軸）、MIN_RUN 0.20、MARGIN 0.13、轉向防撞、碰牆指標。正式 12 輪用此版 |
 
 ### 打 Tag 指令
 

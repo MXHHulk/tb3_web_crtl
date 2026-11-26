@@ -1,0 +1,43 @@
+{
+  "session": "20261126-1318",
+  "next": 4,
+  "schedule": [
+    {
+      "trial": 1,
+      "group": "A*vsDWA",
+      "rep": 1,
+      "tilt_deg": 0,
+      "nav_mode": "astar",
+      "scan_axis": "pca"
+    },
+    {
+      "trial": 2,
+      "group": "A*vsDWA",
+      "rep": 1,
+      "tilt_deg": 0,
+      "nav_mode": "movebase",
+      "scan_axis": "pca"
+    },
+    {
+      "trial": 3,
+      "group": "PCAvsAxis",
+      "rep": 1,
+      "tilt_deg": 30,
+      "nav_mode": "astar",
+      "scan_axis": "pca"
+    },
+    {
+      "trial": 4,
+      "group": "PCAvsAxis",
+      "rep": 1,
+      "tilt_deg": 30,
+      "nav_mode": "astar",
+      "scan_axis": "map_x"
+    }
+  ],
+  "home": [
+    0.0,
+    0.0
+  ],
+  "room_dir_deg": -27.599999999999994
+}
