@@ -2001,6 +2001,7 @@ def slam_restart():
             map_png = map_eroded = map_dilated = map_margin = map_noise = None
             map_meta.clear()
             map_data.clear()
+            map_stats.update(area=0.0, frontiers=0)   # 不歸零的話，新地圖出來前一直顯示舊地圖的面積
         with robot_lock:
             robot_path.clear()
             robot_pos.update(x=None, y=None)

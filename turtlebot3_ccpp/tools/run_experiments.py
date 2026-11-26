@@ -144,7 +144,9 @@ class Runner:
                 self.log(f'  SLAM 重啟失敗：{r.get("msg")}')
                 time.sleep(5)
                 continue
-            st = self.wait(lambda s: (s.get('explore') or {}).get('area', 0) >= AREA_MIN, MAP_WAIT + 15, 1.0)
+            time.sleep(3)                            # 等舊地圖狀態清掉（map_server 會把面積歸零）
+            st = self.wait(lambda s: s.get('pose') is not None
+                           and (s.get('explore') or {}).get('area', 0) >= AREA_MIN, MAP_WAIT + 15, 1.0)
             if st is not None:
                 pose = st.get('pose')
                 self.log(f'  地圖已長出（{st["explore"]["area"]:.2f} m²），里程計重設後位置 {pose}')
@@ -153,7 +155,11 @@ class Runner:
         return False
 
     def explore(self):
-        r = call('/explore/start', {})
+        for _ in range(10):                          # 地圖剛出來時可能還沒就緒，等一下再試
+            r = call('/explore/start', {})
+            if r.get('ok'):
+                break
+            time.sleep(3)
         if not r.get('ok'):
             return None, f'無法開始建圖：{r.get("msg")}'
         time.sleep(3)
@@ -164,7 +170,11 @@ class Runner:
         return st['explore'], ''
 
     def coverage(self, nav_mode, scan_axis):
-        r = call('/coverage/start', {'nav_mode': nav_mode, 'scan_axis': scan_axis}, timeout=60)
+        for _ in range(5):
+            r = call('/coverage/start', {'nav_mode': nav_mode, 'scan_axis': scan_axis}, timeout=60)
+            if r.get('ok'):
+                break
+            time.sleep(3)
         if not r.get('ok'):
             return None, f'無法開始覆蓋：{r.get("msg")}'
         time.sleep(3)
