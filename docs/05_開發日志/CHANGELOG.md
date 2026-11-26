@@ -4,6 +4,15 @@
 
 ---
 
+## 2026-11-26　chore(vcs)：基準 tag 改名 v1.0-baseline → v1.0.0
+
+- **類型**：chore
+- **做了什麼**：依版控規範的 `vX.Y.Z` 格式，在同一個 commit（fcf4941）建立附註 tag `v1.0.0` 並推上 GitHub，確認遠端已有之後才刪除本地與遠端的 `v1.0-baseline`。
+  README、GIT_CONVENTION（目前的 tag 表）、衝刺計畫的提及一併更新；本日志較早的條目保留原名，不改歷史。
+- **結果 / 驗證**：`git ls-remote --tags origin` 只剩 `v1.0.0`（→ fcf4941）。另有一個更早的 `v0.1.0` 只存在本地，未動。
+
+---
+
 ## 2026-11-26　feat(nav)：自寫 A* 跨區導航＋nav_mode 切換（A* vs move_base 對照實驗用）
 
 - **類型**：feat（分支 `feature/astar-nav`）
