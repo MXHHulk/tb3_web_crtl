@@ -6,6 +6,7 @@ find_package(catkin REQUIRED COMPONENTS rospy nav_msgs std_msgs)
 catkin_package()
 
 catkin_install_python(PROGRAMS
+    scripts/astar.py
     scripts/coverage_planner.py
     scripts/map_server.py
     DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}

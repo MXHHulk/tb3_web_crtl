@@ -4,6 +4,45 @@
 
 ---
 
+## 2026-11-26　feat(nav)：自寫 A* 跨區導航＋nav_mode 切換（A* vs move_base 對照實驗用）
+
+- **類型**：feat（分支 `feature/astar-nav`）
+- **背景**：專題目標 (3)「證明 DWA 不好、改用 A* 更穩」。11/11 實測唯一一次受困：交給 move_base 的跨區段，車子離牆 0.20 m，
+  DWA 回報 `Rotation cmd in collision` 83 次＝判定原地轉會撞而不動。之前的 own_nav 仍借 move_base 的 `make_plan`（navfn）算路線，
+  且失敗後退回 move_base，無法乾淨比較。和使用者確認的定義（Q3–Q7）：
+  - 比較的是兩套導航：**astar**＝自寫 A* 算路線＋自寫循跡開車，完全不讓 move_base 開車、失敗不退回；
+    **movebase**（對照組，B1）＝所有路點都交 move_base（navfn＋DWA）。
+  - A* 只用在覆蓋的跨區移動；自動建圖仍用 explore_lite＋move_base（目標 (1) 只要求可展示）。
+  - 場地內無動態障礙物；主要指標：受困次數、實際覆蓋率。
+- **做了什麼**
+  - 新增 `scripts/astar.py`（零 ROS 依賴）：在覆蓋規劃同一張可走區（去雜點＋安全邊距）上做 8 鄰格 A*（octile 啟發、不切牆角）；
+    每格乘「離牆懲罰」1 + 3 ×（0.15 − 離牆距離）/ 0.15，讓路線走通道中間；起終點不在可走區時吸附到 0.30 m 內最近可走格；
+    RDP（0.04 m）簡化，簡化段若切出可走區就換回原始格點。
+  - `map_server.py`
+    - `_drive_to()`：直線可走就直走，否則改用自寫 A*（移除 `_nav_plan`／`/move_base/make_plan`）；每次規劃記事件（段數、長度、毫秒）。
+    - `_run_coverage()`：依 `cov_info['nav_mode']` 選方法鏈，兩種模式重試次數相同（1 + RETRY_MAX），同一方法第二次起先脫困：
+      astar＝`line → astar ×3`；movebase＝`move_base ×3`。astar 模式不需要 move_base action server。
+    - `/coverage/start` 收 JSON `nav_mode`（預設 astar）；整個任務固定，「從中斷處繼續」沿用。
+    - 指標與 `coverage_runs.csv` 新增 `nav_mode`、`n_stuck`（受困停止次數）、`n_escape`（脫困次數）、`synced`（車上 `.synced_commit`，供追溯）。
+      CSV 欄位改變，舊檔會自動改名 `coverage_runs_old_<時間>.csv` 保留。
+  - 網頁（手機 `launcher.html`、電腦 `index.html`）：開始覆蓋旁加「導航方式」下拉選單；任務指標多「導航方式」「受困次數」。
+  - 新增 `test/astar_bench.py`（A* 離線驗證）、`test/sim_coverage.py`（假 ROS 模擬整個覆蓋任務）；CMakeLists 安裝 `astar.py`。
+- **影響檔案**：`turtlebot3_ccpp/scripts/astar.py`（新）、`scripts/map_server.py`、`web/launcher.html`、`web/index.html`、
+  `test/astar_bench.py`（新）、`test/sim_coverage.py`（新）、`CMakeLists.txt`
+- **結果 / 驗證**
+  - `astar_bench.py`（合成 2 張＋11/11 實測地圖 3 張，各 100 組隨機起終點）：同連通區找到率 100%、穿牆段 0；
+    路線中段離障礙中位數 0.20–0.25 m、最小 0.10–0.20 m；PC 每次 0.3–11 ms。
+    同測試把離牆懲罰關掉（W_CLEAR=0）：中位數 0.16–0.21 m、最小降到 0.05 m → 懲罰項確實讓路線離牆更遠。
+  - `sim_coverage.py`（差速車模型、3% 輪速誤差，/scan 無障礙）：
+    astar 在三張實測地圖 82/82、73/73、71/71 路點全到，零脫困零受困，實際覆蓋 96.3%／95.7%／98.0%，move_base 開車 0 次；
+    movebase 在假 move_base 不僵住時 82/82；設定每個目標 30%／60% 機率僵住時，分別脫困 20／74 次、跳過 1／15 點、受困 0／1 次，
+    驗證失敗→脫困→重試→跳過→受困停止的流程與計數正確。**僵住機率是人為設定，不是 DWA 的證據。**
+  - JS 語法以 `node --check` 通過；`py_compile` 通過；車上 scipy 1.10.1 有 `distance_transform_edt`。
+  - **尚未實車跑。**
+- **待辦**：實車驗證 astar 模式（轉角、吸附段）；依實驗規則打 tag 後兩種模式各跑 ≥3 次。
+
+---
+
 ## 2026-11-26　chore(vcs)：版本統一、車上資料備份、資料夾整理
 
 - **類型**：chore / feat(tools)

@@ -178,6 +178,13 @@ section[data-tab] { display: none; } section[data-tab].on { display: block; }
 
         <div class="card">
             <h2>自動覆蓋</h2>
+            <div class="row" style="margin-bottom:8px">
+                <span class="meta">導航方式</span>
+                <select id="navMode">
+                    <option value="astar">A*＋自寫循跡（預設）</option>
+                    <option value="movebase">move_base（DWA，對照組）</option>
+                </select>
+            </div>
             <div class="g3">
                 <button class="b-go" id="btnCovStart">▶ 開始</button>
                 <button class="b-res" id="btnCovResume" disabled>⏵ 繼續</button>
@@ -232,6 +239,8 @@ section[data-tab] { display: none; } section[data-tab].on { display: block; }
             <div class="row"><b id="mState">—</b><span class="meta" id="mTask"></span></div>
             <div class="bar"><i id="mBar"></i></div>
             <div class="stats" style="margin-top:8px">
+                <div class="stat"><div class="k">導航方式</div><div class="v" id="mNav">—</div></div>
+                <div class="stat"><div class="k">受困次數</div><div class="v" id="mStuck">—</div></div>
                 <div class="stat"><div class="k">實際覆蓋率</div><div class="v" id="mAct">—</div></div>
                 <div class="stat"><div class="k">任務完成率</div><div class="v" id="mComp">—</div></div>
                 <div class="stat"><div class="k">跳過路點</div><div class="v" id="mSkip">—</div></div>
@@ -816,6 +825,8 @@ function renderCov() {
     $('mState').textContent = COV_TXT[M.state] || M.state;
     $('mTask').textContent = `任務 #${M.task}`;
     $('mBar').style.width = M.total ? (100 * c.done / M.total).toFixed(1) + '%' : '0';
+    setV('mNav', NAV_TXT[M.nav_mode] || M.nav_mode || '—');
+    setV('mStuck', M.n_stuck ?? '—', M.n_stuck ? 'warn' : '');
     setV('mAct', pct(M.actual_cov), 'good');
     setV('mComp', pct(M.completion));
     setV('mSkip', M.skipped ?? '—', M.skipped ? 'warn' : '');
@@ -830,9 +841,10 @@ function renderCov() {
     setV('mAxis', M.axis_deg == null ? '—' : M.axis_deg.toFixed(1) + '°');
 }
 
-async function covAction(path, pending, okMsg) {
+const NAV_TXT = { astar: 'A*＋自寫循跡', movebase: 'move_base（DWA）' };
+async function covAction(path, pending, okMsg, body) {
     toast(pending);
-    const r = await post(path).catch(() => ({ msg: '連線失敗' }));
+    const r = await post(path, body).catch(() => ({ msg: '連線失敗' }));
     toast(r.ok === false ? r.msg : okMsg);
     pollMap();
 }
@@ -840,7 +852,7 @@ $('btnCovStart').onclick = () => {
     const again = cov && cov.state !== 'idle';
     if (again && !confirm('重新規劃並從頭開始覆蓋？')) return;
     teleopRelease(); $('btnCovStart').disabled = true;
-    covAction('/coverage/start', '規劃路徑中…', '開始自動覆蓋');
+    covAction('/coverage/start', '規劃路徑中…', '開始自動覆蓋', { nav_mode: $('navMode').value });
 };
 $('csv').onclick = async e => {             // 還沒有紀錄時，map_server 回 404，改用提示而不是跳到錯誤頁
     e.preventDefault();
