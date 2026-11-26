@@ -1566,12 +1566,24 @@ def _cov_save_plan(r, raw, clean, free, meta, start):
 
 
 def _synced_commit():
-    """車上程式版本（sync_to_robot.sh 寫入的 .synced_commit），寫進每筆紀錄供追溯。"""
+    """
+    車上程式版本（sync_to_robot.sh 寫入的 .synced_commit），寫進每筆紀錄供追溯。
+    記的是「本程式啟動時」讀到的版本（RUN_VERSION），不是任務開始時的檔案內容：
+    同步後沒重啟系統，記憶體裡跑的仍是舊程式（2026-11-26 任務 115816 就因此被誤標成新版）。
+    兩者不同時另外記一筆警告事件。
+    """
+    return RUN_VERSION
+
+
+def _read_synced():
     try:
         with open(os.path.join(PKG, '.synced_commit'), encoding='utf-8') as f:
             return f.read().strip()
     except OSError:
         return 'unknown'
+
+
+RUN_VERSION = _read_synced()       # 本程式啟動時的版本
 
 
 @app.route('/coverage/start', methods=['POST'])
@@ -1649,6 +1661,8 @@ def coverage_start():
         _cov_save_plan(r, raw['data'], clean, free, meta, start)
     except Exception as e:
         rospy.logerr('[coverage] 存規劃失敗：%s', e)
+    if _read_synced() != RUN_VERSION:
+        _cov_ev(f'⚠ 車上程式已同步為 {_read_synced()}，但系統仍在執行 {RUN_VERSION}（同步後沒重啟），本任務以 {RUN_VERSION} 記錄')
     _cov_ev(f"規劃完成：路點 {len(r['waypoints'])}（直線 {r['kind'].count('line')}、導航 {r['kind'].count('move')}），"
             f"外圈頂點 {len(r['perimeter'])}，雜點 {int(noise.sum())} 格")
 

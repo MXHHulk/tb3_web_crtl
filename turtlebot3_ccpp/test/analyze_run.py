@@ -4,7 +4,7 @@
 
 讀 data/coverage/<task>_{plan.json, grid.npz, track.csv, path.csv, events.txt}（2026-11-26 之後的任務才有 plan／grid／track），回答：
   1. 直線走得直不直：直線循跡時「車子以為的側偏」、方向誤差、修正角的分佈，以及偏移最大的幾段
-  2. 位置有沒有跳：相鄰兩個控制週期的位置變化換算成速度，超過 0.25 m/s（車子最快 0.12 m/s）就是 SLAM 修正造成的跳動
+  2. 位置有沒有跳：相鄰兩個控制週期（約 50 ms）位置變了 3 cm 以上，就是 SLAM 修正造成的跳動
   3. 有沒有擦撞風險：軌跡上車子中心到「規劃當下地圖」最近障礙格的距離（車身半寬 0.089 m＋半格 0.025 m ≈ 0.114 m 以內就可能碰到）
 
 用法：
@@ -23,7 +23,9 @@ from scipy.ndimage import distance_transform_edt
 HERE = os.path.dirname(os.path.realpath(__file__))
 DEFAULT_DIR = os.path.join(os.path.dirname(os.path.dirname(HERE)), 'experiments', 'robot', 'data', 'coverage')
 TOUCH = 0.089 + 0.025      # 車身半寬＋半格：車中心離障礙格中心小於此值就可能碰到
-JUMP_V = 0.25              # 位置變化速度超過此值（m/s）視為 SLAM 跳動
+JUMP_D = 0.03              # 單一控制週期（約 50 ms）位置變化超過此值（公尺）＝0.6 m/s，車子最快 0.12 m/s → SLAM 跳動
+                           # （不用速度門檻：t_s 只到 0.01 s，兩列太近時算出的速度會虛高）
+CLUSTER = 0.10             # 近障礙點以此距離（公尺）內合併成同一處
 
 
 def read_csv(path):
@@ -78,11 +80,14 @@ def main():
         for a, b in zip(tr, tr[1:]):
             dt = float(b['t_s']) - float(a['t_s'])
             d = math.hypot(float(b['x']) - float(a['x']), float(b['y']) - float(a['y']))
-            if 0 < dt < 0.5 and d / dt > JUMP_V:
+            if 0 <= dt < 0.5 and d > JUMP_D:
                 jumps.append((float(b['t_s']), d * 100))
-        print(f"\n2. 位置跳動（> {JUMP_V} m/s）：{len(jumps)} 次" +
-              ('：' + '、'.join(f'{t:.1f}s {d:.1f}cm' for t, d in jumps[:10]) if jumps else ''))
+        ds = np.array([d for _, d in jumps])
+        print(f"\n2. 位置跳動（單一控制週期 > {JUMP_D*100:.0f} cm）：{len(jumps)} 次" +
+              (f"，中位 {np.median(ds):.1f} cm、最大 {ds.max():.1f} cm；最大幾次："
+               + '、'.join(f'{t:.1f}s {d:.1f}cm' for t, d in sorted(jumps, key=lambda j: -j[1])[:6]) if jumps else ''))
     else:
+        jumps = []
         print('\n（沒有 _track.csv：2026-11-26 之前的版本未記錄循跡）')
 
     # 3. 擦撞風險
@@ -101,8 +106,19 @@ def main():
         near = [(p, d) for p, d in zip(pts, dist) if d < TOUCH]
         print(f"\n3. 擦撞風險（規劃當下地圖，{len(pts)} 個位置點）：最近障礙 "
               f"{min(dist) if dist else float('nan'):.3f} m；< {TOUCH:.3f} m 的點 {len(near)} 個")
-        for (t, x, y, src), d in near[:10]:
-            print(f"  t={t:.1f}s ({x:+.2f}, {y:+.2f}) 離障礙格中心 {d:.3f} m（{src}）")
+        spots = []                                   # 依位置合併：[x, y, 最近距離, t 最小, t 最大, {來源}]
+        for (t, x, y, src), d in near:
+            for sp in spots:
+                if math.hypot(x - sp[0], y - sp[1]) < CLUSTER and t - sp[4] < 2.0:   # 同一處、同一次經過
+                    sp[2] = min(sp[2], d); sp[3] = min(sp[3], t); sp[4] = max(sp[4], t); sp[5].add(src)
+                    break
+            else:
+                spots.append([x, y, d, t, t, {src}])
+        print(f"  共 {len(spots)} 次（{CLUSTER*100:.0f} cm 內、間隔 < 2 秒合併）：")
+        for x, y, d, t0, t1, src in sorted(spots, key=lambda s: s[2]):
+            jn = [f'{jt:.1f}s {jd:.1f}cm' for jt, jd in jumps if t0 - 1.0 <= jt <= t1 + 1.0]
+            print(f"  ({x:+.2f}, {y:+.2f}) 最近 {d:.3f} m，t={t0:.1f}～{t1:.1f}s，{'/'.join(sorted(src))}"
+                  + (f"；前後 1 秒內有位置跳動 {', '.join(jn)} → 可能是定位誤差，不一定真的貼近" if jn else ''))
     else:
         print('\n（沒有 _grid.npz：無法用規劃當下的地圖算擦撞風險）')
 

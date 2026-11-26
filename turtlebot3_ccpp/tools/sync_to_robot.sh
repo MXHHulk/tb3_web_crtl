@@ -76,5 +76,8 @@ git archive --format=tar "HEAD:$PKG" -- "${PATHS[@]}" | ssh -o ConnectTimeout=8 
     if systemctl is-active --quiet ccpp-launcher.service; then
         sudo -n systemctl restart ccpp-launcher.service && echo '  已重啟車上控制台'
     fi
+    if pgrep -f 'roslaunch turtlebot3_ccpp' >/dev/null; then
+        echo '  ⚠ ROS 系統正在執行舊版程式：請在手機「系統」頁按停止再啟動，新版才會生效（紀錄會標記實際執行的版本）'
+    fi
 "
 echo "✓ 車上已是 $REV"
