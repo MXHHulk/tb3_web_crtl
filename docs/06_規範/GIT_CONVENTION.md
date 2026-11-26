@@ -38,14 +38,22 @@ main
 | `docs` | 只修改註解或說明文件 |
 | `chore` | 環境、設定、相依套件調整 |
 | `tune` | 調整 ROS 參數或演算法數值 |
+| `data` | 新增實驗紀錄（`experiments/`），不改程式 |
 
-### 範疇定義 (對應本專案模組)
+### 範疇定義 (對應本專案模組，2026-11-26 更新)
 
-| 範疇 | 對應檔案 |
+| 範疇 | 對應檔案／內容 |
 |------|----------|
-| `web` | `flask_map_server.py` / `index.html` / `map_client.js` |
-| `launch` | `flask_web_monitor.launch` |
-| `docs` | `docs/**`（學習資料／論文／海報／簡報／日志） |
+| `coverage` | `scripts/coverage_planner.py`、`map_server.py` 的覆蓋執行 |
+| `nav` | `map_server.py` 的跨區移動、A*、循跡控制 |
+| `explore` | `map_server.py` 的自動建圖（explore_lite 管理） |
+| `launcher` | `scripts/launcher.py`（車上控制台 :8000） |
+| `web` | `web/launcher.html`、`web/index.html` |
+| `launch` | `launch/*.launch` |
+| `slam` | `config/gmapping_params.yaml`、`launch/slam_gmapping.launch` |
+| `tools` | `tools/*`（同步、備份、開機服務）、`test/*` |
+| `exp` | `experiments/`（實驗紀錄） |
+| `docs` | `docs/**`（學習資料／論文／海報／簡報／日志／規範／計畫） |
 
 ### 範例
 
@@ -78,6 +86,12 @@ v0.3.0  牛耕式覆蓋路徑執行完整
 v0.3.1  ...Bug 修正
 v1.0.0  系統穩定、文件齊全、可重複部署
 ```
+
+### 目前的 tag
+
+| tag | commit | 說明 |
+|-----|--------|------|
+| `v1.0-baseline` | fcf4941 | 改導航前的基準版本（直線循跡實測 97.7%）。格式與本規範不符，是否改名為 `v1.0.0` 待決定 |
 
 ### 打 Tag 指令
 
@@ -127,13 +141,50 @@ git branch -d fix/問題描述
 
 ---
 
+## 三地同步規則（2026-11-26）
+
+| 位置 | 角色 | 規則 |
+|------|------|------|
+| 電腦（本 repo） | 唯一改程式的地方 | 不在車上、不在 GitHub 網頁直接改程式 |
+| GitHub | 正式版本與備份 | `main`＝可在車上正常執行的版本；開發在 `feature/*`、`fix/*` |
+| TB3 | 只執行 | 只能用 `tools/sync_to_robot.sh` 更新；開工前先跑 `--check` |
+
+```bash
+bash turtlebot3_ccpp/tools/sync_to_robot.sh --check   # 車上是否與 HEAD 逐檔一致
+bash turtlebot3_ccpp/tools/sync_to_robot.sh           # 同步已 commit 的程式（可同步 feature 分支做測試）
+bash turtlebot3_ccpp/tools/pull_from_robot.sh         # 車上 data/、maps/ 備份到 experiments/robot/
+```
+
+---
+
+## 實驗規則（作為證明用的數據）
+
+1. **只用打了 tag 的版本。** feature 分支可以上車測試，但測試數據不能當證據。
+   開始實驗前跑 `sync_to_robot.sh --check`，確認車上 `.synced_commit` 等於該 tag 的 commit。
+2. **每次實驗後馬上備份並提交**：`pull_from_robot.sh` → `git commit`，類型 `data`，
+   訊息寫明版本、模式、場地、車子擺放角度、第幾次，例如：
+   `data(exp): v1.1.0 nav_mode=astar 場地A 0° 第2次`
+3. **對照實驗只改一個變因**：同一版本、同一場地、同一擺放角度，只切換要比較的模式（例如 `nav_mode`）。
+4. **場地內不得有動態障礙物**（人、寵物、移動物體）；實驗中有人進入場地，該次作廢並在 commit 訊息註明。
+5. **每組至少 3 次**；結果不論好壞都保留，不得刪除不利的紀錄。
+
+| 證明 | 比較 | 主要指標 |
+|------|------|----------|
+| A* 比 DWA 穩 | `nav_mode=movebase` vs `nav_mode=astar` | 受困次數、實際覆蓋率 |
+| PCA 優於沿地圖軸 | PCA 主軸 vs 固定地圖 x 軸，房間斜放多個角度 | 轉彎次數 |
+
+---
+
 ## 不可 Commit 的內容
 
 ```
-scripts/__pycache__/    Python 編譯快取
-build/                  catkin 建置產物
-devel/
+__pycache__/            Python 編譯快取
+build/ devel/           catkin 建置產物
 *.log                   執行日誌
+turtlebot3_ccpp/maps/   車上產生（備份在 experiments/robot/）
+turtlebot3_ccpp/data/
+*.bag  media/           大型實驗檔與影片素材（放雲端硬碟）
+.claude/                Claude Code 本機設定與技能
 ```
 
 以上均已列入 `.gitignore`，若意外被追蹤請執行：
