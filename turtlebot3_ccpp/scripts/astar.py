@@ -60,6 +60,15 @@ def plan_path(free, res, ox, oy, start, goal):
       why       失敗原因：'start_blocked' / 'goal_blocked' / 'no_path'；成功為 ''
     """
     free = np.asarray(free, dtype=bool)
+    # 只在可走區外框（＋吸附距離）內計算：SLAM 地圖大多是未知區，整張做距離轉換在樹莓派上要 ~200 ms
+    rows, cols = np.where(free)
+    if len(rows) == 0:
+        return {'path': None, 'raw_len': 0.0, 'expanded': 0, 'why': 'start_blocked'}
+    pad = int(math.ceil(SNAP_MAX / res)) + 2
+    r0, c0 = max(0, rows.min() - pad), max(0, cols.min() - pad)
+    r1, c1 = min(free.shape[0], rows.max() + pad + 1), min(free.shape[1], cols.max() + pad + 1)
+    free = free[r0:r1, c0:c1]
+    ox, oy = ox + c0 * res, oy + r0 * res
     H, W = free.shape
     # 不可走格 → 最近可走格（吸附用）；可走格 → 離最近不可走格的距離（懲罰用）
     dist_out, near_idx = distance_transform_edt(~free, return_indices=True)
