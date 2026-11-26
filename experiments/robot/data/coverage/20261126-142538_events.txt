@@ -1,0 +1,36 @@
+{
+  "task": "20261126-142538",
+  "nav_mode": "movebase",
+  "scan_axis": "pca",
+  "pca_axis_deg": -0.8,
+  "n_turns": 33,
+  "state": "stopped",
+  "area": 0.85,
+  "plan_ms": 600.9,
+  "plan_cov": 1.0,
+  "actual_cov": 0.1118,
+  "total": 66,
+  "reached": 2,
+  "skipped": 0,
+  "n_stuck": 0,
+  "n_escape": 0,
+  "n_contact": 0,
+  "contact_s": 0.0,
+  "min_clear_cm": 10.2,
+  "completion": 0.0303,
+  "exec_s": 78.6,
+  "plan_len": 11.91,
+  "actual_len": 2.04,
+  "n_cells": 4,
+  "n_critical": 2,
+  "axis_deg": -0.8,
+  "ratio": 3.61,
+  "n_noise": 3,
+  "synced": "ec074f0"
+}
+
+    0.0s  轉彎路點離障礙 < 17 cm：往內推 0 個，仍不足 0 個（執行時轉向前會再檢查）
+    0.0s  規劃完成：路點 66（直線 60、導航 6），外圈頂點 16，雜點 3 格
+    0.1s  開始執行（從路點 1/66，nav_mode=movebase）
+   36.9s  到達 1/66（move_base，36.8s）
+   52.3s  到達 2/66（move_base，15.4s）

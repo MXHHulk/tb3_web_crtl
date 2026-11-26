@@ -1,0 +1,25 @@
+{
+  "task": "20261126-144059",
+  "start": "2026-11-26 14:40:59",
+  "result": "stopped",
+  "reason": "已停止",
+  "total_s": 85.0,
+  "explore_s": 85.0,
+  "area_start_m2": 3.76,
+  "area_end_m2": 7.8,
+  "frontiers_end": 9,
+  "path_len_m": 5.29,
+  "home_result": "",
+  "home_err_m": 0.995,
+  "batt_start_v": 11.399999618530273,
+  "batt_end_v": 11.119999885559082,
+  "map_file": "",
+  "params": "{\"robot_base_frame\": \"base_footprint\", \"costmap_topic\": \"map\", \"costmap_updates_topic\": \"map_updates\", \"visualize\": \"false\", \"planner_frequency\": \"0.33\", \"progress_timeout\": \"30.0\", \"potential_scale\": \"3.0\", \"orientation_scale\": \"0.0\", \"gain_scale\": \"1.0\", \"transform_tolerance\": \"0.3\", \"min_frontier_size\": \"0.5\", \"EXPLORE_IDLE_S\": 90.0, \"EXPLORE_MAX_S\": 600.0}"
+}
+
+    0.0s  開始
+    0.0s  起點 (0.00, 0.00) 朝向 3°
+    3.2s  explore_lite: Waiting to connect to move_base server
+    3.5s  explore_lite: Connected to move_base server
+   54.1s  explore_lite: Got a callback on a goalHandle that we're not tracking.                 This is an internal SimpleActionClient/ActionClient bug.                 This could also be a GoalID collision
+   83.8s  停止：已停止

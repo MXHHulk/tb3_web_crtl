@@ -1,0 +1,100 @@
+{
+  "task": "20261126-144647",
+  "nav_mode": "movebase",
+  "scan_axis": "pca",
+  "pca_axis_deg": -82.7,
+  "n_turns": 41,
+  "state": "error",
+  "area": 0.77,
+  "plan_ms": 400.2,
+  "plan_cov": 0.9708,
+  "actual_cov": 0.8896,
+  "total": 68,
+  "reached": 50,
+  "skipped": 0,
+  "n_stuck": 1,
+  "n_escape": 6,
+  "n_contact": 1,
+  "contact_s": 0.0,
+  "min_clear_cm": 1.2,
+  "completion": 0.7353,
+  "exec_s": 662.4,
+  "plan_len": 10.8,
+  "actual_len": 8.98,
+  "n_cells": 3,
+  "n_critical": 1,
+  "axis_deg": -82.7,
+  "ratio": 3.45,
+  "n_noise": 2,
+  "synced": "ec074f0"
+}
+
+    0.0s  轉彎路點離障礙 < 17 cm：往內推 0 個，仍不足 0 個（執行時轉向前會再檢查）
+    0.0s  規劃完成：路點 68（直線 63、導航 5），外圈頂點 23，雜點 2 格
+    0.1s  開始執行（從路點 1/68，nav_mode=movebase）
+   17.3s  到達 1/68（move_base，17.2s）
+   18.1s  到達 2/68（move_base，0.8s）
+   32.1s  到達 3/68（move_base，14.0s）
+   37.3s  到達 4/68（move_base，5.2s）
+   51.5s  到達 5/68（move_base，14.2s）
+   57.1s  到達 6/68（move_base，5.6s）
+   65.7s  到達 7/68（move_base，8.6s）
+   81.4s  到達 8/68（move_base，15.6s）
+   90.4s  到達 9/68（move_base，9.0s）
+  111.4s  到達 10/68（move_base，21.0s）
+  116.4s  到達 11/68（move_base，5.0s）
+  161.0s  到達 12/68（move_base，44.6s）
+  162.3s  到達 13/68（move_base，1.2s）
+  168.8s  到達 14/68（move_base，6.6s）
+  173.4s  到達 15/68（move_base，4.6s）
+  173.7s  到達 16/68（move_base，0.2s）
+  176.9s  到達 17/68（move_base，3.2s）
+  183.7s  到達 18/68（move_base，6.8s）
+  183.9s  到達 19/68（move_base，0.2s）
+  237.5s  到達 20/68（move_base，53.6s）
+  244.9s  到達 21/68（move_base，7.4s）
+  245.1s  到達 22/68（move_base，0.2s）
+  245.3s  到達 23/68（move_base，0.2s）
+  282.5s  到達 24/68（move_base，37.2s）
+  283.7s  到達 25/68（move_base，1.2s）
+  293.1s  到達 26/68（move_base，9.4s）
+  296.5s  到達 27/68（move_base，3.4s）
+  299.8s  到達 28/68（move_base，3.3s）
+  301.4s  到達 29/68（move_base，1.6s）
+  304.2s  到達 30/68（move_base，2.8s）
+  305.9s  到達 31/68（move_base，1.6s）
+  314.8s  到達 32/68（move_base，8.9s）
+  326.4s  到達 33/68（move_base，11.6s）
+  336.6s  到達 34/68（move_base，10.2s）
+  338.2s  到達 35/68（move_base，1.6s）
+  363.4s  到達 36/68（move_base，25.2s）
+  377.4s  到達 37/68（move_base，14.0s）
+  378.6s  到達 38/68（move_base，1.2s）
+  408.8s  到達 39/68（move_base，30.2s）
+  420.0s  到達 40/68（move_base，11.2s）
+  421.2s  到達 41/68（move_base，1.2s）
+  439.2s  到達 42/68（move_base，18.0s）
+  444.0s  到達 43/68（move_base，4.8s）
+  469.7s  到達 44/68（move_base，25.6s）
+  470.7s  到達 45/68（move_base，1.0s）
+  542.1s  到達 46/68（move_base，71.4s）
+  548.3s  到達 47/68（move_base，6.2s）
+  581.7s  到達 48/68（move_base，33.4s）
+  590.5s  到達 49/68（move_base，8.8s）
+  595.9s  到達 50/68（move_base，5.4s）
+  601.3s  路點 51/68 move_base 停滯，改用 move_base
+  601.3s  路點 51/68 脫困（停滯）
+  609.9s  路點 51/68 move_base 停滯，改用 move_base
+  609.9s  路點 51/68 脫困（停滯）
+  621.1s  跳過 51/68（停滯）
+  625.1s  路點 52/68 move_base 停滯，改用 move_base
+  625.1s  路點 52/68 脫困（停滯）
+  633.6s  路點 52/68 move_base 停滯，改用 move_base
+  633.6s  路點 52/68 脫困（停滯）
+  642.1s  跳過 52/68（停滯）
+  645.5s  路點 53/68 move_base 停滯，改用 move_base
+  645.6s  路點 53/68 脫困（停滯）
+  654.0s  路點 53/68 move_base 停滯，改用 move_base
+  654.0s  路點 53/68 脫困（停滯）
+  662.4s  跳過 53/68（停滯）
+  662.4s  受困停止於路點 51/68
