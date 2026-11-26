@@ -28,6 +28,10 @@ _ap.add_argument('--jump', type=float, default=0.0)
 _ap.add_argument('--k-cte', type=float, default=None)
 _ap.add_argument('--corr-max', type=float, default=None, help='度')
 _ap.add_argument('--seed', type=int, default=1)
+_ap.add_argument('--scan-axis', default='pca', help='pca／map_x')
+_ap.add_argument('--no-turn-guard', action='store_true', help='關掉轉彎路點內推與轉向前檢查（對照用）')
+_ap.add_argument('--margin', type=float, default=None, help='覆寫安全邊距（公尺，對照用）')
+_ap.add_argument('--goto-home', action='store_true', help='覆蓋後用 /nav/goto 開回起點並轉到 30°，檢查到達誤差')
 _ap.add_argument('--latency', type=float, default=0.0, help='速度指令延遲幾秒才生效（模擬通訊與馬達反應）')
 ARGS = _ap.parse_args()
 MAP, MODE, STALL_P = ARGS.map, ARGS.mode, ARGS.stall_p
@@ -55,6 +59,8 @@ def step(dt):
         SIM['x'] += v2 * math.cos(SIM['yaw']) * dt
         SIM['y'] += v2 * math.sin(SIM['yaw']) * dt
         SIM['t'] += dt
+        if int(SIM['t'] / 0.1) != int((SIM['t'] - dt) / 0.1):   # 每 0.1 秒跑一次位置追蹤（實車為 10 Hz Timer）
+            ms.pose_tick(None)
         OFS['dist'] += abs(v2) * dt
         if ARGS.slam_sigma > 0 and OFS['dist'] >= 0.3:          # gmapping 每走 0.3 m 修正一次
             OFS['dist'] = 0.0
@@ -121,6 +127,7 @@ mod('nav_msgs'); mod('nav_msgs.msg', OccupancyGrid=Any)
 mod('rosgraph_msgs'); mod('rosgraph_msgs.msg', Log=Any)
 mod('sensor_msgs'); mod('sensor_msgs.msg', BatteryState=Any, LaserScan=Any)
 mod('std_srvs'); mod('std_srvs.srv', Empty=Any)
+mod('std_msgs'); mod('std_msgs.msg', Empty=Any)
 mod('actionlib_msgs'); mod('actionlib_msgs.msg', GoalStatus=types.SimpleNamespace(SUCCEEDED=3))
 
 
@@ -197,6 +204,11 @@ def _track_spy(phase, pose, cte, eh, corr, v, w, seg):
 
 
 ms._track = _track_spy
+if ARGS.margin is not None:
+    ms.COV_MARGIN = ARGS.margin
+if ARGS.no_turn_guard:
+    ms.NUDGE_MAX = 0.0
+    ms.ROT_CLEAR = 0.0
 if ARGS.k_cte is not None:
     ms.LINE_K_CTE = ARGS.k_cte
 if ARGS.corr_max is not None:
@@ -217,16 +229,18 @@ ms.cmd_pub = Pub()
 
 data, res, ox, oy = load_pgm(MAP)
 import numpy as np                                        # noqa: E402
-free0 = np.argwhere(data == 0)
-cy, cx = free0.mean(axis=0)
-SIM['x'], SIM['y'] = ox + cx * res, oy + cy * res        # 起點：可走區重心附近
+from scipy.ndimage import distance_transform_edt        # noqa: E402
+_dd = distance_transform_edt(data == 0)
+cy, cx = np.unravel_index(np.argmax(_dd), _dd.shape)
+SIM['x'], SIM['y'] = ox + cx * res, oy + cy * res        # 起點：離障礙最遠處（實車也放在空曠處；放重心可能貼著中間的箱子）
 with ms.map_lock:
     ms.map_meta.update(resolution=res, origin_x=ox, origin_y=oy, r0=0, c0=0, crop_h=data.shape[0])
     ms.map_data.update(data=data, h=data.shape[0], w=data.shape[1], frame_id='map')
 ms.robot_pos.update(x=SIM['x'], y=SIM['y'])
 
 c = ms.app.test_client()
-r = c.post('/coverage/start', json={'nav_mode': MODE}).get_json()
+r = c.post('/coverage/start', json={'nav_mode': MODE, 'scan_axis': ARGS.scan_axis}).get_json()
+HOME = (SIM['x'], SIM['y'])
 assert r['ok'], r
 wall0 = time.time()
 while True:
@@ -259,3 +273,18 @@ print(f"  SLAM 誤差 σ={ARGS.slam_sigma} m、跳動 {OFS['n_jump']} 次（{ARG
 print(f"  直行 {len(line_rows)} 個控制週期｜車子以為的側偏 中位 {np.median(seen)*100:.1f} / 95% {np.percentile(seen,95)*100:.1f} cm"
       f"｜真實側偏 中位 {np.median(true)*100:.1f} / 95% {np.percentile(true,95)*100:.1f} / 最大 {true.max()*100:.1f} cm")
 print(f"  方向誤差 中位 {np.median(head):.1f}° / 90% {np.percentile(head,90):.1f}°｜修正角 90% {np.percentile(corr,90):.1f}°")
+
+ev2 = [t for _, t in ms.cov_rec['events']]
+print(f"  轉向防護：{'關' if ARGS.no_turn_guard else '開'}｜" + next((e for e in ev2 if '轉彎路點' in e), '') +
+      f"｜轉向前移開 {sum('轉向前移開' in e for e in ev2)} 次、空間不足仍轉 {sum('空間不足' in e for e in ev2)} 次")
+print(f"  車身壓到障礙格：{M.get('n_contact')} 次、共 {M.get('contact_s')} s；車身離障礙最近 {M.get('min_clear_cm')} cm")
+print(f"  scan_axis={M.get('scan_axis')}  房間主軸（PCA）={M.get('pca_axis_deg')}°  轉彎數={M.get('n_turns')}  cell={M.get('n_cells')}")
+if ARGS.goto_home:
+    r = c.post('/nav/goto', json={'x': HOME[0], 'y': HOME[1], 'yaw_deg': 30}).get_json()
+    assert r['ok'], r
+    while c.get('/coverage/status').get_json()['nav']['state'] == 'running':
+        time.sleep(0.2)
+    nav = c.get('/coverage/status').get_json()['nav']
+    err = math.hypot(SIM['x'] + OFS['x'] - HOME[0], SIM['y'] + OFS['y'] - HOME[1])
+    yaw_e = math.degrees(math.atan2(math.sin(SIM['yaw'] + OFS['yaw'] - math.radians(30)), math.cos(SIM['yaw'] + OFS['yaw'] - math.radians(30))))
+    print(f"  /nav/goto 回起點：{nav['state']} {nav.get('msg','')}  位置誤差 {err*100:.1f} cm、朝向誤差 {yaw_e:.1f}°")

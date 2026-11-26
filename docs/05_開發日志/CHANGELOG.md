@@ -4,6 +4,95 @@
 
 ---
 
+## 2026-11-26　fix(coverage,nav,tools)：依官方車身尺寸防撞、碰牆指標；快速驗證（4 輪）結果
+
+- **類型**：fix / feat（分支 `feature/auto-experiment`）
+- **快速驗證**（實驗 20261126-1318，版本 095a1f3，`experiments_smoke.json`，全程無人操作）
+
+| 輪 | 條件 | 實際斜角 | 結果 | 受困 | 轉彎 | 覆蓋 | 秒 |
+|---|---|---|---|---|---|---|---|
+| 1 | A*、PCA、0° | 4.9° | 73/73 | 0 | 37 | 95.9% | 220 |
+| 2 | DWA、PCA、0° | −6.9° | 53/71（受困停止） | 1 | 36 | 88.8% | 402 |
+| 3 | A*、PCA、目標 30° | 14.6° | 79/79 | 0 | 61 | 93.9% | 218 |
+| 4 | A*、沿地圖軸、目標 30° | 27.6° | 91/91 | 0 | 49 | 98.8% | 264 |
+
+  - 流程：回起點、轉向、重設里程計、重建地圖、建圖、覆蓋、受困後回起點繼續，全部自動完成；電壓 11.85 → 11.49 V。
+  - **第 1 輪使用者目視撞牆**：131912 的 101.5 s 在路點 32（離障礙格 0.15 m）原地轉 140°，耗時 4.9 s 且位置被擠向牆 4.8 cm。
+    Burger 官方 footprint（`costmap_common_params_burger.yaml`）以輪軸為原點往後 0.105、往前 0.041、左右 0.105 m，
+    原地轉向車尾角落掃過半徑 0.148 m；程式原以半寬 0.089／半徑 0.11 m 計。DWA（move_base 用官方 footprint）看起來安全。
+  - DWA 每點耗時：掃描線端點中位 10.2 s（停下轉正），中途點 1.6 s；路點 54～56 連續停滯→脫困→跳過→受困停止。
+  - 斜角控制：目標 30° 兩次實際 14.6°／27.6°，原因未確定（1 次樣本）；腳本以 PCA 實測值記錄。
+  - **同一張實測地圖只換掃描方向**（用各輪 grid.npz 重算，現行參數）：轉彎 PCA／軸向 29／27、29／30、38／40、28／24（2 勝 2 負），
+    與合成場地（7 勝 3 平 0 負）不同；覆蓋率在斜角約 5° 的兩張 PCA 97.7%／98.0% vs 軸向 86.7%／88.4%。主要指標待與使用者確認。
+- **做了什麼**
+  - `coverage_planner.py`：`MARGIN` 0.10 → **0.13**（官方半寬 0.105＋半格 0.025）。
+  - `map_server.py`
+    - 官方車身常數 `FP_REAR/FP_FRONT/FP_HALF_W`、`ROT_SWEEP`（0.148）、`ROT_CLEAR`（0.168）。
+    - 規劃後 `_nudge_turns()`：轉彎路點（夾角 ≥ 20°，或與 A* 段相鄰）離障礙格 < 0.168 m 時，每步 1 cm、每步重找最近障礙往外推，最多 6 cm，
+      推完前後兩段仍須在可走區內。牆在車子側面時，轉向前沿車頭方向移開幫不上忙，只能在規劃時避開。
+    - 原地轉向前 `_make_room_to_turn()`：掃過範圍內有障礙就沿車頭方向往遠離障礙的一側移開（最多 12 cm），`_follow_line`、`/nav/goto` 都會用。
+    - 位姿紀錄 `<task>_pose.csv`（含朝向；移動 2 cm 或轉 5° 記一點，原地轉向也有）。
+    - 碰牆指標 `_contact_metrics()`：官方車身矩形逐點對規劃當下地圖的障礙格，`n_contact`（次數）、`contact_s`、`min_clear_cm`，寫入紀錄與 CSV。
+  - `run_experiments.py`：trials.csv 加 `n_contact`、`contact_s`、`min_clear_cm`；結束時回起點並轉回對齊房間長邊（下次不必人工擺正）。
+  - `sim_coverage.py`：`--no-turn-guard`、`--margin` 對照；10 Hz 位置追蹤；起點改在離障礙最遠處。
+- **結果 / 驗證**（模擬，兩張今天的實測地圖 × 3 種子，SLAM 誤差 σ 2 cm＋5 cm 跳動＋延遲 0.1 s）
+
+| 地圖 | 舊（邊距 0.10、無防護）碰牆次數 | 新 | 到達 |
+|---|---|---|---|
+| explore_20261126_131845 | 2、1、4 | **1、0、0** | 皆 100% |
+| explore_20261126_132401 | 1、2、2 | **0、0、0** | 皆 100% |
+
+  邊距加大後可走區變小（覆蓋率分母不同，新舊百分比不可直接比），牆邊由外圈補。**尚未實車。**
+
+---
+
+## 2026-11-26　feat(tools,coverage,nav)：自動實驗腳本、scan_axis 對照組、修 cell 碎裂、/nav/goto
+
+- **類型**：feat / fix（分支 `feature/auto-experiment`）
+- **背景**：使用者要「把車丟在場地裡，自己重新建圖、重新跑，完成整個實驗流程」，涵蓋 PCA vs 沿地圖軸、A* vs DWA 兩組證明。
+  - 查證地圖方向從哪來：同場地三次覆蓋主軸 0.2°／27.3°／−85.6°；11:24 建圖起點朝向 133°。實測系統剛啟動時 /odom＝(0, 0, 5.6°)，
+    `rostopic pub /reset` 後朝向 2.7°；`/reset` 的訂閱者是 turtlebot3_core。→ gmapping 地圖方向＝里程計原點方向，
+    里程計只在系統啟動（或 /reset）時歸零，同一次開機內重啟 SLAM 不會改變地圖方向。
+- **做了什麼**
+  - `coverage_planner.py`
+    - **修 cell 碎裂**：新增 `MIN_RUN = 0.20 m`（原本 1 格 5 cm）。房間斜放時最外一條掃描帶沿牆在格子上的鋸齒邊緣走，被切成 5～12 cm 碎片，
+      每片一個 cell，而且只發生在掃描線與牆平行時（＝PCA），對 PCA 不公平。
+    - `plan(scan_axis='pca'|'map_x', min_run=None)`：`map_x`＝固定沿地圖 x 軸（傳統牛耕，對照組）；回傳多 `pca_axis`（房間在地圖上的方向）。
+  - `map_server.py`
+    - `/coverage/start` 收 `scan_axis`；紀錄與 CSV 多 `scan_axis`、`pca_axis_deg`、`n_turns`（方向變化 > 30° 的次數）；plan.json 參數多 `min_run`。
+    - `/slam/restart` 收 `reset_odom`：停 SLAM → 發 `/reset` 重設里程計 → 重啟 SLAM，新地圖 x 軸＝車子當下朝向。
+    - 新增 `/nav/goto`（JSON x、y、yaw_deg）與 `/nav/stop`：在目前地圖上用自寫 A*＋循跡開到指定位置、原地轉到指定朝向，失敗時脫困重試 2 次；
+      與覆蓋、建圖、手動遙控互斥。`_follow_line` 新增 `alive` 參數。
+    - `/coverage/status` 多 `battery_v`、`nav`、`pose`；建圖狀態多 `task`、`home_result`。
+  - 新增 `tools/run_experiments.py`（車上執行、只用標準函式庫）＋ `tools/experiments.json`（正式：2 組 × 2 條件 × 3 次 = 12 輪）、
+    `tools/experiments_smoke.json`（每組 1 次 = 4 輪）。每輪：/nav/goto 回起點並轉到「房間方向＋斜角」→ /slam/restart（reset_odom），
+    20 秒內地圖沒長出來就重啟（最多 3 次）→ 自動建圖 → 覆蓋 → 寫一列 `data/experiments/<編號>/trials.csv`
+    （條件、目標與實際斜角、建圖／覆蓋任務編號、結果、轉彎數、電壓、版本）。下一輪的房間方向用本輪 PCA 實測值。
+    組內 ABBA 交替；受困記為該輪結果後繼續；回不去起點、光達異常就停止並保存進度；電壓 < 11.0 V 停止；`--resume` 以當下位姿為新起點接著跑。
+  - 新增 `test/pca_vs_axis.py`（PCA vs 沿地圖軸離線比較，含 `--sweep-min-run`）；`test/sim_coverage.py` 加 `--scan-axis`、`--goto-home`。
+  - `package.xml` 補 `std_msgs` 相依。
+- **影響檔案**：`turtlebot3_ccpp/scripts/coverage_planner.py`、`scripts/map_server.py`、`tools/run_experiments.py`（新）、
+  `tools/experiments.json`（新）、`tools/experiments_smoke.json`（新）、`test/pca_vs_axis.py`（新）、`test/sim_coverage.py`、`package.xml`
+- **結果 / 驗證**
+  - `pca_vs_axis.py --sweep-min-run`（合成 3 種房間 × 斜 0/15/30/45° ＋ 實測 grid 1 張）：
+
+| min_run | 斜置／實測 10 張：PCA 轉彎較少／相同／較多 | 平均覆蓋 PCA／軸向 | PCA 最多 cell |
+|---|---|---|---|
+| 0.05（原本） | 7／2／1 | 99.1%／98.7% | 12 |
+| 0.10 | 8／1／1 | 99.1%／98.7% | 7 |
+| 0.15 | 8／1／1 | 99.1%／98.7% | 6 |
+| **0.20（採用）** | **7／3／0** | 99.1%／98.7% | **4** |
+| 0.25 | 7／3／0 | 99.0%／98.6% | 5 |
+
+    `coverage_bench.py`：斜置 15° 由 21 cell、19 段轉場穿牆 → 1 cell、0 段；其他場地覆蓋率不變。
+  - `sim_coverage.py`（實測地圖 113453）：pca／map_x／movebase 三種都跑完；`--goto-home` 回起點並轉到 30°：位置誤差 2.8～2.9 cm、朝向 2.4～2.5°。
+  - `run_experiments.py` 以假 map_server 測試：12 輪排程（ABBA）、受困記錄後繼續、第 8 次導航故意失敗 → 停止保存 → `--resume` 從第 8 輪接到完成，
+    斜角 30° 時實際斜角量得 30.0°。
+  - **尚未實車**：`/reset` 是否讓旋轉後的朝向歸零（實測只在靜止時看過 5.6° → 2.7°）、/nav/goto 實車精度、整套無人值守流程。
+    腳本用 PCA 量實際斜角，就算重設不準，數據仍以實測值為準。
+
+---
+
 ## 2026-11-26　fix(coverage,tools)：紀錄版本改為「程式啟動時」；分析工具改進；ebbc12f 實測分析
 
 - **類型**：fix

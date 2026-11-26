@@ -1,0 +1,35 @@
+{
+  "_說明": "快速驗證（每組 1 次＝4 輪，約 25 分鐘）：正式收數據前先確認整套流程在實車上能自己跑完。自動實驗設定（tools/run_experiments.py）。groups 依序執行；每組 repeats 次，組內條件以 ABBA 順序交替。tilt_deg＝重建地圖前車子相對房間長邊轉的角度（＝地圖相對房間斜幾度）。",
+  "repeats": 1,
+  "batt_min": 11.0,
+  "groups": [
+    {
+      "name": "A*vsDWA",
+      "tilt_deg": 0,
+      "conditions": [
+        {
+          "nav_mode": "astar",
+          "scan_axis": "pca"
+        },
+        {
+          "nav_mode": "movebase",
+          "scan_axis": "pca"
+        }
+      ]
+    },
+    {
+      "name": "PCAvsAxis",
+      "tilt_deg": 30,
+      "conditions": [
+        {
+          "nav_mode": "astar",
+          "scan_axis": "pca"
+        },
+        {
+          "nav_mode": "astar",
+          "scan_axis": "map_x"
+        }
+      ]
+    }
+  ]
+}

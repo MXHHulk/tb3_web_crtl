@@ -20,7 +20,7 @@ TurtleBot3 地圖伺服器（Module A）
 import csv, io, json, math, os, signal, socket, subprocess, sys, threading, time
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
-from coverage_planner import (plan as plan_coverage, SPACING as COV_SPACING,
+from coverage_planner import (plan as plan_coverage, SPACING as COV_SPACING, SCAN_AXES, MIN_RUN,
                               MARGIN as COV_MARGIN, apply_safety_margin, coverage_ratio,
                               remove_noise, COVER_R as COV_COVER_R, _seg_free, _rdp)
 from astar import plan_path as astar_plan
@@ -32,8 +32,9 @@ from geometry_msgs.msg import PoseStamped, Twist
 from nav_msgs.msg import OccupancyGrid
 from rosgraph_msgs.msg import Log
 from sensor_msgs.msg import BatteryState, LaserScan
+from std_msgs.msg import Empty as EmptyMsg
 from PIL import Image, ImageDraw
-from scipy.ndimage import binary_erosion, binary_dilation, label as nd_label
+from scipy.ndimage import binary_erosion, binary_dilation, distance_transform_edt, label as nd_label
 import tf2_ros
 
 try:
@@ -81,6 +82,16 @@ ESCAPE_DIST  = 0.12 # 脫困移動距離（公尺）
 ESCAPE_CLEAR = 0.18 # 行進方向雷射扇形內最近障礙須大於此值才動（公尺，自雷射量起）。
                     # 原 0.25：2026-11-11 實測車子離牆 0.20 m 時 move_base 不肯轉、脫困也因此不動，兩邊僵住判定受困
 BODY_R       = 0.11 # 車身半徑（公尺）：脫困前檢查地圖上會掃過的範圍用
+# Burger 官方車身（turtlebot3_navigation costmap_common_params_burger.yaml 的 footprint，以輪軸 base_footprint 為原點）：
+#   往後 0.105、往前 0.041、左右各 0.105 m。原地轉向繞輪軸，車尾角落掃過半徑 √(0.105²+0.105²) ≈ 0.148 m。
+#   2026-11-26 實測：車子離牆面約 0.125 m 原地轉 140°，車尾刮牆（轉向 4.9 秒、位置被擠向牆 5 cm）。
+FP_REAR, FP_FRONT, FP_HALF_W = 0.105, 0.041, 0.105
+ROT_SWEEP   = math.hypot(FP_REAR, FP_HALF_W)   # 0.148 m
+ROT_CLEAR   = ROT_SWEEP + 0.02   # 原地轉向前，輪軸周圍這個半徑內不可有障礙格（＋2 cm 定位誤差）
+ROT_SHIFT_MAX = 0.12             # 空間不夠時，沿車頭方向最多移開幾公尺再轉
+ROT_SHIFT_V   = 0.05             # 移開時的速度（m/s）
+ROT_MIN_ANGLE = math.radians(20) # 轉角小於此不檢查（掃過的弧很小）
+NUDGE_MAX     = 0.06             # 規劃後：轉彎路點離障礙不足 ROT_CLEAR 時，往遠離障礙的方向最多推這麼遠
 
 # ── 直線循跡（掃描線、外圈由自己控制，不經 DWA） ──
 LINE_V       = 0.12   # 直行速度（m/s）
@@ -162,6 +173,10 @@ tf_buffer = None   # tf2 緩衝（map ← 雷射座標查詢用）
 teleop_lock = threading.Lock()
 teleop_cmd  = {'v': 0.0, 'w': 0.0, 't': -1e9}
 cmd_pub     = None
+reset_pub   = None   # /reset（turtlebot3_core 收到就把里程計歸零）
+
+nav_lock   = threading.Lock()
+nav_status = {'state': 'idle', 'msg': '', 'goal': None, 'result': None}   # /nav/goto：開到指定位姿
 
 slam_lock = threading.Lock()
 slam_proc = None
@@ -184,12 +199,17 @@ def _exploring():
         return exp_status['state'] in EXP_BUSY
 
 
+def _navigating():
+    with nav_lock:
+        return nav_status['state'] == 'running'
+
+
 def manual_allowed():
-    """手動遙控是否被允許（覆蓋執行中、自動建圖中一律禁止）。"""
+    """手動遙控是否被允許（覆蓋執行中、自動建圖中、/nav/goto 中一律禁止）。"""
     with cov_lock:
         if cov_status['state'] == 'running':
             return False
-    return not _exploring()
+    return not _exploring() and not _navigating()
 
 
 # ════════════════════════════════════════════════════════
@@ -337,6 +357,10 @@ def pose_tick(_evt):
                 cp_ = cov_rec['path']
                 if not cp_ or (rx - cp_[-1][1]) ** 2 + (ry - cp_[-1][2]) ** 2 >= 0.0025:
                     cp_.append((t, round(rx, 3), round(ry, 3)))
+                pp = cov_rec.get('pose')
+                if pp is not None and (not pp or (rx - pp[-1][1]) ** 2 + (ry - pp[-1][2]) ** 2 >= 0.0004
+                                       or abs(_wrap(pose[2] - math.radians(pp[-1][3]))) >= math.radians(5)):
+                    pp.append((t, round(rx, 3), round(ry, 3), round(math.degrees(pose[2]), 1)))
                 if now - cov_rec['t_tl'] >= 1.0:
                     cov_rec['t_tl'] = now
                     cov_rec['timeline'].append((t, cov_status['done'], cov_rec.get('mode', ''),
@@ -508,6 +532,8 @@ def explore_start(delay=0.0):
     with cov_lock:
         if cov_status['state'] == 'running':
             return False, '自動覆蓋執行中，請先按結束'
+    if _navigating():
+        return False, '正在開往指定位置，請稍候'
     with map_lock:
         if map_data.get('data') is None:
             return False, '地圖尚未就緒，請等 SLAM 啟動'
@@ -991,7 +1017,130 @@ def _drive(v, w):
     cmd_pub.publish(tw)
 
 
-def _follow_line(fid, p0, p1, stop_at_end=True):
+def _obstacles_near(pose, radius):
+    """目前 SLAM 地圖上，輪軸 radius 內的障礙格（佔據機率 ≥ 50）中心座標，N×2 陣列。"""
+    with map_lock:
+        data = map_data.get('data')
+        res = map_meta.get('resolution')
+        ox, oy = map_meta.get('origin_x'), map_meta.get('origin_y')
+    if data is None or res is None:
+        return np.zeros((0, 2))
+    x, y = pose[0], pose[1]
+    n = int(math.ceil(radius / res)) + 1
+    c0, r0 = int(round((x - ox) / res)), int(round((y - oy) / res))
+    H, W = data.shape
+    rs, cs = slice(max(0, r0 - n), min(H, r0 + n + 1)), slice(max(0, c0 - n), min(W, c0 + n + 1))
+    rr, cc = np.where(data[rs, cs] >= 50)
+    pts = np.column_stack([ox + (cc + cs.start) * res, oy + (rr + rs.start) * res]).astype(float)
+    if len(pts) == 0:
+        return pts
+    return pts[np.hypot(pts[:, 0] - x, pts[:, 1] - y) < radius]
+
+
+def _nudge_turns(wps, kinds, clean, free, res, ox, oy):
+    """
+    規劃後處理：要轉彎（> ROT_MIN_ANGLE）的路點若離障礙格不足 ROT_CLEAR，往遠離最近障礙的方向推（最多 NUDGE_MAX），
+    推完的點與前後兩段都要仍在可走區內才採用。牆在車子側面時，原地轉向前沿車頭方向移開幫不上忙，只能在規劃時避開。
+    回傳 (新路點, 推動的點數, 仍不足的點數)。
+    """
+    obs = clean == 100
+    if not obs.any():
+        return list(wps), 0, 0
+    d, idx = distance_transform_edt(~obs, return_indices=True)
+    d = d * res
+    H, W = obs.shape
+    out, moved, short = [tuple(p) for p in wps], 0, 0
+
+    def dist_at(p):
+        """離最近障礙格的距離（雙線性前取最近格），與最近障礙格中心。"""
+        c, r = int(round((p[0] - ox) / res)), int(round((p[1] - oy) / res))
+        if not (0 <= r < H and 0 <= c < W):
+            return 0.0, None
+        return d[r, c], (ox + idx[1][r, c] * res, oy + idx[0][r, c] * res)
+
+    for i in range(len(out)):
+        # 轉彎點：前後連線夾角大，或與 move 段相鄰（經 A* 抵達／離開時的實際方向不是兩路點連線）
+        turn = i == 0 or i == len(out) - 1 or kinds[i] == 'move' or kinds[i + 1] == 'move'
+        if not turn:
+            h1 = math.atan2(out[i][1] - out[i - 1][1], out[i][0] - out[i - 1][0])
+            h2 = math.atan2(out[i + 1][1] - out[i][1], out[i + 1][0] - out[i][0])
+            turn = abs(_wrap(h2 - h1)) >= ROT_MIN_ANGLE
+        if not turn or dist_at(out[i])[0] >= ROT_CLEAR:
+            continue
+        # 每步 1 cm、每步重新找最近障礙，往遠離它的方向推（兩面牆夾角處也推得出去）
+        p, total = out[i], 0.0
+        while total < NUDGE_MAX:
+            dd, o = dist_at(p)
+            if dd >= ROT_CLEAR or o is None:
+                break
+            vx, vy = p[0] - o[0], p[1] - o[1]
+            L = math.hypot(vx, vy)
+            if L < 1e-6:
+                break
+            q = (p[0] + vx / L * 0.01, p[1] + vy / L * 0.01)
+            if not _seg_free(free, res, ox, oy, q, q):
+                break
+            p, total = q, total + 0.01
+        ok = total > 0
+        if ok and i > 0:
+            ok = _seg_free(free, res, ox, oy, out[i - 1], p)
+        if ok and i < len(out) - 1:
+            ok = _seg_free(free, res, ox, oy, p, out[i + 1])
+        if ok:
+            out[i] = (round(p[0], 4), round(p[1], 4))
+            moved += 1
+        if dist_at(out[i])[0] < ROT_CLEAR:
+            short += 1
+    return out, moved, short
+
+
+def _make_room_to_turn(fid, alive, angle):
+    """
+    原地轉向前確認車尾掃過的圓（ROT_CLEAR）內沒有障礙；有的話沿車頭方向往「遠離障礙」的一側移開，
+    最多 ROT_SHIFT_MAX，空間夠了就停。回傳 'ok'（本來就夠／移開後夠）、'tight'（移不開，仍會轉）、'stopped'。
+    """
+    if abs(angle) < ROT_MIN_ANGLE or cmd_pub is None:
+        return 'ok'
+    pose = _robot_pose(fid)
+    if pose is None:
+        return 'ok'
+    obs = _obstacles_near(pose, ROT_CLEAR)
+    if len(obs) == 0:
+        return 'ok'
+    # 障礙在車頭前方（相對方向的 x 分量 > 0）就往後退，否則往前
+    c, s_ = math.cos(pose[2]), math.sin(pose[2])
+    ahead = float(np.mean((obs[:, 0] - pose[0]) * c + (obs[:, 1] - pose[1]) * s_))
+    sign = -1 if ahead > 0 else 1
+    if not _map_clear(pose, sign, ROT_SHIFT_MAX):
+        sign = -sign
+        if not _map_clear(pose, sign, ROT_SHIFT_MAX):
+            _cov_ev(f'轉向空間不足（{ROT_CLEAR*100:.0f} cm 內有障礙）且前後都移不開，直接轉')
+            return 'tight'
+    heading = 0.0 if sign > 0 else math.pi
+    rate = rospy.Rate(20)
+    try:
+        while not rospy.is_shutdown():
+            if not alive():
+                return 'stopped'
+            p = _robot_pose(fid)
+            if p is None:
+                break
+            moved = math.hypot(p[0] - pose[0], p[1] - pose[1])
+            if len(_obstacles_near(p, ROT_CLEAR)) == 0:
+                _cov_ev(f'轉向前移開 {moved*100:.0f} cm（{"後退" if sign < 0 else "前進"}）')
+                return 'ok'
+            near = _scan_min(heading)
+            if moved >= ROT_SHIFT_MAX or (near is not None and near < ESCAPE_CLEAR):
+                break
+            _drive(sign * ROT_SHIFT_V, 0.0)
+            rate.sleep()
+    finally:
+        _drive(0.0, 0.0)
+    _cov_ev(f'轉向空間不足，已移開仍不夠（{ROT_CLEAR*100:.0f} cm 內有障礙），直接轉')
+    return 'tight'
+
+
+def _follow_line(fid, p0, p1, stop_at_end=True, alive=None):
     """
     自己控制車子從 p0 沿直線開到 p1（不經 move_base／DWA），回傳 'ok' / 'blocked' / 'stalled' / 'stopped'。
 
@@ -1017,6 +1166,8 @@ def _follow_line(fid, p0, p1, stop_at_end=True):
     t_limit = rospy.get_time() + L / LINE_V_MIN + 15.0
 
     def running():
+        if alive is not None:                        # /nav/goto：看導航任務是否仍在執行
+            return alive()
         with cov_lock:
             return cov_status['state'] == 'running'
 
@@ -1048,9 +1199,14 @@ def _follow_line(fid, p0, p1, stop_at_end=True):
             if now > t_limit:
                 return 'stalled'
 
-            # 1. 原地轉正
+            # 1. 原地轉正（轉之前先確認車尾掃過的範圍沒有障礙）
             if rotating is None:
                 rotating = abs(eh) > ROT_START
+                if rotating:
+                    rr = _make_room_to_turn(fid, running, eh)
+                    if rr == 'stopped':
+                        return 'stopped'
+                    continue                                   # 可能移動過，重新取位置與方向誤差
             if rotating:
                 if abs(eh) < ROT_TOL:
                     rotating = False
@@ -1132,6 +1288,13 @@ def run_coverage(start_idx=0):
                 cov_clock['t0'] = None
         if cmd_pub is not None:
             cmd_pub.publish(Twist())                   # 直線循跡中被中斷也要停車
+        try:
+            n_c, t_c, d_c = _contact_metrics()
+        except Exception as e:
+            rospy.logerr('[coverage] 撞牆指標計算失敗：%s', e)
+            n_c = t_c = d_c = None
+        with cov_lock:
+            cov_info.update(n_contact=n_c, contact_s=t_c, min_clear_cm=d_c)
         _log_run()
         try:
             _cov_write_log()
@@ -1313,6 +1476,9 @@ def cov_metrics():
     return {
         'task':       info.get('task'),
         'nav_mode':   info.get('nav_mode'),
+        'scan_axis':  info.get('scan_axis'),
+        'pca_axis_deg': info.get('pca_axis_deg'),
+        'n_turns':    info.get('n_turns'),
         'state':      st['state'],
         'area':       info.get('area'),
         'plan_ms':    info.get('plan_ms'),
@@ -1323,6 +1489,9 @@ def cov_metrics():
         'skipped':    n_skip,
         'n_stuck':    info.get('n_stuck', 0),
         'n_escape':   info.get('n_escape', 0),
+        'n_contact':  info.get('n_contact'),
+        'contact_s':  info.get('contact_s'),
+        'min_clear_cm': info.get('min_clear_cm'),
         'completion': round(reached / total, 4) if total else None,
         'exec_s':     round(exec_s, 1),
         'plan_len':   info.get('plan_len'),
@@ -1334,6 +1503,50 @@ def cov_metrics():
         'n_noise':    info.get('n_noise'),
         'synced':     info.get('synced'),
     }
+
+
+def _contact_metrics():
+    """
+    以官方車身矩形（輪軸往後 0.105、往前 0.041、左右 0.105 m）逐一檢查位姿紀錄，
+    車身範圍內有「規劃當下地圖」的障礙格（值 100）就算碰觸；連續碰觸算同一次。
+    回傳 (碰觸次數, 碰觸總秒數, 車身離障礙格中心的最小距離 cm)。地圖 5 cm 一格、SLAM 有幾公分誤差，這是推估值。
+    """
+    with cov_lock:
+        poses = list(cov_rec.get('pose', []))
+        g = dict(cov_grid)
+    if not poses or 'clean' not in g:
+        return None, None, None
+    occ = g['clean'] == 100
+    res, ox, oy = g['res'], g['ox'], g['oy']
+    H, W = occ.shape
+    ax, ay = np.meshgrid(np.arange(-FP_REAR, FP_FRONT + 1e-9, 0.01),
+                         np.arange(-FP_HALF_W, FP_HALF_W + 1e-9, 0.01))
+    ax, ay = ax.ravel(), ay.ravel()
+    occ_r, occ_c = np.where(occ)
+    occ_xy = np.column_stack([ox + occ_c * res, oy + occ_r * res])
+    n_evt, t_contact, in_contact, last_t, dmin = 0, 0.0, False, None, float('inf')
+    for t, x, y, yaw in poses:
+        c, s_ = math.cos(math.radians(yaw)), math.sin(math.radians(yaw))
+        px, py = x + ax * c - ay * s_, y + ax * s_ + ay * c
+        cc = np.round((px - ox) / res).astype(int)
+        rr = np.round((py - oy) / res).astype(int)
+        ok = (rr >= 0) & (rr < H) & (cc >= 0) & (cc < W)
+        hit = bool(occ[rr[ok], cc[ok]].any())
+        if len(occ_xy):
+            near = occ_xy[np.hypot(occ_xy[:, 0] - x, occ_xy[:, 1] - y) < 0.4]
+            if len(near):
+                # 障礙格中心轉到車身座標，算到車身矩形的距離
+                dx, dy = near[:, 0] - x, near[:, 1] - y
+                bx, by = dx * c + dy * s_, -dx * s_ + dy * c
+                ex = np.maximum(np.maximum(-FP_REAR - bx, bx - FP_FRONT), 0.0)
+                ey = np.maximum(np.abs(by) - FP_HALF_W, 0.0)
+                dmin = min(dmin, float(np.hypot(ex, ey).min()))
+        if hit and not in_contact:
+            n_evt += 1
+        if hit and in_contact and last_t is not None:
+            t_contact += t - last_t
+        in_contact, last_t = hit, t
+    return n_evt, round(t_contact, 1), (round(dmin * 100, 1) if dmin < float('inf') else None)
 
 
 def _log_run():
@@ -1364,6 +1577,7 @@ def _cov_write_log():
     覆蓋任務每次結束（完成、停止、受困皆然）覆寫同一任務的紀錄（停止後繼續會累積）：
       data/coverage/<task>_path.csv      行走軌跡（每 5 cm）
       data/coverage/<task>_timeline.csv  每秒：路點進度、控制方式（line/move）、位置朝向、電壓
+      data/coverage/<task>_pose.csv      位姿（含朝向；移動 2 cm 或轉 5° 記一點，原地轉向也有）：算車身是否壓到障礙
       data/coverage/<task>_track.csv     直線循跡每個控制週期（20 Hz）：位置、側偏、方向誤差、修正角、速度指令
       data/coverage/<task>_events.txt    指標摘要＋事件（到達、改用 move_base、跳過、受困…）
     （規劃當下的路線與地圖在任務開始時就存成 <task>_plan.json、<task>_grid.npz，見 _cov_save_plan）
@@ -1387,6 +1601,10 @@ def _cov_write_log():
         w = csv.writer(f)
         w.writerow(['t_s', 'waypoint', 'mode', 'x', 'y', 'yaw_deg', 'battery_v'])
         w.writerows(rec['timeline'])
+    with open(base + '_pose.csv', 'w', newline='', encoding='utf-8-sig') as f:
+        w = csv.writer(f)
+        w.writerow(['t_s', 'x', 'y', 'yaw_deg'])
+        w.writerows(rec.get('pose', []))
     with open(base + '_track.csv', 'w', newline='', encoding='utf-8-sig') as f:
         w = csv.writer(f)
         w.writerow(['t_s', 'waypoint', 'segment', 'phase', 'x', 'y', 'yaw_deg',
@@ -1532,6 +1750,169 @@ def get_scan():
     return jsonify({'points': pts})
 
 
+def _count_turns(wps, thr_deg=30):
+    """路點序列中方向改變超過 thr_deg 的次數（中途點共線不算）：PCA vs 沿地圖軸的主要比較指標。"""
+    n = 0
+    for i in range(1, len(wps) - 1):
+        h1 = math.atan2(wps[i][1] - wps[i - 1][1], wps[i][0] - wps[i - 1][0])
+        h2 = math.atan2(wps[i + 1][1] - wps[i][1], wps[i + 1][0] - wps[i][0])
+        if abs(math.degrees(_wrap(h2 - h1))) > thr_deg:
+            n += 1
+    return n
+
+
+# ════════════════════════════════════════════════════════
+#  /nav/goto：開到指定位姿（自動實驗用：回起點、轉到指定朝向）
+# ════════════════════════════════════════════════════════
+NAV_GOAL_TOL = 0.08    # 到達判定（公尺）
+NAV_RETRY    = 2       # 失敗後脫困重試次數
+
+
+def nav_stop():
+    with nav_lock:
+        if nav_status['state'] == 'running':
+            nav_status.update(state='stopped', msg='已停止')
+
+
+def _rotate_to(fid, yaw, alive):
+    """原地轉到 yaw（rad，地圖座標），回傳 'ok' / 'stalled' / 'stopped'。轉動中不前進，只用車身中心原地旋轉。"""
+    rate = rospy.Rate(20)
+    t_end = rospy.get_time() + 20.0
+    pose = _robot_pose(fid)
+    if pose is not None and _make_room_to_turn(fid, alive, _wrap(yaw - pose[2])) == 'stopped':
+        return 'stopped'
+    try:
+        while not rospy.is_shutdown():
+            if not alive():
+                return 'stopped'
+            pose = _robot_pose(fid)
+            if pose is None:
+                _drive(0.0, 0.0)
+                rate.sleep()
+                continue
+            e = _wrap(yaw - pose[2])
+            if abs(e) < ROT_TOL:
+                return 'ok'
+            if rospy.get_time() > t_end:
+                return 'stalled'
+            _drive(0.0, math.copysign(max(ROT_W_MIN, min(ROT_W_MAX, 1.5 * abs(e))), e))
+            rate.sleep()
+        return 'stopped'
+    finally:
+        _drive(0.0, 0.0)
+
+
+def _nav_run(x, y, yaw):
+    """在目前的地圖上用自寫 A* 開到 (x, y)，再原地轉到 yaw（None＝不轉）。不經 move_base。"""
+    alive = lambda: nav_status['state'] == 'running'
+    fid = map_data.get('frame_id', 'map')
+    result, why = 'failed', ''
+    try:
+        with map_lock:
+            raw, meta = map_data.get('data'), dict(map_meta)
+        clean, _ = remove_noise(raw)
+        free = (clean == 0) & ~apply_safety_margin(clean, COV_MARGIN, meta['resolution'])
+        res, ox, oy = meta['resolution'], meta['origin_x'], meta['origin_y']
+        for attempt in range(1 + NAV_RETRY):
+            pose = _robot_pose(fid)
+            if pose is None:
+                why = '查不到機器人位置'
+                break
+            if math.hypot(pose[0] - x, pose[1] - y) < NAV_GOAL_TOL:
+                result = 'ok'
+                break
+            if attempt > 0:
+                _escape_nav(fid)
+            start = (pose[0], pose[1])
+            if _seg_free(free, res, ox, oy, start, (x, y)):
+                pts = [start, (x, y)]
+            else:
+                r = astar_plan(free, res, ox, oy, start, (x, y))
+                if not r['path']:
+                    why = f"A* 算不出路線（{r['why']}）"
+                    continue
+                pts = r['path']
+            result = 'ok'
+            for k in range(1, len(pts)):
+                rr = _follow_line(fid, pts[k - 1], pts[k], stop_at_end=True, alive=alive)
+                if rr != 'ok':
+                    result, why = rr, {'stalled': '停滯', 'blocked': '前方有障礙'}.get(rr, rr)
+                    break
+            if result == 'ok':
+                break
+            if result == 'stopped':
+                break
+        if result == 'ok' and yaw is not None:
+            rr = _rotate_to(fid, yaw, alive)
+            if rr != 'ok':
+                result, why = rr, '轉向未完成'
+    except Exception as e:
+        result, why = 'failed', f'錯誤：{e}'
+    finally:
+        _drive(0.0, 0.0)
+        with nav_lock:
+            if nav_status['state'] == 'running':
+                nav_status.update(state='done' if result == 'ok' else 'failed',
+                                  result=result, msg=why)
+            else:
+                nav_status.update(result=result)
+
+
+def _escape_nav(fid):
+    """/nav/goto 失敗後的脫困：與覆蓋的 _escape 相同的地圖＋雷射檢查，退後（不行就前進）一小段。
+    （_escape 只在覆蓋執行中才會動，所以另寫一份看導航狀態的版本。）"""
+    pose = _robot_pose(fid)
+    if pose is None or cmd_pub is None:
+        return False
+    for sign in (-1, 1):
+        heading = 0.0 if sign > 0 else math.pi
+        near = _scan_min(heading)
+        if near is None or near < ESCAPE_CLEAR or not _map_clear(pose, sign, ESCAPE_DIST):
+            continue
+        rate, t_end = rospy.Rate(10), rospy.get_time() + 2 * ESCAPE_DIST / ESCAPE_V
+        while not rospy.is_shutdown() and rospy.get_time() < t_end and nav_status['state'] == 'running':
+            p = _robot_pose(fid)
+            if p is not None and math.hypot(p[0] - pose[0], p[1] - pose[1]) >= ESCAPE_DIST:
+                break
+            _drive(sign * ESCAPE_V, 0.0)
+            rate.sleep()
+        _drive(0.0, 0.0)
+        return True
+    return False
+
+
+@app.route('/nav/goto', methods=['POST'])
+def nav_goto():
+    """開到指定位姿：JSON {x, y, yaw_deg（可省略）}，地圖座標。以 GET /coverage/status 的 nav 欄位看進度。"""
+    body = request.get_json(silent=True) or {}
+    try:
+        x, y = float(body['x']), float(body['y'])
+        yaw = math.radians(float(body['yaw_deg'])) if body.get('yaw_deg') is not None else None
+    except (KeyError, TypeError, ValueError):
+        return jsonify({'ok': False, 'msg': '需要 x、y（公尺），可選 yaw_deg'}), 400
+    with cov_lock:
+        if cov_status['state'] == 'running':
+            return jsonify({'ok': False, 'msg': '自動覆蓋執行中'}), 409
+    if _exploring():
+        return jsonify({'ok': False, 'msg': '自動建圖中'}), 409
+    with map_lock:
+        if map_data.get('data') is None:
+            return jsonify({'ok': False, 'msg': '地圖尚未就緒'}), 409
+    with nav_lock:
+        if nav_status['state'] == 'running':
+            return jsonify({'ok': False, 'msg': '已在導航中'}), 409
+        nav_status.update(state='running', msg='', goal=[x, y, body.get('yaw_deg')], result=None)
+    teleop_halt()
+    threading.Thread(target=_nav_run, args=(x, y, yaw), daemon=True).start()
+    return jsonify({'ok': True})
+
+
+@app.route('/nav/stop', methods=['POST'])
+def nav_stop_route():
+    nav_stop()
+    return jsonify({'ok': True})
+
+
 def _cov_save_plan(r, raw, clean, free, meta, start):
     """
     任務開始時把「規劃當下」的輸入與輸出存檔，事後可完整重建、離線重算（SLAM 地圖之後還會變）：
@@ -1547,7 +1928,7 @@ def _cov_save_plan(r, raw, clean, free, meta, start):
     plan = {
         'info': info,
         'start': list(start) if start else None,
-        'params': {'spacing': COV_SPACING, 'margin': COV_MARGIN, 'cover_r': COV_COVER_R,
+        'params': {'spacing': COV_SPACING, 'margin': COV_MARGIN, 'cover_r': COV_COVER_R, 'min_run': MIN_RUN,
                    'line_v': LINE_V, 'k_head': LINE_K_HEAD, 'k_cte': LINE_K_CTE,
                    'corr_max_deg': round(math.degrees(LINE_CORR_MAX), 1), 'front_stop': FRONT_STOP},
         'axes': {'center': [float(c) for c in center], 'axis_a': [float(c) for c in axis_a],
@@ -1600,9 +1981,15 @@ def coverage_start():
 
     if not meta or raw.get('data') is None:
         return jsonify({'ok': False, 'msg': '地圖尚未就緒'})
-    nav_mode = (request.get_json(silent=True) or {}).get('nav_mode') or NAV_DEFAULT
+    body = request.get_json(silent=True) or {}
+    nav_mode = body.get('nav_mode') or NAV_DEFAULT
     if nav_mode not in NAV_MODES:
         return jsonify({'ok': False, 'msg': f'未知的導航模式：{nav_mode}'})
+    scan_axis = body.get('scan_axis') or 'pca'
+    if scan_axis not in SCAN_AXES:
+        return jsonify({'ok': False, 'msg': f'未知的掃描方向：{scan_axis}'})
+    if _navigating():
+        return jsonify({'ok': False, 'msg': '正在開往指定位置，請稍候'})
 
     teleop_halt()                                  # 交出 /cmd_vel 控制權前先停車
 
@@ -1615,10 +2002,12 @@ def coverage_start():
         start = (robot_pos['x'], robot_pos['y']) if robot_pos['x'] is not None else None
 
     r = plan_coverage(free, meta['resolution'], meta['origin_x'], meta['origin_y'],
-                      start=start)
+                      start=start, scan_axis=scan_axis)
     plan_ms = (time.perf_counter() - t_plan) * 1000.0
     if not r['waypoints']:
         return jsonify({'ok': False, 'msg': '無可走路徑，地圖可能不完整'})
+    r['waypoints'], n_nudge, n_short = _nudge_turns(r['waypoints'], r['kind'], clean, free, meta['resolution'],
+                                                    meta['origin_x'], meta['origin_y'])
 
     with robot_lock:
         robot_path.clear()          # 先清空，再切 running，軌跡才會從這一刻開始記
@@ -1630,7 +2019,7 @@ def coverage_start():
         cov_kind[:]  = r['kind']
         cov_cells[:] = r['cells']
         cov_skips.clear()
-        cov_grid.update(free=free, res=meta['resolution'],
+        cov_grid.update(free=free, clean=clean, res=meta['resolution'],
                         ox=meta['origin_x'], oy=meta['origin_y'])
         cov_clock.update(elapsed=0.0, t0=None)
         cov_cache.update(n=-1, ratio=0.0)
@@ -1638,6 +2027,11 @@ def coverage_start():
         cov_info.update(
             task       = time.strftime('%Y%m%d-%H%M%S'),
             nav_mode   = nav_mode,
+            scan_axis  = scan_axis,
+            pca_axis_deg = round(math.degrees(math.atan2(r['pca_axis'][1], r['pca_axis'][0])), 1),
+            n_turns    = _count_turns(r['waypoints']),
+            n_nudge    = n_nudge,
+            n_turn_tight = n_short,
             n_stuck    = 0,
             n_escape   = 0,
             synced     = _synced_commit(),
@@ -1656,13 +2050,14 @@ def coverage_start():
         cov_status.update(state='running', done=0, total=len(r['waypoints']), msg='')
         cov_rec.clear()
         cov_rec.update(task=cov_info['task'], t_start=time.time(), t_tl=0.0, mode='',
-                       events=[], timeline=[], path=[], track=[])
+                       events=[], timeline=[], path=[], track=[], pose=[])
     try:
         _cov_save_plan(r, raw['data'], clean, free, meta, start)
     except Exception as e:
         rospy.logerr('[coverage] 存規劃失敗：%s', e)
     if _read_synced() != RUN_VERSION:
         _cov_ev(f'⚠ 車上程式已同步為 {_read_synced()}，但系統仍在執行 {RUN_VERSION}（同步後沒重啟），本任務以 {RUN_VERSION} 記錄')
+    _cov_ev(f'轉彎路點離障礙 < {ROT_CLEAR*100:.0f} cm：往內推 {n_nudge} 個，仍不足 {n_short} 個（執行時轉向前會再檢查）')
     _cov_ev(f"規劃完成：路點 {len(r['waypoints'])}（直線 {r['kind'].count('line')}、導航 {r['kind'].count('move')}），"
             f"外圈頂點 {len(r['perimeter'])}，雜點 {int(noise.sum())} 格")
 
@@ -1732,6 +2127,11 @@ def coverage_status():
     st['slam_managed'] = slam_cfg['manage']
     st['explore'] = explore_snapshot()
     st['cover_r'] = COV_COVER_R
+    st['battery_v'] = battery_v['v']
+    with nav_lock:
+        st['nav'] = dict(nav_status)
+    pose = _robot_pose(map_data.get('frame_id', 'map')) if map_data else None
+    st['pose'] = [round(pose[0], 3), round(pose[1], 3), round(math.degrees(pose[2]), 1)] if pose else None
     return jsonify(st)
 
 
@@ -1742,6 +2142,8 @@ def explore_snapshot():
             ex['elapsed'] = round(time.time() - exp_status['t0'], 1)
     with map_lock:
         ex.update(area=map_stats['area'], frontiers=map_stats['frontiers'])
+    ex['task'] = exp_rec.get('task')
+    ex['home_result'] = exp_rec.get('home_result')
     ex['busy'] = ex['state'] in EXP_BUSY
     ex['max_s'] = EXPLORE_MAX_S
     return ex
@@ -1793,14 +2195,22 @@ def slam_restart():
             cov_status['state'] = 'stopped'
     explore_stop('重新建圖，自動建圖已停止')
     teleop_halt()
+    nav_stop()
+    reset_odom = bool((request.get_json(silent=True) or {}).get('reset_odom'))
 
     with slam_lock:
         slam_kill()
+        # 重設里程計：SLAM 地圖的座標方向＝里程計原點的方向（gmapping 以第一筆 odom 當起點），
+        # 而里程計只在系統啟動時歸零。要讓新地圖以「車子現在的朝向」為 0°，就要在 SLAM 停著時重設。
+        if reset_odom and reset_pub is not None:
+            reset_pub.publish(EmptyMsg())
+            time.sleep(1.5)
 
         with map_lock:
             map_png = map_eroded = map_dilated = map_margin = map_noise = None
             map_meta.clear()
             map_data.clear()
+            map_stats.update(area=0.0, frontiers=0)   # 不歸零的話，新地圖出來前一直顯示舊地圖的面積
         with robot_lock:
             robot_path.clear()
             robot_pos.update(x=None, y=None)
@@ -1822,14 +2232,14 @@ def slam_restart():
             rospy.logerr('[slam] 重啟失敗：%s', e)
             return jsonify({'ok': False, 'msg': f'重啟失敗：{e}'}), 500
 
-    return jsonify({'ok': True, 'msg': 'SLAM 已重啟，請等待新地圖'})
+    return jsonify({'ok': True, 'msg': 'SLAM 已重啟，請等待新地圖' + ('（里程計已重設）' if reset_odom else '')})
 
 
 # ════════════════════════════════════════════════════════
 #  主函式
 # ════════════════════════════════════════════════════════
 def main():
-    global tf_buffer, cmd_pub
+    global tf_buffer, cmd_pub, reset_pub
     rospy.init_node('map_server')
     port = rospy.get_param('~port', 8080)
     slam_cfg['manage'] = bool(rospy.get_param('~manage_slam', True))
@@ -1843,6 +2253,7 @@ def main():
     tf2_ros.TransformListener(tf_buffer)
 
     cmd_pub = rospy.Publisher('/cmd_vel', Twist, queue_size=1)
+    reset_pub = rospy.Publisher('/reset', EmptyMsg, queue_size=1)
 
     rospy.Subscriber('/map',  OccupancyGrid, map_callback,  queue_size=1)
     rospy.Subscriber('/scan', LaserScan,     scan_callback, queue_size=1)

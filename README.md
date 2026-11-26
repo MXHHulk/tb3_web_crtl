@@ -62,6 +62,21 @@ bash turtlebot3_ccpp/tools/sync_to_robot.sh
 6. 改到 launch 或 SLAM／move_base 參數時，要在手機「系統」頁停止再啟動才會生效。
 7. 實驗跑完備份紀錄：`bash turtlebot3_ccpp/tools/pull_from_robot.sh`，再 commit `experiments/`。
 
+## 自動實驗（無人值守收數據）
+
+1. 手機「系統」頁啟動系統；車子放在場地中央較空曠處，**車頭對齊場地長邊**（＝斜角 0° 參考、每輪起點）。
+2. 在車上執行（先用 4 輪的快速驗證，確認流程沒問題再跑正式 12 輪）：
+
+```bash
+cd ~/catkin_ws/src/turtlebot3_ccpp
+nohup python3 tools/run_experiments.py --config tools/experiments_smoke.json > /dev/null 2>&1 &
+tail -f data/experiments/*/log.txt                     # 看進度
+python3 tools/run_experiments.py --resume <實驗編號>      # 換電池／中途停止後（先把車放回起點對齊）
+```
+
+3. 結束後在電腦執行 `pull_from_robot.sh`，結果在 `experiments/robot/data/experiments/<編號>/trials.csv`。
+流程細節見 `turtlebot3_ccpp/tools/run_experiments.py` 開頭說明。
+
 ## 使用
 
 手機連上和車子同一個熱點，瀏覽器開 `http://<車子 IP>:8000`。
