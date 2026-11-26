@@ -34,7 +34,7 @@ from rosgraph_msgs.msg import Log
 from sensor_msgs.msg import BatteryState, LaserScan
 from std_msgs.msg import Empty as EmptyMsg
 from PIL import Image, ImageDraw
-from scipy.ndimage import binary_erosion, binary_dilation, label as nd_label
+from scipy.ndimage import binary_erosion, binary_dilation, distance_transform_edt, label as nd_label
 import tf2_ros
 
 try:
@@ -82,6 +82,16 @@ ESCAPE_DIST  = 0.12 # 脫困移動距離（公尺）
 ESCAPE_CLEAR = 0.18 # 行進方向雷射扇形內最近障礙須大於此值才動（公尺，自雷射量起）。
                     # 原 0.25：2026-11-11 實測車子離牆 0.20 m 時 move_base 不肯轉、脫困也因此不動，兩邊僵住判定受困
 BODY_R       = 0.11 # 車身半徑（公尺）：脫困前檢查地圖上會掃過的範圍用
+# Burger 官方車身（turtlebot3_navigation costmap_common_params_burger.yaml 的 footprint，以輪軸 base_footprint 為原點）：
+#   往後 0.105、往前 0.041、左右各 0.105 m。原地轉向繞輪軸，車尾角落掃過半徑 √(0.105²+0.105²) ≈ 0.148 m。
+#   2026-11-26 實測：車子離牆面約 0.125 m 原地轉 140°，車尾刮牆（轉向 4.9 秒、位置被擠向牆 5 cm）。
+FP_REAR, FP_FRONT, FP_HALF_W = 0.105, 0.041, 0.105
+ROT_SWEEP   = math.hypot(FP_REAR, FP_HALF_W)   # 0.148 m
+ROT_CLEAR   = ROT_SWEEP + 0.02   # 原地轉向前，輪軸周圍這個半徑內不可有障礙格（＋2 cm 定位誤差）
+ROT_SHIFT_MAX = 0.12             # 空間不夠時，沿車頭方向最多移開幾公尺再轉
+ROT_SHIFT_V   = 0.05             # 移開時的速度（m/s）
+ROT_MIN_ANGLE = math.radians(20) # 轉角小於此不檢查（掃過的弧很小）
+NUDGE_MAX     = 0.06             # 規劃後：轉彎路點離障礙不足 ROT_CLEAR 時，往遠離障礙的方向最多推這麼遠
 
 # ── 直線循跡（掃描線、外圈由自己控制，不經 DWA） ──
 LINE_V       = 0.12   # 直行速度（m/s）
@@ -347,6 +357,10 @@ def pose_tick(_evt):
                 cp_ = cov_rec['path']
                 if not cp_ or (rx - cp_[-1][1]) ** 2 + (ry - cp_[-1][2]) ** 2 >= 0.0025:
                     cp_.append((t, round(rx, 3), round(ry, 3)))
+                pp = cov_rec.get('pose')
+                if pp is not None and (not pp or (rx - pp[-1][1]) ** 2 + (ry - pp[-1][2]) ** 2 >= 0.0004
+                                       or abs(_wrap(pose[2] - math.radians(pp[-1][3]))) >= math.radians(5)):
+                    pp.append((t, round(rx, 3), round(ry, 3), round(math.degrees(pose[2]), 1)))
                 if now - cov_rec['t_tl'] >= 1.0:
                     cov_rec['t_tl'] = now
                     cov_rec['timeline'].append((t, cov_status['done'], cov_rec.get('mode', ''),
@@ -1003,6 +1017,129 @@ def _drive(v, w):
     cmd_pub.publish(tw)
 
 
+def _obstacles_near(pose, radius):
+    """目前 SLAM 地圖上，輪軸 radius 內的障礙格（佔據機率 ≥ 50）中心座標，N×2 陣列。"""
+    with map_lock:
+        data = map_data.get('data')
+        res = map_meta.get('resolution')
+        ox, oy = map_meta.get('origin_x'), map_meta.get('origin_y')
+    if data is None or res is None:
+        return np.zeros((0, 2))
+    x, y = pose[0], pose[1]
+    n = int(math.ceil(radius / res)) + 1
+    c0, r0 = int(round((x - ox) / res)), int(round((y - oy) / res))
+    H, W = data.shape
+    rs, cs = slice(max(0, r0 - n), min(H, r0 + n + 1)), slice(max(0, c0 - n), min(W, c0 + n + 1))
+    rr, cc = np.where(data[rs, cs] >= 50)
+    pts = np.column_stack([ox + (cc + cs.start) * res, oy + (rr + rs.start) * res]).astype(float)
+    if len(pts) == 0:
+        return pts
+    return pts[np.hypot(pts[:, 0] - x, pts[:, 1] - y) < radius]
+
+
+def _nudge_turns(wps, kinds, clean, free, res, ox, oy):
+    """
+    規劃後處理：要轉彎（> ROT_MIN_ANGLE）的路點若離障礙格不足 ROT_CLEAR，往遠離最近障礙的方向推（最多 NUDGE_MAX），
+    推完的點與前後兩段都要仍在可走區內才採用。牆在車子側面時，原地轉向前沿車頭方向移開幫不上忙，只能在規劃時避開。
+    回傳 (新路點, 推動的點數, 仍不足的點數)。
+    """
+    obs = clean == 100
+    if not obs.any():
+        return list(wps), 0, 0
+    d, idx = distance_transform_edt(~obs, return_indices=True)
+    d = d * res
+    H, W = obs.shape
+    out, moved, short = [tuple(p) for p in wps], 0, 0
+
+    def dist_at(p):
+        """離最近障礙格的距離（雙線性前取最近格），與最近障礙格中心。"""
+        c, r = int(round((p[0] - ox) / res)), int(round((p[1] - oy) / res))
+        if not (0 <= r < H and 0 <= c < W):
+            return 0.0, None
+        return d[r, c], (ox + idx[1][r, c] * res, oy + idx[0][r, c] * res)
+
+    for i in range(len(out)):
+        # 轉彎點：前後連線夾角大，或與 move 段相鄰（經 A* 抵達／離開時的實際方向不是兩路點連線）
+        turn = i == 0 or i == len(out) - 1 or kinds[i] == 'move' or kinds[i + 1] == 'move'
+        if not turn:
+            h1 = math.atan2(out[i][1] - out[i - 1][1], out[i][0] - out[i - 1][0])
+            h2 = math.atan2(out[i + 1][1] - out[i][1], out[i + 1][0] - out[i][0])
+            turn = abs(_wrap(h2 - h1)) >= ROT_MIN_ANGLE
+        if not turn or dist_at(out[i])[0] >= ROT_CLEAR:
+            continue
+        # 每步 1 cm、每步重新找最近障礙，往遠離它的方向推（兩面牆夾角處也推得出去）
+        p, total = out[i], 0.0
+        while total < NUDGE_MAX:
+            dd, o = dist_at(p)
+            if dd >= ROT_CLEAR or o is None:
+                break
+            vx, vy = p[0] - o[0], p[1] - o[1]
+            L = math.hypot(vx, vy)
+            if L < 1e-6:
+                break
+            q = (p[0] + vx / L * 0.01, p[1] + vy / L * 0.01)
+            if not _seg_free(free, res, ox, oy, q, q):
+                break
+            p, total = q, total + 0.01
+        ok = total > 0
+        if ok and i > 0:
+            ok = _seg_free(free, res, ox, oy, out[i - 1], p)
+        if ok and i < len(out) - 1:
+            ok = _seg_free(free, res, ox, oy, p, out[i + 1])
+        if ok:
+            out[i] = (round(p[0], 4), round(p[1], 4))
+            moved += 1
+        if dist_at(out[i])[0] < ROT_CLEAR:
+            short += 1
+    return out, moved, short
+
+
+def _make_room_to_turn(fid, alive, angle):
+    """
+    原地轉向前確認車尾掃過的圓（ROT_CLEAR）內沒有障礙；有的話沿車頭方向往「遠離障礙」的一側移開，
+    最多 ROT_SHIFT_MAX，空間夠了就停。回傳 'ok'（本來就夠／移開後夠）、'tight'（移不開，仍會轉）、'stopped'。
+    """
+    if abs(angle) < ROT_MIN_ANGLE or cmd_pub is None:
+        return 'ok'
+    pose = _robot_pose(fid)
+    if pose is None:
+        return 'ok'
+    obs = _obstacles_near(pose, ROT_CLEAR)
+    if len(obs) == 0:
+        return 'ok'
+    # 障礙在車頭前方（相對方向的 x 分量 > 0）就往後退，否則往前
+    c, s_ = math.cos(pose[2]), math.sin(pose[2])
+    ahead = float(np.mean((obs[:, 0] - pose[0]) * c + (obs[:, 1] - pose[1]) * s_))
+    sign = -1 if ahead > 0 else 1
+    if not _map_clear(pose, sign, ROT_SHIFT_MAX):
+        sign = -sign
+        if not _map_clear(pose, sign, ROT_SHIFT_MAX):
+            _cov_ev(f'轉向空間不足（{ROT_CLEAR*100:.0f} cm 內有障礙）且前後都移不開，直接轉')
+            return 'tight'
+    heading = 0.0 if sign > 0 else math.pi
+    rate = rospy.Rate(20)
+    try:
+        while not rospy.is_shutdown():
+            if not alive():
+                return 'stopped'
+            p = _robot_pose(fid)
+            if p is None:
+                break
+            moved = math.hypot(p[0] - pose[0], p[1] - pose[1])
+            if len(_obstacles_near(p, ROT_CLEAR)) == 0:
+                _cov_ev(f'轉向前移開 {moved*100:.0f} cm（{"後退" if sign < 0 else "前進"}）')
+                return 'ok'
+            near = _scan_min(heading)
+            if moved >= ROT_SHIFT_MAX or (near is not None and near < ESCAPE_CLEAR):
+                break
+            _drive(sign * ROT_SHIFT_V, 0.0)
+            rate.sleep()
+    finally:
+        _drive(0.0, 0.0)
+    _cov_ev(f'轉向空間不足，已移開仍不夠（{ROT_CLEAR*100:.0f} cm 內有障礙），直接轉')
+    return 'tight'
+
+
 def _follow_line(fid, p0, p1, stop_at_end=True, alive=None):
     """
     自己控制車子從 p0 沿直線開到 p1（不經 move_base／DWA），回傳 'ok' / 'blocked' / 'stalled' / 'stopped'。
@@ -1062,9 +1199,14 @@ def _follow_line(fid, p0, p1, stop_at_end=True, alive=None):
             if now > t_limit:
                 return 'stalled'
 
-            # 1. 原地轉正
+            # 1. 原地轉正（轉之前先確認車尾掃過的範圍沒有障礙）
             if rotating is None:
                 rotating = abs(eh) > ROT_START
+                if rotating:
+                    rr = _make_room_to_turn(fid, running, eh)
+                    if rr == 'stopped':
+                        return 'stopped'
+                    continue                                   # 可能移動過，重新取位置與方向誤差
             if rotating:
                 if abs(eh) < ROT_TOL:
                     rotating = False
@@ -1146,6 +1288,13 @@ def run_coverage(start_idx=0):
                 cov_clock['t0'] = None
         if cmd_pub is not None:
             cmd_pub.publish(Twist())                   # 直線循跡中被中斷也要停車
+        try:
+            n_c, t_c, d_c = _contact_metrics()
+        except Exception as e:
+            rospy.logerr('[coverage] 撞牆指標計算失敗：%s', e)
+            n_c = t_c = d_c = None
+        with cov_lock:
+            cov_info.update(n_contact=n_c, contact_s=t_c, min_clear_cm=d_c)
         _log_run()
         try:
             _cov_write_log()
@@ -1340,6 +1489,9 @@ def cov_metrics():
         'skipped':    n_skip,
         'n_stuck':    info.get('n_stuck', 0),
         'n_escape':   info.get('n_escape', 0),
+        'n_contact':  info.get('n_contact'),
+        'contact_s':  info.get('contact_s'),
+        'min_clear_cm': info.get('min_clear_cm'),
         'completion': round(reached / total, 4) if total else None,
         'exec_s':     round(exec_s, 1),
         'plan_len':   info.get('plan_len'),
@@ -1351,6 +1503,50 @@ def cov_metrics():
         'n_noise':    info.get('n_noise'),
         'synced':     info.get('synced'),
     }
+
+
+def _contact_metrics():
+    """
+    以官方車身矩形（輪軸往後 0.105、往前 0.041、左右 0.105 m）逐一檢查位姿紀錄，
+    車身範圍內有「規劃當下地圖」的障礙格（值 100）就算碰觸；連續碰觸算同一次。
+    回傳 (碰觸次數, 碰觸總秒數, 車身離障礙格中心的最小距離 cm)。地圖 5 cm 一格、SLAM 有幾公分誤差，這是推估值。
+    """
+    with cov_lock:
+        poses = list(cov_rec.get('pose', []))
+        g = dict(cov_grid)
+    if not poses or 'clean' not in g:
+        return None, None, None
+    occ = g['clean'] == 100
+    res, ox, oy = g['res'], g['ox'], g['oy']
+    H, W = occ.shape
+    ax, ay = np.meshgrid(np.arange(-FP_REAR, FP_FRONT + 1e-9, 0.01),
+                         np.arange(-FP_HALF_W, FP_HALF_W + 1e-9, 0.01))
+    ax, ay = ax.ravel(), ay.ravel()
+    occ_r, occ_c = np.where(occ)
+    occ_xy = np.column_stack([ox + occ_c * res, oy + occ_r * res])
+    n_evt, t_contact, in_contact, last_t, dmin = 0, 0.0, False, None, float('inf')
+    for t, x, y, yaw in poses:
+        c, s_ = math.cos(math.radians(yaw)), math.sin(math.radians(yaw))
+        px, py = x + ax * c - ay * s_, y + ax * s_ + ay * c
+        cc = np.round((px - ox) / res).astype(int)
+        rr = np.round((py - oy) / res).astype(int)
+        ok = (rr >= 0) & (rr < H) & (cc >= 0) & (cc < W)
+        hit = bool(occ[rr[ok], cc[ok]].any())
+        if len(occ_xy):
+            near = occ_xy[np.hypot(occ_xy[:, 0] - x, occ_xy[:, 1] - y) < 0.4]
+            if len(near):
+                # 障礙格中心轉到車身座標，算到車身矩形的距離
+                dx, dy = near[:, 0] - x, near[:, 1] - y
+                bx, by = dx * c + dy * s_, -dx * s_ + dy * c
+                ex = np.maximum(np.maximum(-FP_REAR - bx, bx - FP_FRONT), 0.0)
+                ey = np.maximum(np.abs(by) - FP_HALF_W, 0.0)
+                dmin = min(dmin, float(np.hypot(ex, ey).min()))
+        if hit and not in_contact:
+            n_evt += 1
+        if hit and in_contact and last_t is not None:
+            t_contact += t - last_t
+        in_contact, last_t = hit, t
+    return n_evt, round(t_contact, 1), (round(dmin * 100, 1) if dmin < float('inf') else None)
 
 
 def _log_run():
@@ -1381,6 +1577,7 @@ def _cov_write_log():
     覆蓋任務每次結束（完成、停止、受困皆然）覆寫同一任務的紀錄（停止後繼續會累積）：
       data/coverage/<task>_path.csv      行走軌跡（每 5 cm）
       data/coverage/<task>_timeline.csv  每秒：路點進度、控制方式（line/move）、位置朝向、電壓
+      data/coverage/<task>_pose.csv      位姿（含朝向；移動 2 cm 或轉 5° 記一點，原地轉向也有）：算車身是否壓到障礙
       data/coverage/<task>_track.csv     直線循跡每個控制週期（20 Hz）：位置、側偏、方向誤差、修正角、速度指令
       data/coverage/<task>_events.txt    指標摘要＋事件（到達、改用 move_base、跳過、受困…）
     （規劃當下的路線與地圖在任務開始時就存成 <task>_plan.json、<task>_grid.npz，見 _cov_save_plan）
@@ -1404,6 +1601,10 @@ def _cov_write_log():
         w = csv.writer(f)
         w.writerow(['t_s', 'waypoint', 'mode', 'x', 'y', 'yaw_deg', 'battery_v'])
         w.writerows(rec['timeline'])
+    with open(base + '_pose.csv', 'w', newline='', encoding='utf-8-sig') as f:
+        w = csv.writer(f)
+        w.writerow(['t_s', 'x', 'y', 'yaw_deg'])
+        w.writerows(rec.get('pose', []))
     with open(base + '_track.csv', 'w', newline='', encoding='utf-8-sig') as f:
         w = csv.writer(f)
         w.writerow(['t_s', 'waypoint', 'segment', 'phase', 'x', 'y', 'yaw_deg',
@@ -1577,6 +1778,9 @@ def _rotate_to(fid, yaw, alive):
     """原地轉到 yaw（rad，地圖座標），回傳 'ok' / 'stalled' / 'stopped'。轉動中不前進，只用車身中心原地旋轉。"""
     rate = rospy.Rate(20)
     t_end = rospy.get_time() + 20.0
+    pose = _robot_pose(fid)
+    if pose is not None and _make_room_to_turn(fid, alive, _wrap(yaw - pose[2])) == 'stopped':
+        return 'stopped'
     try:
         while not rospy.is_shutdown():
             if not alive():
@@ -1802,6 +2006,8 @@ def coverage_start():
     plan_ms = (time.perf_counter() - t_plan) * 1000.0
     if not r['waypoints']:
         return jsonify({'ok': False, 'msg': '無可走路徑，地圖可能不完整'})
+    r['waypoints'], n_nudge, n_short = _nudge_turns(r['waypoints'], r['kind'], clean, free, meta['resolution'],
+                                                    meta['origin_x'], meta['origin_y'])
 
     with robot_lock:
         robot_path.clear()          # 先清空，再切 running，軌跡才會從這一刻開始記
@@ -1813,7 +2019,7 @@ def coverage_start():
         cov_kind[:]  = r['kind']
         cov_cells[:] = r['cells']
         cov_skips.clear()
-        cov_grid.update(free=free, res=meta['resolution'],
+        cov_grid.update(free=free, clean=clean, res=meta['resolution'],
                         ox=meta['origin_x'], oy=meta['origin_y'])
         cov_clock.update(elapsed=0.0, t0=None)
         cov_cache.update(n=-1, ratio=0.0)
@@ -1824,6 +2030,8 @@ def coverage_start():
             scan_axis  = scan_axis,
             pca_axis_deg = round(math.degrees(math.atan2(r['pca_axis'][1], r['pca_axis'][0])), 1),
             n_turns    = _count_turns(r['waypoints']),
+            n_nudge    = n_nudge,
+            n_turn_tight = n_short,
             n_stuck    = 0,
             n_escape   = 0,
             synced     = _synced_commit(),
@@ -1842,13 +2050,14 @@ def coverage_start():
         cov_status.update(state='running', done=0, total=len(r['waypoints']), msg='')
         cov_rec.clear()
         cov_rec.update(task=cov_info['task'], t_start=time.time(), t_tl=0.0, mode='',
-                       events=[], timeline=[], path=[], track=[])
+                       events=[], timeline=[], path=[], track=[], pose=[])
     try:
         _cov_save_plan(r, raw['data'], clean, free, meta, start)
     except Exception as e:
         rospy.logerr('[coverage] 存規劃失敗：%s', e)
     if _read_synced() != RUN_VERSION:
         _cov_ev(f'⚠ 車上程式已同步為 {_read_synced()}，但系統仍在執行 {RUN_VERSION}（同步後沒重啟），本任務以 {RUN_VERSION} 記錄')
+    _cov_ev(f'轉彎路點離障礙 < {ROT_CLEAR*100:.0f} cm：往內推 {n_nudge} 個，仍不足 {n_short} 個（執行時轉向前會再檢查）')
     _cov_ev(f"規劃完成：路點 {len(r['waypoints'])}（直線 {r['kind'].count('line')}、導航 {r['kind'].count('move')}），"
             f"外圈頂點 {len(r['perimeter'])}，雜點 {int(noise.sum())} 格")
 

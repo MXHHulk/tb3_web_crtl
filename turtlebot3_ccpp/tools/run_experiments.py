@@ -53,7 +53,8 @@ NAV_TIMEOUT = 120       # 回起點＋轉向最長等待（秒）
 
 FIELDS = ['trial', 'group', 'rep', 'nav_mode', 'scan_axis', 'tilt_target_deg', 'room_axis_in_map_deg',
           'tilt_actual_deg', 'explore_task', 'explore_state', 'explore_area_m2', 'coverage_task',
-          'coverage_state', 'reached', 'total', 'skipped', 'n_stuck', 'n_escape', 'n_turns', 'actual_cov',
+          'coverage_state', 'reached', 'total', 'skipped', 'n_stuck', 'n_escape', 'n_contact', 'contact_s',
+          'min_clear_cm', 'n_turns', 'actual_cov',
           'plan_cov', 'exec_s', 'actual_len', 'plan_len', 'n_cells', 'batt_start_v', 'batt_end_v',
           'version', 'started', 'note']
 
@@ -179,12 +180,14 @@ class Runner:
             return None, f'無法開始覆蓋：{r.get("msg")}'
         time.sleep(3)
         st = self.wait(lambda s: s.get('state') != 'running', COVER_TIMEOUT, 3.0)
+        why = ''
         if st is None:
             call('/coverage/stop', {})
             time.sleep(3)
-            st = status()
-            return st, '覆蓋逾時，已停止'
-        return st, ''
+            why = '覆蓋逾時，已停止'
+        # 結束後 map_server 才算撞牆指標（n_contact），等它出現再讀
+        st = self.wait(lambda s: (s.get('metrics') or {}).get('n_contact') is not None, 20, 1.0) or status()
+        return st, why
 
     # ── 一輪 ──
     def trial(self, t):
@@ -237,7 +240,8 @@ class Runner:
         pa = m.get('pca_axis_deg')
         row.update(coverage_task=m.get('task'), coverage_state=m.get('state'), reached=m.get('reached'),
                    total=m.get('total'), skipped=m.get('skipped'), n_stuck=m.get('n_stuck'),
-                   n_escape=m.get('n_escape'), n_turns=m.get('n_turns'), actual_cov=m.get('actual_cov'),
+                   n_escape=m.get('n_escape'), n_contact=m.get('n_contact'), contact_s=m.get('contact_s'),
+                   min_clear_cm=m.get('min_clear_cm'), n_turns=m.get('n_turns'), actual_cov=m.get('actual_cov'),
                    plan_cov=m.get('plan_cov'), exec_s=m.get('exec_s'), actual_len=m.get('actual_len'),
                    plan_len=m.get('plan_len'), n_cells=m.get('n_cells'), version=m.get('synced'),
                    batt_end_v=st.get('battery_v'), note=why)
@@ -245,7 +249,7 @@ class Runner:
             row['room_axis_in_map_deg'] = pa
             row['tilt_actual_deg'] = round(-axis_deg(pa), 1)    # 地圖 x 軸相對房間長邊的角度
             S['room_dir_deg'] = axis_deg(pa)                    # 下一輪以實測的房間方向為準
-        self.log(f"  覆蓋結束：{m.get('state')}  {m.get('reached')}/{m.get('total')}  受困 {m.get('n_stuck')}  "
+        self.log(f"  覆蓋結束：{m.get('state')}  {m.get('reached')}/{m.get('total')}  受困 {m.get('n_stuck')}  碰牆 {m.get('n_contact')}  "
                  f"覆蓋 {m.get('actual_cov')}  轉彎 {m.get('n_turns')}  實際斜角 {row.get('tilt_actual_deg')}°  {why}")
         self.write_row(row)
         return 'continue'
