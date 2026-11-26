@@ -42,7 +42,7 @@ turtlebot3_ccpp_local/
 | 位置 | 角色 | 規則 |
 |---|---|---|
 | 電腦（本 repo） | 唯一改程式的地方 | 改完 → CHANGELOG → commit → push |
-| GitHub | 正式版本與備份 | `main`＝車上穩定版；里程碑打 tag（`v1.0-baseline`＝改導航前） |
+| GitHub | 正式版本與備份 | `main`＝車上穩定版；里程碑打 tag（`v1.0.0`＝改導航前） |
 | TB3 | 只執行 | 只經 `sync_to_robot.sh` 更新，不在車上改程式；車上 `.synced_commit` 記錄版本 |
 
 車上產生的紀錄（`data/`、`maps/`）每次實驗後用 `pull_from_robot.sh` 拉回 `experiments/robot/` 並 commit。

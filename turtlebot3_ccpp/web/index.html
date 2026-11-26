@@ -169,6 +169,11 @@ progress { width: 100%; height: 5px; }
 
         <div class="sec">
             <div class="sec-title">執行控制</div>
+            <div class="hint">導航方式
+                <select id="nav-mode">
+                    <option value="astar">A*＋自寫循跡（預設）</option>
+                    <option value="movebase">move_base（DWA，對照組）</option>
+                </select></div>
             <button id="btn-start" class="btn btn-start">▶ 開始執行</button>
             <button id="btn-resume" class="btn btn-resume" disabled>⏵ 從中斷處繼續</button>
             <button id="btn-stop"  class="btn btn-stop" disabled>■ 結束</button>
@@ -206,6 +211,8 @@ progress { width: 100%; height: 5px; }
                 <tr><td>規劃覆蓋率</td><td id="m-plan-cov">—</td></tr>
                 <tr><td>規劃路徑長</td><td id="m-plan-len">—</td></tr>
                 <tr class="grp"><td colspan="2">執行</td></tr>
+                <tr><td>導航方式</td><td id="m-nav">—</td></tr>
+                <tr><td>受困次數</td><td id="m-stuck">—</td></tr>
                 <tr><td>實際覆蓋率</td><td id="m-act-cov">—</td></tr>
                 <tr><td>任務完成率</td><td id="m-done">—</td></tr>
                 <tr><td>跳過路點</td><td id="m-skip">—</td></tr>
@@ -497,7 +504,9 @@ function drawRobot(px, py, color) {
 $('btn-start').onclick = async () => {
     $('btn-start').disabled = true;
     try {
-        const d = await (await fetch('/coverage/start', { method: 'POST' })).json();
+        const d = await (await fetch('/coverage/start', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ nav_mode: $('nav-mode').value }) })).json();
         if (!d.ok) { alert('無法開始：' + d.msg); $('btn-start').disabled = false; }
     } catch (e) { alert('連線失敗：' + e); $('btn-start').disabled = false; }
 };
@@ -648,6 +657,8 @@ function updateUI() {
     $('m-area').textContent     = has ? M.area.toFixed(2) + ' m²' : '—';
     $('m-plan-cov').textContent = has ? pct(M.plan_cov) : '—';
     $('m-plan-len').textContent = has ? m(M.plan_len) : '—';
+    $('m-nav').textContent      = has ? ({ astar: 'A*＋自寫循跡', movebase: 'move_base（DWA）' }[M.nav_mode] || M.nav_mode || '—') : '—';
+    $('m-stuck').textContent    = has ? (M.n_stuck ?? 0) : '—';
     $('m-act-cov').textContent  = has ? pct(M.actual_cov) : '—';
     $('m-done').textContent     = has ? `${pct(M.completion)}（${M.reached} / ${M.total}）` : '—';
     $('m-skip').textContent     = has ? M.skipped : '—';

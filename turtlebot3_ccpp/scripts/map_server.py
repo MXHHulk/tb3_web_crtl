@@ -3,7 +3,8 @@
 TurtleBot3 地圖伺服器（Module A）
   - 訂閱 /map  → 提供原始 / 侵蝕 / 顯示膨脹 / 規劃安全邊距 四種地圖 PNG
   - TF map → base_footprint → 機器人位置與行走軌跡（地圖座標，已含 SLAM 修正）
-  - /coverage/start|resume|stop|status → 牛耕式路徑規劃 + move_base 執行，並回傳 cell 分解結果
+  - /coverage/start|resume|stop|status → 牛耕式路徑規劃＋執行，並回傳 cell 分解結果；
+                                  /coverage/start 的 JSON 可帶 nav_mode：astar（自寫 A*＋循跡，預設）／movebase（navfn＋DWA 對照組）
   - /teleop                     → 手動遙控（與覆蓋執行互斥）
   - /slam/restart               → 重啟 SLAM 重新建圖（本節點負責 SLAM 的生命週期）
   - /explore/start|stop         → 自動建圖：以子行程管理 explore_lite（frontier 探索），
@@ -22,13 +23,13 @@ sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 from coverage_planner import (plan as plan_coverage, SPACING as COV_SPACING,
                               MARGIN as COV_MARGIN, apply_safety_margin, coverage_ratio,
                               remove_noise, COVER_R as COV_COVER_R, _seg_free, _rdp)
+from astar import plan_path as astar_plan
 
 import numpy as np
 import rospkg, rospy
 from flask import Flask, Response, jsonify, request, send_file
 from geometry_msgs.msg import PoseStamped, Twist
 from nav_msgs.msg import OccupancyGrid
-from nav_msgs.srv import GetPlan
 from rosgraph_msgs.msg import Log
 from sensor_msgs.msg import BatteryState, LaserScan
 from PIL import Image, ImageDraw
@@ -85,8 +86,12 @@ BODY_R       = 0.11 # 車身半徑（公尺）：脫困前檢查地圖上會掃�
 LINE_V       = 0.12   # 直行速度（m/s）
 LINE_V_MIN   = 0.04   # 接近線尾時的最低速度（m/s）
 LINE_W_MAX   = 1.2    # 直行時角速度上限（rad/s）
-LINE_K_HEAD  = 2.0    # 角速度 = K_HEAD ×（方向誤差 + atan(K_CTE × 側向偏移 / 速度)）
-LINE_K_CTE   = 2.5
+LINE_K_HEAD  = 2.0    # 角速度 = K_HEAD ×（方向誤差 − 修正角），修正角 = atan(K_CTE × 側向偏移 / 速度)
+LINE_K_CTE   = 1.0    # 2026-11-26：2.5 → 1.0。2.5 時偏 2 cm 就要車頭轉 16° 回來，加上 SLAM 位置每 0.3 m 修正一次（實測有 6～8 cm 跳動），
+                      # 車子一直修過頭 → 蛇行（實測直行方向誤差 90% 達 23.5°）。模擬（SLAM 誤差 σ 2 cm＋7 cm 跳動＋指令延遲）比較 5 組參數：
+LINE_CORR_MAX = math.radians(10)  # 修正角上限 10°（原本無上限）。1.0／10° 讓方向誤差 90% 從約 17° 降到約 8°，真實側偏 95% 約 4 cm 不變
+                      # （側偏主要受定位誤差限制，不是控制器）。見 test/sim_coverage.py、CHANGELOG 2026-11-26
+TRACK_MAX    = 40000  # 循跡紀錄最多幾列（20 Hz ≈ 33 分鐘）
 LINE_TOL     = 0.03   # 線尾到達判定（公尺，沿線方向剩餘距離）
 ROT_START    = 0.25   # 方向誤差超過此值（rad，約 14°）先原地轉正再走
 ROT_TOL      = 0.05   # 原地轉正到此誤差內（rad，約 3°）
@@ -94,7 +99,13 @@ ROT_W_MAX    = 0.9    # 原地旋轉角速度上限（rad/s）
 ROT_W_MIN    = 0.25   # 原地旋轉最低角速度（太小馬達轉不動）
 FRONT_STOP   = 0.13   # 行進方向 ±20° 雷射最近距離小於此（公尺，自雷射量起）就停下，交給 move_base 處理
 TURN_KEEP    = 0.26   # 下一段方向變化小於此（rad，約 15°）時線尾不減速，直接接下一段
-NAV_RDP_EPS  = 0.04   # 向 move_base 要來的路線簡化成直線段的容許誤差（公尺）
+
+# ── 導航模式（每次開始覆蓋時由網頁選，整個任務固定；對照實驗只切換這一個變因） ──
+#   astar     掃描線自己直線循跡；跨區移動與失敗重試都用自寫 A*（scripts/astar.py）算路線、自己循跡開，
+#             完全不讓 move_base 開車（失敗就照實記成失敗，不退回 move_base）
+#   movebase  對照組：所有路點都交給 move_base（navfn 算路線＋DWA 開車）
+NAV_MODES   = ('astar', 'movebase')
+NAV_DEFAULT = 'astar'
 # COV_SPACING / COV_MARGIN 來自 coverage_planner 模組
 
 # ── 自動建圖（explore_lite） ──
@@ -962,6 +973,18 @@ def _wrap(a):
     return math.atan2(math.sin(a), math.cos(a))
 
 
+def _track(phase, pose, cte, eh, corr, v, w, seg):
+    """循跡每個控制週期記一列（20 Hz）：用來分辨走歪是控制器修過頭、還是 SLAM 位置跳動。"""
+    with cov_lock:
+        tr = cov_rec.get('track')
+        if tr is None or len(tr) >= TRACK_MAX:
+            return
+        tr.append((round(time.time() - cov_rec['t_start'], 2), cov_status['done'], seg, phase,
+                   round(pose[0], 4), round(pose[1], 4), round(math.degrees(pose[2]), 2),
+                   round(cte * 100, 2), round(math.degrees(eh), 2), round(math.degrees(corr), 2),
+                   round(v, 3), round(w, 3)))
+
+
 def _drive(v, w):
     tw = Twist()
     tw.linear.x, tw.angular.z = v, w
@@ -987,6 +1010,7 @@ def _follow_line(fid, p0, p1, stop_at_end=True):
         return 'ok'
     ux, uy = (x1 - x0) / L, (y1 - y0) / L
     heading = math.atan2(uy, ux)
+    seg = f'{x0:.3f},{y0:.3f}>{x1:.3f},{y1:.3f}'      # 紀錄用：這一段的起訖點
     rate = rospy.Rate(20)
     anchor, anchor_t = None, rospy.get_time()
     rotating = None
@@ -1033,6 +1057,7 @@ def _follow_line(fid, p0, p1, stop_at_end=True):
                 else:
                     w = max(ROT_W_MIN, min(ROT_W_MAX, 1.5 * abs(eh)))
                     _drive(0.0, math.copysign(w, eh))
+                    _track('rot', pose, cte, eh, 0.0, 0.0, math.copysign(w, eh), seg)
                     rate.sleep()
                     continue
 
@@ -1041,11 +1066,14 @@ def _follow_line(fid, p0, p1, stop_at_end=True):
             if near is not None and near < FRONT_STOP:
                 return 'blocked'
             v = LINE_V if not stop_at_end else max(LINE_V_MIN, min(LINE_V, 1.2 * remain))
-            steer = eh - math.atan2(LINE_K_CTE * cte, v + 0.05)
+            corr = math.atan2(LINE_K_CTE * cte, v + 0.05)    # 側偏修正角：偏離越多、越往回切
+            corr = max(-LINE_CORR_MAX, min(LINE_CORR_MAX, corr))
+            steer = eh - corr
             w = max(-LINE_W_MAX, min(LINE_W_MAX, LINE_K_HEAD * steer))
             if abs(eh) > 0.6:                                # 偏太多：先別往前衝
                 v = 0.0
             _drive(v, w)
+            _track('line', pose, cte, eh, corr, v, w, seg)
             rate.sleep()
         return 'stopped'
     finally:
@@ -1053,41 +1081,12 @@ def _follow_line(fid, p0, p1, stop_at_end=True):
             _drive(0.0, 0.0)
 
 
-def _nav_plan(fid, start, goal):
-    """
-    只借用 move_base 的全域規劃器（/move_base/make_plan，依全域 costmap 繞開障礙）算路線，
-    不讓它開車。回傳簡化後的折線 [(x, y), ...]，失敗回傳 None。
-    """
-    try:
-        rospy.wait_for_service('/move_base/make_plan', timeout=2.0)
-        srv = rospy.ServiceProxy('/move_base/make_plan', GetPlan)
-        req = []
-        for (px, py) in (start, goal):
-            ps = PoseStamped()
-            ps.header.frame_id = fid
-            ps.header.stamp = rospy.Time(0)
-            ps.pose.position.x, ps.pose.position.y = px, py
-            ps.pose.orientation.w = 1.0
-            req.append(ps)
-        resp = srv(start=req[0], goal=req[1], tolerance=0.1)
-    except Exception as e:
-        rospy.logwarn('[coverage] make_plan 失敗：%s', e)
-        return None
-    pts = np.array([(p.pose.position.x, p.pose.position.y) for p in resp.plan.poses], dtype=float)
-    if len(pts) < 2:
-        return None
-    simp = _rdp(pts, NAV_RDP_EPS)
-    out = [(float(a), float(b)) for a, b in simp]
-    out[-1] = (float(goal[0]), float(goal[1]))          # make_plan 有容許誤差，終點用真正的路點
-    return out
-
-
 def _drive_to(fid, x, y):
     """
-    自己開到 (x, y)，不經 DWA：
+    自己開到 (x, y)，不經 move_base／DWA：
       1. 從目前位置到目標的直線整段都在規劃用可走區內 → 直接直線循跡
-      2. 否則向 move_base 要一條繞開障礙的路線，逐段直線循跡
-    回傳 'ok' / 'blocked' / 'stalled' / 'failed'（要不到路線）/ 'stopped'。
+      2. 否則用自寫 A* 在同一張可走區（去雜點＋安全邊距）上算繞障路線，逐段直線循跡
+    回傳 'ok' / 'blocked' / 'stalled' / 'failed'（A* 算不出路線）/ 'stopped'。
     """
     pose = _robot_pose(fid)
     if pose is None:
@@ -1095,13 +1094,19 @@ def _drive_to(fid, x, y):
     start = (pose[0], pose[1])
     with cov_lock:
         g = dict(cov_grid)
-    if g and _seg_free(g['free'], g['res'], g['ox'], g['oy'], start, (x, y)):
+    if not g:
+        return 'failed'
+    if _seg_free(g['free'], g['res'], g['ox'], g['oy'], start, (x, y)):
         pts = [start, (x, y)]
     else:
-        pts = _nav_plan(fid, start, (x, y))
-        if not pts:
+        t0 = time.perf_counter()
+        r = astar_plan(g['free'], g['res'], g['ox'], g['oy'], start, (x, y))
+        ms = (time.perf_counter() - t0) * 1000
+        if not r['path']:
+            _cov_ev(f"A* 算不出路線（{r['why']}，{ms:.0f} ms）")
             return 'failed'
-        pts[0] = start
+        pts = r['path']
+        _cov_ev(f"A* 路線 {len(pts) - 1} 段、{_path_len(pts):.2f} m（{ms:.0f} ms）")
     for k in range(1, len(pts)):
         keep = False
         if k + 1 < len(pts):
@@ -1143,16 +1148,27 @@ def _run_coverage(start_idx=0):
     代表車被困住、脫困也救不回來——這時停止任務、把進度退回第一個失敗的路點，
     讓使用者手動移車後按「從中斷處繼續」，而不是把剩下的路點全部跳光。
     """
-    if not HAS_MB:
+    with cov_lock:
+        mode = cov_info.get('nav_mode', NAV_DEFAULT)
+    client = None
+    if mode == 'movebase':
+        if not HAS_MB:
+            with cov_lock:
+                cov_status.update(state='error', msg='未安裝 move_base_msgs')
+            return
+        client = actionlib.SimpleActionClient('move_base', MoveBaseAction)
+        if not client.wait_for_server(rospy.Duration(5.0)):
+            with cov_lock:
+                cov_status.update(state='error', msg='move_base 未啟動（等待 5 秒逾時）')
+            return
+    elif cmd_pub is None:
         with cov_lock:
-            cov_status.update(state='error', msg='未安裝 move_base_msgs')
+            cov_status.update(state='error', msg='/cmd_vel 未就緒')
         return
 
-    client = actionlib.SimpleActionClient('move_base', MoveBaseAction)
-    if not client.wait_for_server(rospy.Duration(5.0)):
-        with cov_lock:
-            cov_status.update(state='error', msg='move_base 未啟動（等待 5 秒逾時）')
-        return
+    def cancel_mb():
+        if client is not None:
+            client.cancel_all_goals()
 
     with cov_lock:
         path = list(cov_path)
@@ -1160,7 +1176,7 @@ def _run_coverage(start_idx=0):
         kind = list(cov_kind) if len(cov_kind) == len(cov_path) else ['move'] * len(cov_path)
         fid  = map_data.get('frame_id', 'map')
         cov_status.update(state='running', total=len(path), done=start_idx, msg='')
-    _cov_ev(f'開始執行（從路點 {start_idx + 1}/{len(path)}）')
+    _cov_ev(f'開始執行（從路點 {start_idx + 1}/{len(path)}，nav_mode={mode}）')
 
     n = len(path)
     fails, fail_pose = 0, None     # 連續失敗的路點數、這串失敗開始時車子的位置
@@ -1168,7 +1184,7 @@ def _run_coverage(start_idx=0):
         x, y = path[i]
         with cov_lock:
             if cov_status['state'] != 'running':
-                client.cancel_all_goals()
+                cancel_mb()
                 return
             cov_status['done'] = i
 
@@ -1189,28 +1205,29 @@ def _run_coverage(start_idx=0):
                                           - math.atan2(y - path[i - 1][1], x - path[i - 1][0]))) < TURN_KEEP
         t_wp = time.time()
 
-        # 依序嘗試（前一種失敗才換下一種）：
-        #   line      沿規劃的掃描線直行（只有 kind=line 且車子就在上一點旁）
-        #   own_nav   自己開：直線可走就直走，否則借 move_base 算路線、自己照著開（不經 DWA）
-        #   move_base 交給 move_base（含 DWA）開；第二次以後先脫困
-        # 2026-11-11 實測：跨區段交給 move_base 時，車子離牆 0.20 m 就被 DWA 判定「轉身會撞」而僵住，
-        # 所以把 move_base 退到備援。
-        methods = (['line'] if use_line else []) + ['own_nav'] + ['move_base'] * RETRY_MAX
+        # 依序嘗試（前一種失敗才換下一種）；兩種模式的重試次數相同（1 + RETRY_MAX），同一方法第二次起先脫困：
+        #   astar     line（kind=line 且車子就在上一點旁：沿掃描線直行）→ astar（A* 算路線、自己循跡）
+        #   movebase  move_base（navfn＋DWA）
+        # 2026-11-11 實測：交給 move_base 時，車子離牆 0.20 m 就被 DWA 判定「轉身會撞」而僵住（受困的唯一原因）。
+        if mode == 'movebase':
+            methods = ['move_base'] * (1 + RETRY_MAX)
+        else:
+            methods = (['line'] if use_line else []) + ['astar'] * (1 + RETRY_MAX)
         reached, method, why = False, '', ''
         for attempt, method in enumerate(methods):
-            if method in ('line', 'own_nav'):
-                client.cancel_all_goals()                # 確保 move_base 沒有在同時開車
+            if attempt > 0 and methods[attempt - 1] == method:   # 同一方法已失敗過 → 先脫困
+                with cov_lock:
+                    cov_status['msg'] = f'路點 {i+1}/{n} {why}，脫困後重試'
+                    cov_info['n_escape'] = cov_info.get('n_escape', 0) + 1
+                _cov_ev(f'路點 {i+1}/{n} 脫困（{why}）')
+                _escape(fid)
             with cov_lock:
                 cov_rec['mode'] = method
             if method == 'line':
                 result = _follow_line(fid, path[i - 1], (x, y), stop_at_end=not keep)
-            elif method == 'own_nav':
+            elif method == 'astar':
                 result = _drive_to(fid, x, y)
             else:
-                if methods[attempt - 1] == 'move_base':  # move_base 已失敗過一次 → 先脫困
-                    with cov_lock:
-                        cov_status['msg'] = f'路點 {i+1}/{n} {why}，脫困後重試'
-                    _escape(fid)
                 result = _go_to(client, fid, x, y, yaw, near=VIA_NEAR if via[i] else None)
             if result == 'stopped':
                 return
@@ -1251,11 +1268,12 @@ def _run_coverage(start_idx=0):
         rospy.logerr(f'[coverage] 連續 {fails} 個路點失敗且車子幾乎沒動，判定受困，停止於路點 {first+1}')
         _cov_ev(f'受困停止於路點 {first+1}/{n}')
         with cov_lock:
+            cov_info['n_stuck'] = cov_info.get('n_stuck', 0) + 1
             del cov_skips[-fails:]              # 受困期間的跳過不算數，繼續時從 first 重走
             cov_status.update(state='error', done=first,
                               msg=f'機器人受困（連續 {fails} 個路點失敗且幾乎沒移動），'
                                   '請手動把車移到空曠處後按「從中斷處繼續」')
-        client.cancel_all_goals()
+        cancel_mb()
         return
 
     with cov_lock:
@@ -1294,6 +1312,7 @@ def cov_metrics():
     reached = max(0, st['done'] - n_skip)
     return {
         'task':       info.get('task'),
+        'nav_mode':   info.get('nav_mode'),
         'state':      st['state'],
         'area':       info.get('area'),
         'plan_ms':    info.get('plan_ms'),
@@ -1302,6 +1321,8 @@ def cov_metrics():
         'total':      total,
         'reached':    reached,
         'skipped':    n_skip,
+        'n_stuck':    info.get('n_stuck', 0),
+        'n_escape':   info.get('n_escape', 0),
         'completion': round(reached / total, 4) if total else None,
         'exec_s':     round(exec_s, 1),
         'plan_len':   info.get('plan_len'),
@@ -1311,6 +1332,7 @@ def cov_metrics():
         'axis_deg':   info.get('axis_deg'),
         'ratio':      info.get('ratio'),
         'n_noise':    info.get('n_noise'),
+        'synced':     info.get('synced'),
     }
 
 
@@ -1342,7 +1364,9 @@ def _cov_write_log():
     覆蓋任務每次結束（完成、停止、受困皆然）覆寫同一任務的紀錄（停止後繼續會累積）：
       data/coverage/<task>_path.csv      行走軌跡（每 5 cm）
       data/coverage/<task>_timeline.csv  每秒：路點進度、控制方式（line/move）、位置朝向、電壓
+      data/coverage/<task>_track.csv     直線循跡每個控制週期（20 Hz）：位置、側偏、方向誤差、修正角、速度指令
       data/coverage/<task>_events.txt    指標摘要＋事件（到達、改用 move_base、跳過、受困…）
+    （規劃當下的路線與地圖在任務開始時就存成 <task>_plan.json、<task>_grid.npz，見 _cov_save_plan）
       data/coverage/<task>_map.png       地圖＋規劃路線（紫細線）＋實際掃過範圍（綠，車身寬）＋軌跡（紅）＋跳過（✕）
     """
     with cov_lock:
@@ -1363,6 +1387,11 @@ def _cov_write_log():
         w = csv.writer(f)
         w.writerow(['t_s', 'waypoint', 'mode', 'x', 'y', 'yaw_deg', 'battery_v'])
         w.writerows(rec['timeline'])
+    with open(base + '_track.csv', 'w', newline='', encoding='utf-8-sig') as f:
+        w = csv.writer(f)
+        w.writerow(['t_s', 'waypoint', 'segment', 'phase', 'x', 'y', 'yaw_deg',
+                    'cte_cm', 'head_err_deg', 'corr_deg', 'v', 'w'])
+        w.writerows(rec.get('track', []))
     with open(base + '_events.txt', 'w', encoding='utf-8') as f:
         f.write(json.dumps(m, ensure_ascii=False, indent=2) + '\n\n')
         f.writelines(f'{t:7.1f}s  {txt}\n' for t, txt in rec['events'])
@@ -1503,6 +1532,60 @@ def get_scan():
     return jsonify({'points': pts})
 
 
+def _cov_save_plan(r, raw, clean, free, meta, start):
+    """
+    任務開始時把「規劃當下」的輸入與輸出存檔，事後可完整重建、離線重算（SLAM 地圖之後還會變）：
+      data/coverage/<task>_plan.json  路點、方式（line/move）、中途點、外圈、cell、主軸、參數、版本
+      data/coverage/<task>_grid.npz   原始 SLAM 地圖、去雜點後地圖、可走區（bool）、解析度與原點
+    """
+    with cov_lock:
+        info = dict(cov_info)
+    out_dir = os.path.join(PKG, 'data', 'coverage')
+    os.makedirs(out_dir, exist_ok=True)
+    base = os.path.join(out_dir, info['task'])
+    center, axis_a, axis_b, eigvals = r['axes']
+    plan = {
+        'info': info,
+        'start': list(start) if start else None,
+        'params': {'spacing': COV_SPACING, 'margin': COV_MARGIN, 'cover_r': COV_COVER_R,
+                   'line_v': LINE_V, 'k_head': LINE_K_HEAD, 'k_cte': LINE_K_CTE,
+                   'corr_max_deg': round(math.degrees(LINE_CORR_MAX), 1), 'front_stop': FRONT_STOP},
+        'axes': {'center': [float(c) for c in center], 'axis_a': [float(c) for c in axis_a],
+                 'axis_b': [float(c) for c in axis_b], 'eigvals': [float(c) for c in eigvals]},
+        'waypoints': [[round(x, 4), round(y, 4)] for x, y in r['waypoints']],
+        'kind': list(r['kind']),
+        'via': [bool(v) for v in r['via']],
+        'perimeter': [[round(x, 4), round(y, 4)] for x, y in r['perimeter']],
+        'cells': [[[round(x, 4), round(y, 4)] for x, y in c] for c in r['cells']],
+    }
+    with open(base + '_plan.json', 'w', encoding='utf-8') as f:
+        json.dump(plan, f, ensure_ascii=False)
+    np.savez_compressed(base + '_grid.npz', raw=np.asarray(raw, dtype=np.int8),
+                        clean=np.asarray(clean, dtype=np.int8), free=free,
+                        res=meta['resolution'], ox=meta['origin_x'], oy=meta['origin_y'])
+
+
+def _synced_commit():
+    """
+    車上程式版本（sync_to_robot.sh 寫入的 .synced_commit），寫進每筆紀錄供追溯。
+    記的是「本程式啟動時」讀到的版本（RUN_VERSION），不是任務開始時的檔案內容：
+    同步後沒重啟系統，記憶體裡跑的仍是舊程式（2026-11-26 任務 115816 就因此被誤標成新版）。
+    兩者不同時另外記一筆警告事件。
+    """
+    return RUN_VERSION
+
+
+def _read_synced():
+    try:
+        with open(os.path.join(PKG, '.synced_commit'), encoding='utf-8') as f:
+            return f.read().strip()
+    except OSError:
+        return 'unknown'
+
+
+RUN_VERSION = _read_synced()       # 本程式啟動時的版本
+
+
 @app.route('/coverage/start', methods=['POST'])
 def coverage_start():
     if _exploring():
@@ -1517,6 +1600,9 @@ def coverage_start():
 
     if not meta or raw.get('data') is None:
         return jsonify({'ok': False, 'msg': '地圖尚未就緒'})
+    nav_mode = (request.get_json(silent=True) or {}).get('nav_mode') or NAV_DEFAULT
+    if nav_mode not in NAV_MODES:
+        return jsonify({'ok': False, 'msg': f'未知的導航模式：{nav_mode}'})
 
     teleop_halt()                                  # 交出 /cmd_vel 控制權前先停車
 
@@ -1551,6 +1637,10 @@ def coverage_start():
         cov_info.clear()
         cov_info.update(
             task       = time.strftime('%Y%m%d-%H%M%S'),
+            nav_mode   = nav_mode,
+            n_stuck    = 0,
+            n_escape   = 0,
+            synced     = _synced_commit(),
             plan_ms    = round(plan_ms, 1),
             plan_cov   = round(coverage_ratio(free, meta['resolution'], meta['origin_x'],
                                               meta['origin_y'], r['sweeps']), 4),
@@ -1566,7 +1656,13 @@ def coverage_start():
         cov_status.update(state='running', done=0, total=len(r['waypoints']), msg='')
         cov_rec.clear()
         cov_rec.update(task=cov_info['task'], t_start=time.time(), t_tl=0.0, mode='',
-                       events=[], timeline=[], path=[])
+                       events=[], timeline=[], path=[], track=[])
+    try:
+        _cov_save_plan(r, raw['data'], clean, free, meta, start)
+    except Exception as e:
+        rospy.logerr('[coverage] 存規劃失敗：%s', e)
+    if _read_synced() != RUN_VERSION:
+        _cov_ev(f'⚠ 車上程式已同步為 {_read_synced()}，但系統仍在執行 {RUN_VERSION}（同步後沒重啟），本任務以 {RUN_VERSION} 記錄')
     _cov_ev(f"規劃完成：路點 {len(r['waypoints'])}（直線 {r['kind'].count('line')}、導航 {r['kind'].count('move')}），"
             f"外圈頂點 {len(r['perimeter'])}，雜點 {int(noise.sum())} 格")
 
