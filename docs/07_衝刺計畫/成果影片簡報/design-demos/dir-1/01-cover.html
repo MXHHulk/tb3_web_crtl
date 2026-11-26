@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<title>方向 1 · 封面</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { width: 960pt; height: 540pt; position: relative; overflow: hidden;
+         background: #FFFFFF; font-family: "Noto Sans TC", "Microsoft JhengHei", sans-serif; color: #1F4E79; }
+  .abs { position: absolute; }
+  h1 { font-family: "Noto Serif TC", serif; font-weight: 700; font-size: 46pt; line-height: 1.2; color: #1F4E79; }
+  .sub { font-family: "Noto Serif TC", serif; font-size: 22pt; font-weight: 500; color: #1F4E79; }
+  .claim { font-size: 18pt; line-height: 1.7; color: #2b3a48; }
+  .note { font-size: 12pt; line-height: 1.5; color: #4d6478; }
+  .lab  { font-size: 13pt; line-height: 1.35; color: #1F4E79; }
+  .lab b { font-weight: 700; }
+  .lead { height: 1pt; background: #8ABAE6; }
+  .dot  { width: 6pt; height: 6pt; border-radius: 3pt; background: #1F4E79; }
+</style>
+</head>
+<body>
+  <!-- 左：題目與一句斷言 -->
+  <div class="abs" style="left: 56pt; top: 92pt; width: 300pt;">
+    <h1>牛耕式演算法</h1>
+    <p class="sub" style="margin-top: 8pt;">以 TurtleBot3 實作</p>
+  </div>
+  <div class="abs" style="left: 56pt; top: 238pt; width: 290pt; height: 1pt; background: #b9dcfc;"></div>
+  <div class="abs" style="left: 56pt; top: 256pt; width: 300pt;">
+    <p class="claim">車子不必擺正。放進房間、按一個鍵，它會自己畫出地圖，再沿著與牆平行的掃描線，走遍每一寸地面。</p>
+  </div>
+  <div class="abs" style="left: 56pt; top: 462pt; width: 300pt;">
+    <p class="note">指導老師　卓世明</p>
+    <p class="note">學生　陳紹桓、陳柏屹</p>
+  </div>
+
+  <!-- 右：規劃器真實輸出 -->
+  <img class="abs" src="../../assets/path_tilt30_big.png" style="left: 372pt; top: 38pt; width: 440pt; height: 440pt;">
+
+  <!-- 直接標註（取代圖例） -->
+  <div class="abs dot"  style="left: 696pt; top: 186pt;"></div>
+  <div class="abs lead" style="left: 702pt; top: 189pt; width: 118pt;"></div>
+  <div class="abs" style="left: 826pt; top: 176pt; width: 120pt;">
+    <p class="lab"><b>PCA 主軸</b></p><p class="lab">掃描方向跟著房間走</p>
+  </div>
+
+  <div class="abs dot"  style="left: 640pt; top: 245pt;"></div>
+  <div class="abs lead" style="left: 646pt; top: 248pt; width: 174pt;"></div>
+  <div class="abs" style="left: 826pt; top: 235pt; width: 120pt;">
+    <p class="lab"><b>障礙物</b></p><p class="lab">空間切成 7 個 cell</p>
+  </div>
+
+  <div class="abs dot"  style="left: 762pt; top: 312pt;"></div>
+  <div class="abs lead" style="left: 768pt; top: 315pt; width: 52pt;"></div>
+  <div class="abs" style="left: 826pt; top: 302pt; width: 120pt;">
+    <p class="lab"><b>外圈</b></p><p class="lab">最後沿牆補掃一圈</p>
+  </div>
+
+  <div class="abs" style="left: 400pt; top: 486pt; width: 520pt;">
+    <p class="note">離線規劃輸出：coverage_planner.plan()，3.0 × 2.6 m 合成場地斜放 30°</p>
+  </div>
+</body>
+</html>

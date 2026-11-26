@@ -1,0 +1,704 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TurtleBot3 覆蓋路徑規劃控制台</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+    --bg:      #0d1117;
+    --panel:   #161b22;
+    --line:    #30363d;
+    --text:    #e6edf3;
+    --dim:     #8b949e;
+    --accent:  #58a6ff;
+    --ok:      #3fb950;
+    --warn:    #d29922;
+    --danger:  #f85149;
+}
+
+body {
+    font-family: 'Segoe UI', 'Noto Sans TC', Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    overflow: hidden;
+}
+
+/* ── 頂列 ── */
+header {
+    display: flex; align-items: center; gap: 12px;
+    padding: 8px 14px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--line);
+    flex-shrink: 0;
+}
+h1 { font-size: 0.9em; font-weight: 600; color: var(--accent); white-space: nowrap; }
+
+.badge {
+    padding: 3px 10px; border-radius: 20px;
+    font-size: 0.72em; font-weight: 700; letter-spacing: 0.04em;
+    border: 1.5px solid currentColor;
+}
+.badge.manual  { color: var(--ok); }
+.badge.running { color: var(--warn); }
+.badge.error   { color: var(--danger); }
+
+#clock { margin-left: auto; font-size: 0.7em; color: var(--dim); white-space: nowrap; }
+
+/* ── 主體：地圖 + 側欄 ── */
+.body { flex: 1; display: flex; min-height: 0; }
+
+main {
+    flex: 1; display: flex;
+    align-items: center; justify-content: center;
+    overflow: hidden; padding: 10px; min-height: 0;
+}
+#canvas  { display: block; image-rendering: pixelated; }
+#waiting { color: var(--dim); font-size: 0.85em; }
+
+aside {
+    width: 250px; flex-shrink: 0;
+    background: var(--panel);
+    border-left: 1px solid var(--line);
+    overflow-y: auto;
+    display: flex; flex-direction: column; gap: 14px;
+    padding: 12px;
+}
+.sec-title {
+    font-size: 0.68em; font-weight: 700; color: var(--dim);
+    letter-spacing: 0.12em; text-transform: uppercase;
+    padding-bottom: 5px; border-bottom: 1px solid var(--line);
+}
+.sec { display: flex; flex-direction: column; gap: 8px; }
+
+/* 圖層按鈕 */
+.layers { display: flex; flex-direction: column; gap: 4px; }
+.layer-btn {
+    display: flex; align-items: center; gap: 7px;
+    padding: 4px 8px;
+    border-radius: 5px; border: 1px solid var(--line);
+    background: transparent; color: inherit;
+    font-size: 0.75em; cursor: pointer; user-select: none;
+    text-align: left; transition: background 0.12s;
+}
+.layer-btn:hover { background: #1f242c; }
+.layer-btn .dot {
+    width: 9px; height: 9px; border-radius: 2px;
+    background: var(--sw); flex-shrink: 0;
+}
+.layer-btn.off { opacity: 0.4; }
+.layer-btn.off .dot { background: transparent; box-shadow: inset 0 0 0 1.5px var(--sw); }
+
+/* 按鈕 */
+.btn {
+    padding: 7px 12px; border-radius: 6px; border: none;
+    font-size: 0.78em; font-weight: 600; cursor: pointer;
+    color: #fff; transition: filter 0.12s;
+}
+.btn:hover:not(:disabled) { filter: brightness(1.15); }
+.btn:disabled { opacity: 0.3; cursor: not-allowed; }
+.btn-start { background: #238636; }
+.btn-stop  { background: #da3633; }
+.btn-slam  { background: #1f6feb; }
+.btn-resume { background: #9e6a03; }
+.btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* 遙控搖桿 */
+.pad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; }
+.pad button {
+    aspect-ratio: 1; border-radius: 6px;
+    border: 1px solid var(--line); background: #21262d; color: var(--text);
+    font-size: 1.05em; cursor: pointer; user-select: none;
+    display: flex; align-items: center; justify-content: center;
+    transition: background 0.1s;
+}
+.pad button:hover:not(:disabled) { background: #30363d; }
+.pad button:active:not(:disabled) { background: var(--accent); color: #04101f; }
+.pad button:disabled { opacity: 0.25; cursor: not-allowed; }
+.pad button.stop { color: var(--danger); font-size: 0.9em; }
+
+.speed { display: flex; align-items: center; gap: 7px; font-size: 0.72em; color: var(--dim); }
+.speed input { flex: 1; }
+
+.hint { font-size: 0.68em; color: var(--dim); line-height: 1.5; }
+.locked { color: var(--warn); }
+
+/* 任務指標 */
+table.info { width: 100%; border-collapse: collapse; font-size: 0.73em; }
+table.info td { padding: 3px 0; }
+table.info tr.grp td { padding-top: 7px; color: var(--accent); font-size: 0.92em; }
+a.dl { display: block; margin-top: 6px; font-size: 0.7em; color: var(--accent); text-decoration: none; }
+a.dl:hover { text-decoration: underline; }
+table.info td:first-child { color: var(--dim); }
+table.info td:last-child  { text-align: right; font-variant-numeric: tabular-nums; }
+
+progress { width: 100%; height: 5px; }
+
+@media (max-width: 720px) {
+    .body { flex-direction: column; }
+    aside { width: 100%; border-left: none; border-top: 1px solid var(--line); max-height: 46vh; }
+}
+</style>
+</head>
+<body>
+
+<header>
+    <h1>TurtleBot3 覆蓋路徑規劃</h1>
+    <span class="badge manual" id="mode-badge">手動模式</span>
+    <span id="clock">等待資料…</span>
+</header>
+
+<div class="body">
+    <main>
+        <canvas id="canvas" style="display:none"></canvas>
+        <div id="waiting">等待地圖資料…</div>
+    </main>
+
+    <aside>
+        <div class="sec">
+            <div class="sec-title">圖層</div>
+            <div class="layers" id="layers"></div>
+            <div class="hint">路點：○ 待走　● 已到達　◎ 目前目標<br>
+                ✕ 跳過（<span style="color:#f85149">紅＝無法到達</span>、<span style="color:#ffa657">橘＝停滯</span>），旁邊數字為路點序號</div>
+        </div>
+
+        <div class="sec">
+            <div class="sec-title">執行控制</div>
+            <button id="btn-start" class="btn btn-start">▶ 開始執行</button>
+            <button id="btn-resume" class="btn btn-resume" disabled>⏵ 從中斷處繼續</button>
+            <button id="btn-stop"  class="btn btn-stop" disabled>■ 結束</button>
+            <progress id="prog" value="0" max="1"></progress>
+            <div class="hint" id="cov-info">閒置</div>
+        </div>
+
+        <div class="sec">
+            <div class="sec-title">手動操作</div>
+            <div class="pad" id="pad">
+                <button data-v="0.7"  data-w="0.6"  title="左前">↖</button>
+                <button data-v="1"    data-w="0"    title="前進 (W)">↑</button>
+                <button data-v="0.7"  data-w="-0.6" title="右前">↗</button>
+                <button data-v="0"    data-w="1"    title="左轉 (A)">←</button>
+                <button data-v="0"    data-w="0"    title="停止 (空白鍵)" class="stop">■</button>
+                <button data-v="0"    data-w="-1"   title="右轉 (D)">→</button>
+                <button data-v="-0.7" data-w="0.6"  title="左後">↙</button>
+                <button data-v="-1"   data-w="0"    title="後退 (S)">↓</button>
+                <button data-v="-0.7" data-w="-0.6" title="右後">↘</button>
+            </div>
+            <div class="speed">
+                <span>速度</span>
+                <input type="range" id="speed" min="20" max="100" value="60">
+                <span id="speed-val">60%</span>
+            </div>
+            <div class="hint" id="pad-hint">鍵盤 W / A / S / D，空白鍵停止</div>
+        </div>
+
+        <div class="sec">
+            <div class="sec-title">任務指標</div>
+            <table class="info" id="plan-info">
+                <tr class="grp"><td colspan="2">規劃</td></tr>
+                <tr><td>規劃時間</td><td id="m-plan-ms">—</td></tr>
+                <tr><td>可達面積</td><td id="m-area">—</td></tr>
+                <tr><td>規劃覆蓋率</td><td id="m-plan-cov">—</td></tr>
+                <tr><td>規劃路徑長</td><td id="m-plan-len">—</td></tr>
+                <tr class="grp"><td colspan="2">執行</td></tr>
+                <tr><td>實際覆蓋率</td><td id="m-act-cov">—</td></tr>
+                <tr><td>任務完成率</td><td id="m-done">—</td></tr>
+                <tr><td>跳過路點</td><td id="m-skip">—</td></tr>
+                <tr><td>執行時間</td><td id="m-time">—</td></tr>
+                <tr><td>實際行走長</td><td id="m-act-len">—</td></tr>
+            </table>
+            <div class="hint">覆蓋率分母＝扣除安全邊距後的可達區；路線兩側各 0.10 m 算掃過。<br>
+                任務完成率＝成功到達的路點 / 總路點。每次執行結束自動記錄一筆。</div>
+            <a class="dl" href="/coverage/runs.csv" download>⬇ 下載歷次執行數據（CSV）</a>
+        </div>
+
+        <div class="sec">
+            <div class="sec-title">建圖</div>
+            <button id="btn-slam" class="btn btn-slam">⟳ 重啟 SLAM 重新建圖</button>
+            <div class="hint">會清空目前地圖與軌跡，重新開始建圖。<br>更動場地擺設後使用。</div>
+        </div>
+    </aside>
+</div>
+
+<script>
+// ════════════════════════════════════════════════════════
+//  圖層定義
+// ════════════════════════════════════════════════════════
+const LAYERS = [
+    { id: 'orig',    label: '原始地圖',       color: '#c9d1d9', type: 'map',   url: '/map.png',        on: true },
+    { id: 'margin',  label: '安全邊距（膨脹）', color: '#ff7b72', type: 'map',   url: '/map_margin.png', on: true },
+    { id: 'noise',   label: '雜點（規劃忽略）', color: '#facc15', type: 'map',   url: '/map_noise.png',  on: true },
+    { id: 'cells',   label: 'cell 分解',      color: '#7ee787', type: 'cells', on: true },
+    { id: 'covpath', label: '覆蓋路徑',       color: '#c084fc', type: 'path',  on: true },
+    { id: 'wps',     label: '規劃路點',       color: '#f0f6fc', type: 'wps',   on: true },
+    { id: 'swath',   label: '實際掃過範圍',   color: '#3fb950', type: 'swath', on: true },
+    { id: 'trail',   label: '行走軌跡',       color: '#e3b341', type: 'trail', on: true },
+    { id: 'robot',   label: '機器人',         color: '#3fb950', type: 'robot', on: true },
+];
+
+// cell 配色（依序輪用，讓相鄰 cell 明顯不同色）
+const CELL_COLORS = ['#7ee787', '#79c0ff', '#ffa657', '#d2a8ff',
+                     '#f778ba', '#56d4dd', '#e3b341', '#ff7b72'];
+
+const $ = id => document.getElementById(id);
+const canvas = $('canvas'), ctx = canvas.getContext('2d'), mainEl = document.querySelector('main');
+const imgCache = {};
+
+let robot = { pos: null, path: [], resolution: 0.05 };
+let cov   = { state: 'idle', done: 0, total: 0, msg: '', path_px: [], cells_px: [], skipped: [], info: {}, manual: true };
+
+const layerOn = id => LAYERS.find(l => l.id === id).on;
+
+// ── 圖層按鈕 ──
+$('layers').append(...LAYERS.map(L => {
+    const b = document.createElement('button');
+    b.className = 'layer-btn' + (L.on ? '' : ' off');
+    b.style.setProperty('--sw', L.color);
+    b.innerHTML = `<span class="dot"></span>${L.label}`;
+    b.onclick = () => { L.on = !L.on; b.classList.toggle('off', !L.on); draw(); };
+    return b;
+}));
+
+// ════════════════════════════════════════════════════════
+//  繪製
+// ════════════════════════════════════════════════════════
+let mapW = 0, mapH = 0, zoom = 1;   // 地圖像素尺寸；zoom＝每個地圖像素對應幾個 canvas 像素
+
+/**
+ * canvas 以實際顯示解析度繪製，繪圖座標仍是地圖像素（靠 transform 放大）。
+ * 若 canvas 只有地圖大小再用 CSS 放大，線條與文字會跟著地圖格子一起變成馬賽克。
+ */
+function fitCanvas() {
+    if (!mapW) return;
+    const s = Math.min((mainEl.clientWidth - 20) / mapW, (mainEl.clientHeight - 20) / mapH);
+    const cssW = Math.round(mapW * s), cssH = Math.round(mapH * s);
+    const dpr  = window.devicePixelRatio || 1;
+    canvas.style.width  = cssW + 'px';
+    canvas.style.height = cssH + 'px';
+    canvas.width  = Math.round(cssW * dpr);
+    canvas.height = Math.round(cssH * dpr);
+    zoom = canvas.width / mapW;
+}
+window.addEventListener('resize', () => { fitCanvas(); draw(); });
+
+/** 螢幕上 1 個 CSS 像素等於幾個地圖像素（讓文字、細線不隨縮放改變粗細） */
+const cssPx = () => (window.devicePixelRatio || 1) / zoom;
+
+const hexToRgb = h => [parseInt(h.slice(1,3),16), parseInt(h.slice(3,5),16), parseInt(h.slice(5,7),16)];
+
+/** 把灰階地圖轉成彩色障礙圖層（空地透明） */
+function colorize(img, hex) {
+    const c = document.createElement('canvas');
+    c.width = img.naturalWidth; c.height = img.naturalHeight;
+    const cx = c.getContext('2d');
+    cx.drawImage(img, 0, 0);
+    const id = cx.getImageData(0, 0, c.width, c.height), d = id.data;
+    const [r, g, b] = hexToRgb(hex);
+    for (let i = 0; i < d.length; i += 4) {
+        const v = d[i];
+        if      (v < 80)  { d[i]=r; d[i+1]=g; d[i+2]=b; d[i+3]=200; }   // 障礙 → 著色
+        else if (v > 180) { d[i+3] = 0; }                                // 空地 → 透明
+        else              { d[i]=55; d[i+1]=55; d[i+2]=75; d[i+3]=40; } // 未知 → 淡灰
+    }
+    cx.putImageData(id, 0, 0);
+    return c;
+}
+
+function draw() {
+    const orig = imgCache['orig'];
+    if (!orig) return;
+
+    const W = orig.naturalWidth, H = orig.naturalHeight;
+    if (mapW !== W || mapH !== H) { mapW = W; mapH = H; fitCanvas(); }
+
+    ctx.setTransform(zoom, 0, 0, zoom, 0, 0);
+    ctx.imageSmoothingEnabled = false;                 // 地圖格子維持銳利方塊
+    ctx.fillStyle = '#0d1117';
+    ctx.fillRect(0, 0, W, H);
+
+    for (const L of LAYERS) {
+        if (L.type !== 'map' || !L.on || !imgCache[L.id]) continue;
+        if (L.id === 'orig') {
+            ctx.globalAlpha = 1;
+            ctx.drawImage(imgCache[L.id], 0, 0, W, H);
+        } else {
+            ctx.globalAlpha = 0.8;
+            ctx.drawImage(colorize(imgCache[L.id], L.color), 0, 0, W, H);
+            ctx.globalAlpha = 1;
+        }
+    }
+
+    if (layerOn('cells')   && cov.cells_px.length)  drawCells(cov.cells_px);
+    if (layerOn('covpath') && cov.path_px.length > 1)
+        drawCovPath(cov.path_px, LAYERS.find(l => l.id === 'covpath').color, cov.done);
+    if (layerOn('swath')   && robot.path.length > 1)
+        drawSwath(robot.path, LAYERS.find(l => l.id === 'swath').color, cov.cover_r || 0.089, robot.resolution);
+    if (layerOn('trail')   && robot.path.length > 1)
+        drawTrail(robot.path, LAYERS.find(l => l.id === 'trail').color);
+    if (layerOn('wps')     && cov.path_px.length)     // 疊在軌跡之上，跳過標記才不會被蓋住
+        drawWaypoints(cov.path_px, cov.done, cov.skipped || [], cov.state === 'running');
+    if (layerOn('robot')   && robot.pos)
+        drawRobot(robot.pos.x, robot.pos.y, LAYERS.find(l => l.id === 'robot').color);
+}
+
+/** cell 分解：每個 cell 一種顏色，粗線＝掃描線，細線＝cell 內換行，字母＝走訪順序 */
+function drawCells(cells) {
+    ctx.save();
+    cells.forEach((wps, ci) => {
+        const color = CELL_COLORS[ci % CELL_COLORS.length];
+
+        // cell 內換行接駁（細虛線）
+        ctx.strokeStyle = color; ctx.globalAlpha = 0.35;
+        ctx.lineWidth = 1; ctx.setLineDash([2, 3]);
+        for (let i = 1; i + 1 < wps.length; i += 2) {
+            ctx.beginPath();
+            ctx.moveTo(wps[i][0], wps[i][1]);
+            ctx.lineTo(wps[i+1][0], wps[i+1][1]);
+            ctx.stroke();
+        }
+
+        // 掃描線本身（粗實線）
+        ctx.setLineDash([]); ctx.globalAlpha = 0.9;
+        ctx.lineWidth = 2.4; ctx.lineCap = 'round';
+        for (let i = 0; i + 1 < wps.length; i += 2) {
+            ctx.beginPath();
+            ctx.moveTo(wps[i][0], wps[i][1]);
+            ctx.lineTo(wps[i+1][0], wps[i+1][1]);
+            ctx.stroke();
+        }
+
+        // 走訪順序標籤（放在該 cell 的重心）
+        const cx = wps.reduce((s, p) => s + p[0], 0) / wps.length;
+        const cy = wps.reduce((s, p) => s + p[1], 0) / wps.length;
+        ctx.globalAlpha = 1;
+        ctx.font = 'bold 7px sans-serif';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.lineWidth = 2.5; ctx.strokeStyle = '#0d1117';
+        ctx.strokeText(String.fromCharCode(65 + ci), cx, cy);
+        ctx.fillStyle = color;
+        ctx.fillText(String.fromCharCode(65 + ci), cx, cy);
+    });
+    ctx.restore();
+}
+
+function drawCovPath(pts, color, done) {
+    ctx.save();
+    if (done > 1) {                                   // 已走：實線
+        ctx.strokeStyle = color; ctx.globalAlpha = 0.85;
+        ctx.lineWidth = 1.8; ctx.setLineDash([]);
+        ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]);
+        for (let i = 1; i < Math.min(done, pts.length); i++) ctx.lineTo(pts[i][0], pts[i][1]);
+        ctx.stroke();
+    }
+    const from = Math.max(0, done - 1);               // 待走：虛線
+    ctx.strokeStyle = color; ctx.globalAlpha = 0.25;
+    ctx.lineWidth = 1.2; ctx.setLineDash([4, 5]);
+    ctx.beginPath(); ctx.moveTo(pts[from][0], pts[from][1]);
+    for (let i = from + 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+    ctx.stroke();
+    ctx.setLineDash([]); ctx.restore();
+}
+
+// 跳過原因 → 標記顏色（原因字串與 map_server.run_coverage 一致）
+const SKIP_COLORS = { '停滯': '#ffa657', '無法到達': '#f85149' };
+
+/** 規劃路點：○ 待走、● 已到達、✕ 跳過（依原因上色並標序號）、◎ 目前目標 */
+function drawWaypoints(pts, done, skipped, running) {
+    const skip = new Map(skipped);
+    const u = cssPx();                                 // 以下粗細與字級都以螢幕像素計
+    const r = Math.min(4 * u, 1.5);                    // 上限 1.5 格（7.5 cm），相鄰掃描線的點不會黏在一起
+    const label = (t, x, y, c) => {
+        ctx.lineWidth = 3 * u; ctx.strokeStyle = '#0d1117'; ctx.strokeText(t, x, y);
+        ctx.fillStyle = c; ctx.fillText(t, x, y);
+    };
+    ctx.save();
+
+    ctx.lineWidth = 1.2 * u;
+    pts.forEach(([x, y], i) => {
+        if (skip.has(i)) return;                       // 跳過的最後畫，疊在最上層
+        ctx.beginPath(); ctx.arc(x, y, r, 0, 2 * Math.PI);
+        if (i < done) { ctx.globalAlpha = 0.9; ctx.fillStyle = '#f0f6fc'; ctx.fill(); }
+        else          { ctx.globalAlpha = 0.6; ctx.strokeStyle = '#f0f6fc'; ctx.stroke(); }
+    });
+
+    ctx.globalAlpha = 1; ctx.lineCap = 'round';
+    ctx.font = `bold ${11 * u}px sans-serif`; ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+    for (const [i, why] of skip) {
+        if (!pts[i]) continue;
+        const [x, y] = pts[i], c = SKIP_COLORS[why] ?? '#f85149';
+        for (const [w, s] of [[4.5 * u, '#0d1117'], [2 * u, c]]) {   // 先描深色底，壓在紅色邊距上也看得到
+            ctx.lineWidth = w; ctx.strokeStyle = s;
+            ctx.beginPath();
+            ctx.moveTo(x - r, y - r); ctx.lineTo(x + r, y + r);
+            ctx.moveTo(x + r, y - r); ctx.lineTo(x - r, y + r);
+            ctx.stroke();
+        }
+        label(String(i + 1), x + r, y - r, c);         // 序號從 1 起算，與「路點 i/n 跳過」訊息一致
+    }
+
+    if (running && pts[done]) {                        // 目前正在前往的路點
+        const [x, y] = pts[done], rr = r + 3 * u;
+        ctx.lineWidth = 2 * u; ctx.strokeStyle = '#58a6ff';
+        ctx.beginPath(); ctx.arc(x, y, rr, 0, 2 * Math.PI); ctx.stroke();
+        label(String(done + 1), x + rr, y - rr, '#58a6ff');
+    }
+    ctx.restore();
+}
+
+/** 實際掃過範圍：沿行走軌跡畫車身寬（2 × cover_r）的半透明帶，一次描整條線，重疊處不會變深 */
+function drawSwath(path, color, coverR, res) {
+    ctx.save();
+    ctx.strokeStyle = color; ctx.globalAlpha = 0.38;
+    ctx.lineWidth = 2 * coverR / (res || 0.05);
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    ctx.beginPath(); ctx.moveTo(path[0][0], path[0][1]);
+    for (let i = 1; i < path.length; i++) ctx.lineTo(path[i][0], path[i][1]);
+    ctx.stroke(); ctx.restore();
+}
+
+function drawTrail(path, color) {
+    const FADE = 300, n = path.length, f = Math.max(0, n - FADE);
+    ctx.save(); ctx.lineJoin = 'round';
+    if (f > 1) {
+        ctx.beginPath(); ctx.strokeStyle = color;
+        ctx.globalAlpha = 0.22; ctx.lineWidth = 1.5;
+        ctx.moveTo(path[0][0], path[0][1]);
+        for (let i = 1; i <= f; i++) ctx.lineTo(path[i][0], path[i][1]);
+        ctx.stroke();
+    }
+    for (let i = Math.max(f, 1); i < n; i++) {
+        ctx.beginPath(); ctx.strokeStyle = color;
+        ctx.globalAlpha = 0.22 + 0.78 * ((i - f) / Math.max(FADE, 1));
+        ctx.lineWidth = 2;
+        ctx.moveTo(path[i-1][0], path[i-1][1]);
+        ctx.lineTo(path[i][0],   path[i][1]);
+        ctx.stroke();
+    }
+    ctx.restore();
+}
+
+function drawRobot(px, py, color) {
+    const r = Math.max(1, 0.105 / (robot.resolution || 0.05));
+    ctx.save();
+    ctx.shadowColor = color; ctx.shadowBlur = 6 * zoom;   // shadowBlur 不吃 transform，要自己乘上縮放
+    ctx.fillStyle = color;
+    ctx.beginPath(); ctx.arc(px, py, r, 0, 2*Math.PI); ctx.fill();
+    ctx.restore();
+}
+
+// ════════════════════════════════════════════════════════
+//  執行控制
+// ════════════════════════════════════════════════════════
+$('btn-start').onclick = async () => {
+    $('btn-start').disabled = true;
+    try {
+        const d = await (await fetch('/coverage/start', { method: 'POST' })).json();
+        if (!d.ok) { alert('無法開始：' + d.msg); $('btn-start').disabled = false; }
+    } catch (e) { alert('連線失敗：' + e); $('btn-start').disabled = false; }
+};
+
+// 沿用同一條路徑，從目前路點接著走（不重新規劃）；受困停止後手動把車移開再按
+$('btn-resume').onclick = async () => {
+    $('btn-resume').disabled = true;
+    try {
+        const d = await (await fetch('/coverage/resume', { method: 'POST' })).json();
+        if (!d.ok) alert('無法繼續：' + d.msg);
+    } catch (e) { alert('連線失敗：' + e); }
+};
+
+$('btn-stop').onclick = async () => {
+    teleopRelease();
+    try { await fetch('/coverage/stop', { method: 'POST' }); } catch {}
+};
+
+$('btn-slam').onclick = async () => {
+    if (!confirm('重啟 SLAM 會清空目前的地圖、軌跡與規劃結果，確定要重新建圖嗎？')) return;
+    $('btn-slam').disabled = true;
+    try {
+        const d = await (await fetch('/slam/restart', { method: 'POST' })).json();
+        if (!d.ok) alert('重啟失敗：' + d.msg);
+        else {
+            for (const k in imgCache) delete imgCache[k];
+            canvas.style.display = 'none';
+            $('waiting').style.display = '';
+            $('waiting').textContent = 'SLAM 重啟中，等待新地圖…';
+        }
+    } catch (e) { alert('連線失敗：' + e); }
+    setTimeout(() => { $('btn-slam').disabled = false; }, 3000);
+};
+
+// ════════════════════════════════════════════════════════
+//  手動遙控（與覆蓋執行互斥，由 cov.manual 控制）
+// ════════════════════════════════════════════════════════
+let holdTimer = null, holdCmd = null;
+const speedScale = () => $('speed').value / 100;
+
+$('speed').oninput = () => { $('speed-val').textContent = $('speed').value + '%'; };
+
+async function teleopSend(v, w) {
+    try {
+        await fetch('/teleop', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ v, w }),
+        });
+    } catch {}
+}
+
+function teleopHold(v, w) {
+    if (!cov.manual) return;
+    holdCmd = [v, w];
+    const push = () => { const s = speedScale(); teleopSend(holdCmd[0] * s, holdCmd[1] * s); };
+    push();
+    clearInterval(holdTimer);
+    holdTimer = setInterval(push, 150);          // 續傳，後端 0.6 秒沒收到就自動停車
+}
+
+function teleopRelease() {
+    clearInterval(holdTimer); holdTimer = null; holdCmd = null;
+    teleopSend(0, 0);
+}
+
+for (const b of $('pad').children) {
+    const v = parseFloat(b.dataset.v), w = parseFloat(b.dataset.w);
+    b.addEventListener('pointerdown', e => {
+        e.preventDefault();
+        (v === 0 && w === 0) ? teleopRelease() : teleopHold(v, w);
+    });
+    b.addEventListener('pointerup',     teleopRelease);
+    b.addEventListener('pointerleave',  teleopRelease);
+    b.addEventListener('pointercancel', teleopRelease);
+}
+
+const KEYS = {
+    w: [1, 0], arrowup:    [1, 0],
+    s: [-1, 0], arrowdown: [-1, 0],
+    a: [0, 1], arrowleft:  [0, 1],
+    d: [0, -1], arrowright:[0, -1],
+};
+let heldKey = null;
+addEventListener('keydown', e => {
+    if (e.target.tagName === 'INPUT') return;
+    const k = e.key.toLowerCase();
+    if (k === ' ') { e.preventDefault(); teleopRelease(); return; }
+    if (!KEYS[k] || !cov.manual || heldKey === k) return;
+    e.preventDefault();
+    heldKey = k;
+    teleopHold(...KEYS[k]);
+});
+addEventListener('keyup', e => {
+    const k = e.key.toLowerCase();
+    if (k === heldKey) { heldKey = null; teleopRelease(); }
+});
+addEventListener('blur', () => { heldKey = null; teleopRelease(); });
+
+// ════════════════════════════════════════════════════════
+//  UI 更新
+// ════════════════════════════════════════════════════════
+const STATE_LABEL = {
+    idle:    ['手動模式', 'manual'],
+    running: ['覆蓋執行中', 'running'],
+    stopped: ['已結束（手動模式）', 'manual'],
+    done:    ['覆蓋完成（手動模式）', 'manual'],
+    error:   ['錯誤', 'error'],
+};
+
+let wasManual = true;
+
+function updateUI() {
+    const [label, cls] = STATE_LABEL[cov.state] ?? [cov.state, 'manual'];
+    const badge = $('mode-badge');
+    badge.textContent = label;
+    badge.className = 'badge ' + cls;
+
+    $('btn-start').disabled  = !cov.manual;
+    $('btn-resume').disabled = !(cov.manual && ['stopped', 'error'].includes(cov.state)
+                                 && cov.done < cov.total);
+    $('btn-stop').disabled   = cov.manual;
+    // btn-slam 的 disabled 由它自己的點擊處理器管理，這裡不要覆蓋
+
+    // 手動操作面板：執行中鎖住
+    for (const b of $('pad').children) b.disabled = !cov.manual;
+    $('speed').disabled = !cov.manual;
+    $('pad-hint').className = 'hint' + (cov.manual ? '' : ' locked');
+    $('pad-hint').textContent = cov.manual
+        ? '鍵盤 W / A / S / D，空白鍵停止'
+        : '覆蓋執行中，手動操作已鎖定；按「結束」可解鎖';
+
+    // 剛從手動被鎖住 → 確保沒有殘留的續傳
+    if (wasManual && !cov.manual) teleopRelease();
+    wasManual = cov.manual;
+
+    const txt = { idle: '閒置', running: `執行中　路點 ${cov.done} / ${cov.total}`,
+                  stopped: '已停止', done: `完成 ✓　共 ${cov.total} 個路點`,
+                  error: '錯誤：' + cov.msg }[cov.state] ?? cov.state;
+    $('cov-info').textContent = cov.msg && cov.state === 'running' ? txt + '　' + cov.msg : txt;
+    $('prog').max   = Math.max(1, cov.total);
+    $('prog').value = cov.done;
+
+    const M = cov.metrics || {}, has = M.task != null;
+    const pct = v => v == null ? '—' : (v * 100).toFixed(1) + '%';
+    const m   = v => v == null ? '—' : v.toFixed(2) + ' m';
+    $('m-plan-ms').textContent  = has ? M.plan_ms.toFixed(1) + ' ms' : '—';
+    $('m-area').textContent     = has ? M.area.toFixed(2) + ' m²' : '—';
+    $('m-plan-cov').textContent = has ? pct(M.plan_cov) : '—';
+    $('m-plan-len').textContent = has ? m(M.plan_len) : '—';
+    $('m-act-cov').textContent  = has ? pct(M.actual_cov) : '—';
+    $('m-done').textContent     = has ? `${pct(M.completion)}（${M.reached} / ${M.total}）` : '—';
+    $('m-skip').textContent     = has ? M.skipped : '—';
+    $('m-time').textContent     = has ? fmtSec(M.exec_s) : '—';
+    $('m-act-len').textContent  = has ? m(M.actual_len) : '—';
+}
+
+function fmtSec(s) {
+    const t = Math.round(s);
+    return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
+}
+
+// ════════════════════════════════════════════════════════
+//  資料輪詢
+// ════════════════════════════════════════════════════════
+function loadImg(url) {
+    return new Promise((ok, fail) => {
+        const img = new Image();
+        img.onload = () => ok(img); img.onerror = fail;
+        img.src = url + '?t=' + Date.now();
+    });
+}
+
+async function refresh() {
+    const [, robotRes, covRes] = await Promise.allSettled([
+        // orig 一律載入：canvas 的尺寸靠它決定，關掉圖層也還是要有
+        Promise.all(LAYERS.filter(l => l.type === 'map' && (l.on || l.id === 'orig')).map(async L => {
+            try { imgCache[L.id] = await loadImg(L.url); } catch {}
+        })),
+        fetch('/robot_state').then(r => r.json()),
+        fetch('/coverage/status').then(r => r.json()),
+    ]);
+
+    if (robotRes.status === 'fulfilled') robot = robotRes.value;
+    if (covRes.status   === 'fulfilled') cov   = covRes.value;
+
+    if (imgCache['orig']) {
+        canvas.style.display = '';
+        $('waiting').style.display = 'none';
+    }
+
+    updateUI();
+    draw();
+
+    const p = robot.pos;
+    const t = new Date().toLocaleTimeString('zh-TW');
+    $('clock').textContent = p ? `${t}　(${p.wx}, ${p.wy}) m` : `${t}　等待機器人`;
+}
+
+refresh();
+setInterval(refresh, 1000);
+</script>
+</body>
+</html>

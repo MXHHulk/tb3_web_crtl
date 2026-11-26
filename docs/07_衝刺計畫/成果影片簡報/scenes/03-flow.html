@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<title>03 一鍵流程</title>
+<link rel="stylesheet" href="base.css">
+<link rel="stylesheet" href="map.css">
+<style></style>
+<script src="../assets/scenes.js"></script>
+<script src="map.js"></script>
+<script src="engine.js"></script>
+</head>
+<body>
+<div class="stage">
+<p class="abs kicker" id="kick" style="left:96px; top:64px;">操作流程</p>
+<h1 class="abs k title" id="t" style="left:96px; top:108px;">按一個鍵，車子自己跑完全程</h1>
+<div class="abs" id="track" style="left:260px; top:600px; width:1400px; height:3px; background:#2a4a50;"></div>
+<div class="abs" id="lit" style="left:260px; top:599px; width:1400px; height:5px; background:#DAFF3C; box-shadow:0 0 18px #DAFF3C; transform-origin:left center; transform:scaleX(0);"></div>
+<div class="abs" id="spark" style="left:150px; top:588px; width:28px; height:28px; margin-left:-14px; border-radius:50%; background:#F2F7F5; box-shadow:0 0 30px 10px #DAFF3C;"></div>
+<div class="abs dot" id="d0" style="left:251px; top:592px; width:18px; height:18px; border-radius:50%; background:#2a4a50;"></div>
+<p class="abs nd" id="n0" style="left:60px; top:476px; width:400px; text-align:center; font-size:48px; font-weight:900; font-style:italic; color:#4d6f75;">手機一鍵開始</p>
+<p class="abs mute ns" style="left:60px; top:650px; width:400px; text-align:center; font-size:26px;">手機網頁控制台</p>
+<div class="abs dot" id="d1" style="left:601px; top:592px; width:18px; height:18px; border-radius:50%; background:#2a4a50;"></div>
+<p class="abs nd" id="n1" style="left:410px; top:476px; width:400px; text-align:center; font-size:48px; font-weight:900; font-style:italic; color:#4d6f75;">自動建圖</p>
+<p class="abs mute ns" style="left:410px; top:650px; width:400px; text-align:center; font-size:26px;">gmapping＋explore_lite</p>
+<div class="abs dot" id="d2" style="left:951px; top:592px; width:18px; height:18px; border-radius:50%; background:#2a4a50;"></div>
+<p class="abs nd" id="n2" style="left:760px; top:476px; width:400px; text-align:center; font-size:48px; font-weight:900; font-style:italic; color:#4d6f75;">覆蓋規劃</p>
+<p class="abs mute ns" style="left:760px; top:650px; width:400px; text-align:center; font-size:26px;">PCA＋cell 分解</p>
+<div class="abs dot" id="d3" style="left:1301px; top:592px; width:18px; height:18px; border-radius:50%; background:#2a4a50;"></div>
+<p class="abs nd" id="n3" style="left:1110px; top:476px; width:400px; text-align:center; font-size:48px; font-weight:900; font-style:italic; color:#4d6f75;">循跡執行</p>
+<p class="abs mute ns" style="left:1110px; top:650px; width:400px; text-align:center; font-size:26px;">自寫直線循跡</p>
+<div class="abs dot" id="d4" style="left:1651px; top:592px; width:18px; height:18px; border-radius:50%; background:#2a4a50;"></div>
+<p class="abs nd" id="n4" style="left:1460px; top:476px; width:400px; text-align:center; font-size:48px; font-weight:900; font-style:italic; color:#4d6f75;">留下紀錄</p>
+<p class="abs mute ns" style="left:1460px; top:650px; width:400px; text-align:center; font-size:26px;">覆蓋率・軌跡・時間</p>
+</div>
+<script>
+const X0 = 260, X1 = 1660, A = 1.8, B = 7.8;
+Scene({ duration: 10, steps: [1.7, 8.2], tracks: [
+  { sel: '#kick', at: 0.2, dur: 0.4, fx: 'up' }, { sel: '#t', at: 0.4, dur: 0.6, fx: 'up' },
+  { sel: '#track', at: 0.8, dur: 0.6, fx: 'grow' },
+  { sel: '.ns', at: 0.8, dur: 0.4, fx: 'fade', stagger: 0.1 },
+], onTime: (t, u) => {
+  const p = u.clamp((t - A) / (B - A));
+  const q = u.E.inout(p);
+  document.getElementById('lit').style.transform = `scaleX(${q})`;
+  const sp = document.getElementById('spark');
+  sp.style.left = (X0 + (X1 - X0) * q) + 'px';
+  sp.style.opacity = t < A ? 0 : (p >= 1 ? 0.6 : 1);
+  for (let k = 0; k < 5; k++) {
+    const on = q >= k / 4 - 0.001 && t >= A;
+    document.getElementById('n' + k).style.color = on ? (k === 0 || k === 4 ? '#F2F7F5' : '#DAFF3C') : '#4d6f75';
+    document.getElementById('d' + k).style.background = on ? '#DAFF3C' : '#2a4a50';
+  }
+}});
+</script>
+</body>
+</html>

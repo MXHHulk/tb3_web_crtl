@@ -1,0 +1,24 @@
+# TurtleBot3 CCPP 車上控制台（手機瀏覽器 http://<車子IP>:8000）
+# 安裝：bash ~/catkin_ws/src/turtlebot3_ccpp/tools/install_launcher.sh
+[Unit]
+Description=TurtleBot3 CCPP launcher web console (port 8000)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+# OpenCR、光達的 USB 序列埠需要 dialout 群組
+SupplementaryGroups=dialout
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 /home/ubuntu/catkin_ws/src/turtlebot3_ccpp/scripts/launcher.py
+WorkingDirectory=/home/ubuntu/catkin_ws/src/turtlebot3_ccpp
+Restart=always
+RestartSec=3
+# 只重啟控制台本身，不連帶殺掉正在跑的 roslaunch（更新控制台程式時車子不會停）；
+# 重啟後的控制台會把它偵測為「執行中（外部）」，一樣能按停止。
+KillMode=process
+
+[Install]
+WantedBy=multi-user.target

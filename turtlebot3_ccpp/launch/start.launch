@@ -1,0 +1,103 @@
+<launch>
+    <!-- 使用方式：roslaunch turtlebot3_ccpp start.launch -->
+    <!-- 換型號：  roslaunch turtlebot3_ccpp start.launch model:=waffle -->
+
+    <arg name="model"  default="burger" />
+    <arg name="port"   default="8080"   />
+    <!-- 自動建圖：true 時，地圖與 move_base 就緒後倒數 10 秒自動開始 frontier 探索（explore_lite）。
+         平常手動啟動維持 false；車上控制台的「開機自動建圖」會帶 auto_explore:=true -->
+    <arg name="auto_explore" default="false" />
+
+    <!-- 設定 TB3 型號環境變數 -->
+    <env name="TURTLEBOT3_MODEL" value="$(arg model)" />
+
+    <!-- 1. 硬體驅動 -->
+    <include file="$(find turtlebot3_bringup)/launch/turtlebot3_robot.launch" />
+
+    <!-- 2. SLAM 建圖（gmapping 同時發布 /map 與 map→odom TF，供 move_base 定位用）
+
+         注意：SLAM 不在這裡啟動，改由 map_server 以子行程管理（見下方第 4 節）。
+         這樣網頁上的「重啟 SLAM」才能收掉舊的 gmapping、重新開一個乾淨的地圖，
+         不必整包 roslaunch 重跑。若要改回由本檔啟動，把下面 map_server 的
+         manage_slam 設為 false，並取消這段註解：
+
+         <include file="$(find turtlebot3_slam)/launch/turtlebot3_slam.launch">
+             <arg name="slam_methods" value="gmapping" />
+             <arg name="open_rviz"    value="false"    />
+         </include>
+    -->
+
+    <!-- 3. move_base 導航規劃
+         直接沿用 turtlebot3_navigation 的 param 檔，不需額外設定。
+         SLAM 已提供定位（TF）與地圖（/map），move_base 可直接使用。 -->
+    <node pkg="move_base" type="move_base" name="move_base"
+          respawn="false" output="screen">
+        <param name="base_local_planner" value="dwa_local_planner/DWAPlannerROS" />
+
+        <!-- 障礙物偵測共用參數（分別套用到全域與局部 costmap）-->
+        <rosparam file="$(find turtlebot3_navigation)/param/costmap_common_params_$(arg model).yaml"
+                  command="load" ns="global_costmap" />
+        <rosparam file="$(find turtlebot3_navigation)/param/costmap_common_params_$(arg model).yaml"
+                  command="load" ns="local_costmap" />
+
+        <!-- 全域地圖（static_map: true → 訂閱 /map，即 SLAM 輸出）-->
+        <rosparam file="$(find turtlebot3_navigation)/param/global_costmap_params.yaml"
+                  command="load" />
+
+        <!-- 局部地圖（跟隨機器人移動的小範圍感知）-->
+        <rosparam file="$(find turtlebot3_navigation)/param/local_costmap_params.yaml"
+                  command="load" />
+
+        <!-- move_base 本體參數（goal tolerance 等）-->
+        <rosparam file="$(find turtlebot3_navigation)/param/move_base_params.yaml"
+                  command="load" />
+
+        <!-- DWA 局部路徑規劃器參數（速度、加速度上限）-->
+        <rosparam file="$(find turtlebot3_navigation)/param/dwa_local_planner_params_$(arg model).yaml"
+                  command="load" />
+
+        <!-- 覆蓋執行的容錯覆寫（必須放在上面的 rosparam 之後才會蓋掉官方值）
+             路點離牆僅 MARGIN = 0.10 m ≈ 車身半寬，定位誤差幾公分就會讓車身壓到
+             costmap 障礙區；以下放寬讓 move_base 不要一碰到就卡住。
+             不縮 footprint / inflation：那等於允許真的撞牆。 -->
+        <!-- 路點落在障礙區內時，改規劃到 0.1 m 內最近的可達點，而不是直接失敗 -->
+        <param name="NavfnROS/default_tolerance"      value="0.1" />
+        <!-- 到達判定放寬（官方 0.05），減少貼牆時的來回微調 -->
+        <param name="DWAPlannerROS/xy_goal_tolerance" value="0.10" />
+        <!-- 找不到可行軌跡／路線時早點放棄（官方約 15 / 5 秒） -->
+        <param name="controller_patience"             value="5.0" />
+        <param name="planner_patience"                value="2.0" />
+        <!-- 讓全域路線貼著掃描線走：官方膨脹 1.0 m 在小場地幾乎鋪滿整片，
+             navfn 為了避開高成本，會把貼牆的掃描線繞到場地中間去走。
+             縮到 0.25 m（略大於車身外接圓）後離牆 0.25 m 外成本為 0，路線就會是直的。
+             寫在舊參數位置即可，costmap 啟動時會自動搬進 inflation_layer。
+             只改全域：局部 costmap（DWA 避障）維持官方值。 -->
+        <param name="global_costmap/inflation_radius" value="0.25" />
+        <!-- 區域 costmap（DWA 用）也縮到 0.25 m，與全域一致。官方 1.0 m 在 1 m 寬的場地裡整片都是高代價，
+             DWA 每一步都嫌危險而「failed to produce path」（2026-11-11 實測一次覆蓋 1127 次），車子停停走走、走歪 -->
+        <param name="local_costmap/inflation_radius"  value="0.25" />
+        <!-- 控制頻率 10 → 5 Hz：樹莓派同時跑 SLAM，實測常趕不上 10 Hz（Control loop missed its desired rate）。
+             掃描線改由 map_server 自己直線循跡，move_base 只負責跨區移動與備援，5 Hz 足夠 -->
+        <param name="controller_frequency"            value="5.0" />
+    </node>
+
+    <!-- 4. Flask 地圖網頁伺服器 + 覆蓋路徑執行 + SLAM 生命週期管理
+         manage_slam=true 時，本節點會自己啟動 turtlebot3_slam.launch，
+         並提供 /slam/restart 讓網頁能重新建圖。 -->
+    <node pkg="turtlebot3_ccpp" type="map_server.py" name="map_server" output="screen">
+        <param name="port"         value="$(arg port)" />
+        <param name="manage_slam"  value="true"        />
+        <param name="slam_methods" value="gmapping"    />
+        <param name="auto_explore" value="$(arg auto_explore)" />
+    </node>
+
+    <!-- 註：test/ 底下皆為測量／檢視工具，非專案執行路徑，不掛在此 launch。
+         需要時單獨執行：
+           python3 test/map_recorder.py            # 錄製 /map 每張地圖為 PNG
+           python3 test/map_recorder.py _min_period:=1.0   # 每 1 秒最多存一張
+           python3 test/boustrophedon.py           # 發布 /coverage_path 供 RViz 檢視
+           python3 test/map_server_raw.py          # 只顯示未處理的原始地圖
+           python3 test/test_lidar_freq.py         # 量測 /scan 頻率
+           python3 test/test_lidar_range.py        # 量測光達有效距離 -->
+
+</launch>

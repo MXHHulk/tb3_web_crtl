@@ -4,6 +4,814 @@
 
 ---
 
+## 2026-11-26　chore(vcs)：版本統一、車上資料備份、資料夾整理
+
+- **類型**：chore / feat(tools)
+- **背景**：程式同時存在電腦、車上、GitHub；GitHub `main` 停在 PR #2、落後 `rebuild`；車上實驗紀錄（`data/`、`maps/`）只存在車上、沒有任何備份。
+- **做了什麼**
+  - 確認車上一致：車上 `.synced_commit`＝26f1a1f，19 個程式檔 sha1 與 HEAD 逐檔相同（之後的 commit 都只改文件）。
+  - `tools/sync_to_robot.sh` 新增 `--check`：以 `git archive` 打包 HEAD（與實際同步內容相同，含 LF 轉換）後逐檔比 sha1，列出車上「多出／缺少／內容不同」，不改車上。
+  - 新增 `tools/pull_from_robot.sh`：車上 `data/`、`maps/` → `experiments/robot/`，只增不刪，每次在 `pull_log.txt` 記時間與車上版本。
+    首次備份 676 KB（coverage 1 次、explore 3 次紀錄，6 月與 11/11 地圖）；`coverage_runs.csv` 末列 97.73%／13.65 m／16.79 m 與 11/11 日志一致。
+  - 資料夾整理：根目錄三份 README 審查報告 → `docs/05_開發日志/審查/`；系展申請單 → `docs/08_系展/`；
+    刪除本地 `turtlebot3_ccpp/maps/`（6 月舊地圖，逐檔確認已包含在車上備份內）；新增 `media/`（影片素材，不進版控）。
+  - `.gitignore`：`maps/` 改為只忽略 `turtlebot3_ccpp/maps/`、`turtlebot3_ccpp/data/`（否則 experiments 內的 maps 也被忽略）；新增 `*.bag`、`media/`、`.claude/`（含 94 MB 技能包與本機設定）。
+  - README 新增「版本與資料放在哪裡」與更新後的改程式流程；`docs/README.md` 補 07、08。
+- **影響檔案**：`turtlebot3_ccpp/tools/sync_to_robot.sh`、`turtlebot3_ccpp/tools/pull_from_robot.sh`（新）、`.gitignore`、`README.md`、`docs/README.md`、`experiments/`（新）
+- **結果 / 驗證**：`sync_to_robot.sh --check` 回報「✓ 車上 19 個程式檔與 HEAD 完全一致」；備份檔數與車上 `find data maps -type f` 相同。
+- **待辦**：`rebuild` 合回 `main` 並打 `v1.0-baseline`；車上 SD 卡已用 88%（15 GB 剩 1.7 GB），錄 rosbag 前要注意。
+
+---
+
+## 2026-11-25　docs(slides)：成果動畫簡報（13 頁網頁簡報，按一下播一段）
+
+- **類型**：docs
+- **背景**：展示要交 3 分鐘成果影片；逐頁規格與旁白已寫在 `docs/07_衝刺計畫/簡報生成.md`，需要能直接剪輯的動畫畫面。
+- **做了什麼**
+  - 用 huashu-design skill（裝在 `.claude/skills/`，未進版控）走設計流程：三方向初稿 → 使用者指定普普漫畫風 → 霓虹夜景風 →
+    「太 AI、太多幾何框」→ 定稿為深青綠底、無框、真實路徑當光帶、字級對比。每次調整的原話記在 `direction-approved.md`。
+  - `docs/07_衝刺計畫/成果影片簡報/`：13 鏡 HTML 動畫（自寫時間軸引擎，畫面完全由 t 決定）＋ `index.html` 連播
+    ＋ `tools/render.mjs` 逐格截圖經 ffmpeg 輸出 1080p30 MP4。
+  - 路徑、PCA 主軸、cell 分解直接取自 `coverage_planner.plan()`（`tools/gen_data.py` 匯出 JSON，SVG 描線）；
+    04 鏡用 2026-06-27 實測 gmapping 快照 47 張逐格播放。對照用的舊版做法一律標「示意」。
+  - 未拍的實機畫面留「REC 待拍」區；數據總表的【待填】未填任何假設值。
+  - `tools/gen_figs.py` 的 `room_map()` 加參數（可不含障礙、自訂場地與障礙尺寸），不影響既有呼叫。
+- **影響檔案**：`docs/07_衝刺計畫/成果影片簡報/`（新）、本日志
+- **結果 / 驗證**：13 鏡每鏡截中段與最後一格檢查（修掉：水平線因濾鏡區域為 0 而消失、節點字被切、cell 標籤翻轉、外圈提早出現等）；
+  MP4 由 ffmpeg 讀回確認 1920×1080、30 fps。
+- **追加（同日）**：使用者說明要的是「簡報動畫」不是 .mp4 → 引擎改成分段播放：每頁 `steps` 停頓點，→／空白／點擊播下一段、←回上一段，
+  最後一段再按換頁、第一段按上一段回上一頁（顯示播完狀態）；`index.html` 改成配合分段的播放器（F 全螢幕）。
+  `tools/test_play.mjs` 模擬按鍵驗證分段、跳段、上一段、跨頁；`frames.mjs … steps` 截每段停格逐一檢查。
+- **待辦 / 已知問題**：實機畫面（S1–S3）待拍後放進 11 頁；P9 數據總表待重複實驗後填；沒有做可編輯 PPTX（動畫版不適用）。
+
+---
+
+## 2026-11-11　feat(coverage)：跨區移動改由自己開；實測分析；專案架構說明與收工交接
+
+- **類型**：feat / docs
+- **實測分析**（任務 20261111-112057，車上版本 fb0ef34，紀錄在 `data/coverage/20261111-112057_*`）
+  - 實際覆蓋率 **97.7%**（規劃 99.4%）、83/83 路點、零跳過、執行 322 秒、規劃 13.65 m／實走 16.79 m。
+    上一版同場地：71%、436 秒。DWA 失敗 1127 → 209 次（都發生在交給 move_base 的段落）。
+  - 75 段直線循跡只有 1 段（路點 70）停滯改交 move_base，16 秒後到達。
+  - **唯一一次受困**：路點 14～16（kind＝move，交給 move_base）。車子停在離最近障礙 0.20 m 處 30 秒幾乎沒動，
+    日誌 `Rotation cmd in collision`／`Invalid Trajectory` 各 83 次＝DWA 判定原地轉會撞；
+    `_escape()` 要求行進方向 ≥ 0.25 m 空間才動，也不動 → 連續 3 點失敗判定受困。使用者按繼續後順利跑完。
+- **做了什麼**
+  - `map_server._drive_to()`：從目前位置到目標的直線整段在規劃用可走區內 → 直接直線循跡；否則呼叫 `/move_base/make_plan`
+    （只借全域規劃器算繞障路線，不讓 move_base 開車），RDP（0.04 m）簡化後逐段直線循跡。
+  - 每個路點依序嘗試 `line → own_nav → move_base → (脫困) move_base`，事件記錄每次改用下一種的原因。
+  - `ESCAPE_CLEAR` 0.25 → 0.18。
+  - 新增 `docs/專案架構說明.html`（白話全貌＋未來規劃），根目錄 `README.md` 加「目前狀態／下次從這裡開始」，`docs/README.md` 連結。
+- **影響檔案**：`turtlebot3_ccpp/scripts/map_server.py`、`docs/專案架構說明.html`（新）、`README.md`、`docs/README.md`
+- **結果 / 驗證**
+  - 假 ROS 模擬（第三次實測地圖、3% 輪速誤差，**move_base 開車設成永遠停滯**、`make_plan` 回傳 L 形折線、強迫 > 0.5 m 的跨區走 make_plan）：
+    82/82 路點全到（line 72、own_nav 10，其中 3 次用 make_plan），move_base 開車 0 次，實際覆蓋率 96.95%。
+  - 車上（26f1a1f）啟動系統後實際呼叫 `/move_base/make_plan` 成功（回傳 9 點）、`/scan` 5 Hz；測完已停止系統。
+  - **尚未實車跑覆蓋。**
+- **待辦 / 已知問題**：見根目錄 README「下次從這裡開始」與架構說明第 12 章。
+
+---
+
+## 2026-11-11　feat(coverage)：覆蓋執行改善——直線循跡（A）、導航調校（B）、線距重疊＋外圈（C）、真實掃過範圍與紀錄（D）
+
+- **類型**：feat / tune
+- **背景**（任務 20261111-104832 的日誌與 CSV）：規劃 7.4 m 實走 10.2 m（多 38%）、436 秒（每路點 12 秒）、3 次受困；
+  `DWA planner failed to produce path` 出現 1127 次、控制迴圈 27 次趕不上 10 Hz。
+  規劃覆蓋率 76%、實際 71%，而且覆蓋半徑用 0.10 m（比車身寬 0.178 m 還寬）算，數字偏樂觀。
+  線距 0.18 m 與車身同寬，走歪就留縫；牆邊一圈（安全邊距＋線尾內縮）完全沒規劃。
+- **做了什麼**
+  - A：`map_server._follow_line()`：路點 kind 為 `line` 且車子就在上一個路點附近時，由自己控制直行——
+    方向誤差 > 14° 先原地轉正（到 3° 內），再以 `角速度 = 2.0 ×（方向誤差 − atan(2.5 × 側向偏移 / 速度)）` 修正前進，
+    線尾減速（下一段方向差 < 15° 則不減速直接接續）；前方 ±20° 雷射 < 0.13 m 或停滯 3 秒 → 改交 move_base（不算失敗），
+    其後沿用原本的脫困重試、跳過、受困停止流程。kind 為 `move`（進入新 cell、開到外圈起點）才用 move_base。
+    停止或結束時一律送零速度。
+  - B：`start.launch`：`local_costmap/inflation_radius` 1.0 → 0.25（與全域一致）、`controller_frequency` 10 → 5；
+    gmapping `linearUpdate` 0.2 → 0.3、`angularUpdate` 0.1 → 0.15（減輕樹莓派負擔）。
+  - C：`coverage_planner`：`SPACING` 0.18 → 0.14（重疊約 20%）、`COVER_R` 0.10 → 0.089（車身半寬）；
+    `plan()` 新增 `kind`（line/move，換行段確認整段可走才算 line）與 `perimeter`：最大可走區往內 1 格（中心離牆約 0.15 m）
+    填洞後以 Moore 鄰域追蹤外緣、RDP 簡化成直線段，從最近的頂點起繞一圈。`coverage_bench.py` 改傳 `perimeter=False`。
+  - D：網頁（手機＋電腦版）新增「實際掃過範圍」圖層：沿軌跡畫車身寬的半透明綠帶；覆蓋軌跡改每 5 cm 記一點；
+    `/coverage/status` 多回傳 `cover_r`。每次覆蓋結束寫 `data/coverage/<task>_{path.csv,timeline.csv,events.txt,map.png}`
+    （停止後繼續會累積同一任務；事件含每個路點用 line 或 move_base 到達、花幾秒、改用 move_base 的原因、跳過、受困）。
+- **影響檔案**：`turtlebot3_ccpp/scripts/map_server.py`、`scripts/coverage_planner.py`、`launch/start.launch`、
+  `config/gmapping_params.yaml`、`web/launcher.html`、`web/index.html`、`test/coverage_bench.py`
+- **結果 / 驗證**
+  - 用第二次實測地圖（explore_20261111_104808）離線比較，以真實車寬 0.089 m 計算規劃覆蓋率：
+    舊設定 69.7%（與實測 71% 吻合）→ 新設定無外圈 92.8% → 新設定＋外圈 100%；路點 32 → 71、路徑 6.1 → 14.7 m。
+  - 假 ROS 模擬（差速車模型，加 3% 輪速誤差與雜訊，move_base 以直線內插代替）：71 個路點全到（line 66、move_base 5），
+    軌跡離規劃路線平均 0.4 cm、95% 1.9 cm、最大 3.1 cm；以車身寬計實際覆蓋率 96.6%；紀錄檔四個都正確產生。
+  - 車上整套重啟後確認：`local_costmap` 的 `inflation_layer/inflation_radius=0.25`、`controller_frequency=5.0`、
+    gmapping 0.3／0.15、`cover_r=0.089`。**尚未實車跑覆蓋。**
+  - 驗證時遇到一次光達驅動啟動後沒有資料（`/scan` 無輸出、move_base 一直等 map 座標）；直接對 `/dev/ttyUSB0` 下啟動指令有正常資料，
+    整套再重啟一次就恢復。原因未明，先記錄。
+- **待辦 / 已知問題**
+  - 實車確認直線循跡參數（速度 0.12 m/s、增益）與外圈離牆距離是否合適；外圈轉角處車子離兩面牆約 0.15 m，第一次請在旁邊看。
+  - 控制台可考慮偵測「系統啟動後 /scan 沒資料」並在網頁提示。
+
+---
+
+## 2026-11-11　feat(slam,coverage)：減少地圖假障礙——調 gmapping 參數（A）＋規劃前去雜點（B）
+
+- **類型**：feat / fix
+- **背景**：第一次在 1.06 × 1.47 m 場地自動建圖（任務 20261111-102235）：55 秒、走 4.1 m、回起點誤差 3 cm，
+  scan matching 分數穩定（163 次僅 1 次失敗），定位正常；但地圖空地裡有零星假障礙、右牆被畫成 2～3 格厚。
+  覆蓋規劃直接用這張圖，規劃前又把障礙膨脹 10 cm，一顆 5 cm 雜點就變成約 25 cm 的禁區。
+- **做了什麼**
+  - A：新增 `config/gmapping_params.yaml` 與 `launch/slam_gmapping.launch`（含 turtlebot3_remote，等同官方 slam launch），
+    `map_server.slam_launch()` 在 gmapping 時改用本套件版本。改動：`occ_thresh` 0.25→0.5、`linearUpdate` 1.0→0.2、
+    `angularUpdate` 0.2→0.1、`maxUrange` 3.0→2.0。
+  - B：`coverage_planner.remove_noise()`：8 鄰接相連、不超過 3 格的障礙團塊視為雜點，改成空地（只作用在規劃用的地圖）。
+    `coverage_start()` 與「安全邊距」圖層都改用去雜點後的地圖；新增 `/map_noise.png`，手機與電腦版網頁多一個黃色「雜點（規劃忽略）」圖層；
+    `cov_info`／覆蓋 CSV 多 `n_noise`。`_log_run()` 發現 CSV 欄位不同時，舊檔改名為 `coverage_runs_old_<時間>.csv` 保留。
+  - `sync_to_robot.sh` 同步範圍加 `config/`；CMakeLists 安裝 `config/`。
+- **踩到的坑（已修）**：一開始在參數檔加了 `maxRange: 3.5`，結果地圖憑空多出半徑 2 m 的一整圈空地。
+  原因：LDS-01 收不到反射時回報 0，slam_gmapping 把它換成 range_max（3.5）；預設 maxRange＝3.49 會忽略這種讀值，
+  設成 3.5 反而被當成「此方向 maxUrange 內都是空地」。當時一圈 360 筆有 153 筆是 0。已拿掉 `maxRange`（commit 4d434a9）。
+  另外 ROS 參數伺服器會保留舊參數，改參數檔後要**整套系統重啟**，只按「重新建圖」不會生效。
+- **影響檔案**：`turtlebot3_ccpp/config/gmapping_params.yaml`（新）、`launch/slam_gmapping.launch`（新）、
+  `scripts/coverage_planner.py`、`scripts/map_server.py`、`scripts/launcher.py`、`web/launcher.html`、`web/index.html`、
+  `tools/sync_to_robot.sh`、`CMakeLists.txt`
+- **結果 / 驗證**
+  - 用第一次實測存下的地圖離線比較：去雜點移除 4 格（空地中 2 顆假障礙＋牆外 2 顆），中間方框與四面牆保留；
+    可規劃面積 1.08 → 1.16 m²（+7%），cell 3 → 4、路點 31 → 32。
+  - 車上整套重啟後確認 gmapping 參數生效（`occ_thresh=0.5` 等、`maxRange` 未設），`/map_noise.png` 正常。
+  - 驗證當下車子周圍的地圖有多條光束穿出場地外，光達在部分方向看得很遠，和第一次實測的封閉場地不同，可能是車子或圍牆位置變了。
+    **新參數的實際效果還沒在同一場地重跑比較。**
+- **待辦 / 已知問題**：請在封閉場地內按「清空地圖、重新建圖」後再跑一次「自動建圖 → 自動覆蓋」，比較兩次的雜點數、牆厚與規劃覆蓋率。
+
+---
+
+## 2026-11-11　feat(explore)：自動建圖紀錄（摘要、每秒過程、軌跡、事件、軌跡疊圖）
+
+- **類型**：feat
+- **做了什麼**：`map_server.py` 每輪自動建圖結束（完成、停止、錯誤皆然）寫出：
+  - `data/explore_runs.csv`：每輪一列摘要——結果、結束原因、總時間／探索時間、起訖已知面積、剩餘邊界、
+    行走距離、回起點結果與誤差、起訖電壓、地圖檔名、當次參數。
+  - `data/explore/<task>_timeline.csv`：每秒一列（狀態、已知面積、邊界數、x/y/朝向、累計距離、電壓），探索與回起點階段都記。
+  - `data/explore/<task>_path.csv`：行走軌跡，每 5 cm 一點（只在探索與回起點時記，不影響覆蓋軌跡 `robot_path`）。
+  - `data/explore/<task>_events.txt`：摘要＋事件時間線，含 explore_lite 自己在 `/rosout` 印的 INFO 以上訊息、使用者按停止。
+  - `data/explore/<task>_map.png`：最後的地圖放大 4 倍，疊上紅色軌跡（綠圈起點、藍圈終點）。
+  - `_go_home()` 改為回傳 reached／failed／timeout／stopped。
+- **為什麼**：使用者要在 1.06 × 1.47 m 的簡易場地實測，事後讓 Claude 讀紀錄評估實際成效；原本只有文字日誌和最終地圖，看不出過程與路線。
+- **影響檔案**：`turtlebot3_ccpp/scripts/map_server.py`
+- **結果 / 驗證**：本地以假 ROS 模組載入 map_server，用合成地圖模擬一輪（走一圈、回起點），
+  五個檔案皆正確產生，CSV 欄位與疊圖正確。尚未在車上實跑。
+- **待辦 / 已知問題**：`data/` 不在同步範圍，要用 scp 取回分析。
+
+---
+
+## 2026-11-11　feat(explore)：自動建圖（frontier 探索）與開機自動啟動
+
+- **類型**：feat
+- **做了什麼**（設計見 `docs/01_學習資料/開機自動建圖說明.html`）
+  - `map_server.py`
+    - 以子行程管理 `explore_lite`（`rosrun explore_lite explore`，參數在 `EXPLORE_PARAMS`），寫法同 SLAM 管理。
+    - 新增探索狀態 `exp_status`：idle → countdown → exploring → saving → returning → done（或 stopped／error）。
+      `manual_allowed()` 改為「覆蓋執行中或建圖中都不能遙控」；建圖中不能開始／繼續覆蓋，覆蓋中不能開始建圖。
+    - 完成條件（任一）：explore_lite 在 `/rosout_agg` 印出 "Exploration stopped"、已知面積 90 秒沒變大、超過 10 分鐘、`/battery_state` < 10.8 V。
+      收尾：收掉 explore_lite → 取消 move_base 目標 → `map_saver` 存到 `maps/explore_<時間>.pgm/.yaml` → 開回起點（90 秒逾時）。
+    - `map_callback()` 多算已知空地面積與邊界段數（空地且碰到未知、長度 ≥ 0.3 m 的相連段），給網頁顯示。
+    - 新路由 `/explore/start`、`/explore/stop`；`/coverage/status` 多回傳 `explore`，`manual` 改用 `manual_allowed()`。
+    - 參數 `~auto_explore`：true 時等地圖、車子位置、move_base 都就緒後倒數 10 秒自動開始。
+    - 共用一個 move_base action client，按停止時能立刻取消目標；每輪探索有編號，停止後馬上再開始不會讓舊執行緒復活。
+    - 重啟 SLAM 前會先停止自動建圖。
+  - `start.launch`：新增 `auto_explore` 參數（預設 false），傳給 map_server。
+  - `launcher.py`
+    - 設定檔 `~/.ros/ccpp_launcher/config.json`（`autostart`、`auto_explore`、`model`），`/api/config` 讀寫；放在家目錄，同步程式不會蓋掉。
+    - 開機自動啟動：**只在系統開機 5 分鐘內**控制台啟動時才做（同步程式造成的重啟不會自動開系統）；
+      先等 `/dev/ttyACM0`（OpenCR）、`/dev/ttyUSB0`（光達）、網路 IP，最多 3 分鐘，都到齊再等 5 秒才啟動。
+    - `start()` 可帶 `auto_explore`；轉接白名單加 `explore/start|stop`；`/api/status` 多回傳 `boot`、`config`。
+  - `launcher.html`：「操作」頁加「自動建圖」卡片（開始／停止、已知面積、剩餘邊界、時間），建圖中鎖搖桿與覆蓋；
+    頂端步驟改「② 建圖」並依建圖狀態提示；「系統」頁加「開機自動啟動系統」「啟動後自動建圖」開關（開啟自動建圖需再確認）。
+- **為什麼**：使用者要車子開機後自己把地圖建好，不用遙控繞場地。
+- **影響檔案**：`turtlebot3_ccpp/scripts/map_server.py`、`launcher.py`、`launch/start.launch`、`web/launcher.html`
+- **結果 / 驗證**（車上 172.20.10.5）
+  - 車上 `explore_lite` 2.1.4、`map_server` 已安裝。
+  - 設定開關可存檔；控制台因同步而重啟時正確顯示「不是在開機時啟動，不自動啟動」。
+  - 啟動系統後 `/coverage/status` 的 `explore` 正確（已知 5.73 m²、10 段邊界），`/explore/stop`、遙控零速度正常；
+    map_server 有訂閱 `/rosout_agg`、`/battery_state`；`map_saver` 指令實測可存出 .pgm/.yaml。測完已停止系統。
+  - **未實測**（車子會自己移動，需要有人在旁）：實際跑完一次自動建圖、完成判定、回起點；真正重開機的開機自動啟動。
+- **待辦 / 已知問題**
+  - 實測後可能要調 `min_frontier_size`、`EXPLORE_IDLE_S`、`EXPLORE_MAX_S`。
+  - 建圖時速度沿用 DWA 官方上限，若太快可降 `max_vel_x`。
+
+---
+
+## 2026-11-11　refactor：車上程式集中到 `turtlebot3_ccpp/`
+
+- **類型**：refactor
+- **做了什麼**：`scripts/ launch/ web/ test/ tools/ CMakeLists.txt package.xml` 移入 `turtlebot3_ccpp/`（本機 `maps/` 一併移入，不進版控），
+  與車上 `~/catkin_ws/src/turtlebot3_ccpp` 一對一；`sync_to_robot.sh` 改打包 `HEAD:turtlebot3_ccpp`；新增根目錄 `README.md` 說明結構與改程式流程；
+  `docs/README.md` 的 `coverage_bench` 指令改新路徑。
+- **為什麼**：使用者要所有上車的程式集中在一個資料夾，和文件分開。
+- **結果 / 驗證**：同步 f4aa390 到車上，沒有任何檔案被刪除或變動（內容與先前相同）。
+- **待辦 / 已知問題**：`docs/01_學習資料` 各章內文的 `scripts/...` 路徑是相對於套件資料夾來寫的，未逐一改寫。
+
+---
+
+## 2026-11-10　feat(launcher)：車上常駐控制台（手機開熱點即可啟動／觀察專案）＋同步腳本
+
+- **類型**：feat / chore
+- **做了什麼**
+  - 新增 `scripts/launcher.py`：不依賴 ROS master 的常駐 Flask 服務，port 8000。
+    - `/api/start`（可選 burger/waffle/waffle_pi）以獨立行程群組 `roslaunch turtlebot3_ccpp start.launch`；
+      每次啟動依車子**當下 IP** 設定 `ROS_MASTER_URI`／`ROS_HOSTNAME`，換熱點 IP 變了也不用改 `.bashrc`。
+    - `/api/stop`：SIGINT（同 Ctrl+C，讓 map_server 停車、收 SLAM）→ 20 秒逾時 SIGTERM → SIGKILL，最後清殘留 `turtlebot3_slam.launch`。
+    - 能偵測從終端機手動開的 start.launch（顯示「執行中（終端機開的）」，也能停）。
+    - `/api/status`：行程狀態、地圖頁（8080）是否就緒、`rosnode list`、`/battery_state` 電壓、
+      覆蓋任務摘要（轉讀 map_server `/coverage/status`，只留進度與指標）、CPU 溫度／負載／記憶體／硬碟。慢的查詢都在背景執行緒每 2 秒輪詢，API 只讀快取。
+    - `/api/log`：roslaunch 輸出日誌（存在 `~/.ros/ccpp_launcher/`，保留最近 20 份）。
+    - `/api/power`：先停專案再 `sudo -n systemctl poweroff/reboot`，拔電前安全關機。
+  - 新增 `web/launcher.html`：手機優先的單頁控制台，無外部資源（熱點沒網路也能開）。
+  - 新增 `tools/ccpp-launcher.service`、`tools/install_launcher.sh`：開機自動啟動控制台；
+    `KillMode=process`，重啟控制台不會殺掉正在跑的 roslaunch。
+  - 新增 `tools/sync_to_robot.sh`：以 `git archive HEAD` 把已 commit 的實作程式推上車（LF 換行），
+    有未 commit 的程式變更就拒絕；刪除車上 HEAD 已不存在的檔案；寫 `.synced_commit`；`--build` 會 catkin_make；控制台在跑就自動重啟。
+- **為什麼**：使用者要求車子自己架網頁，讓連同一熱點的手機也能用瀏覽器啟動、觀察專案；
+  並且從此每次改程式都要版控、本地與車上同步。
+- **影響檔案**：`scripts/launcher.py`、`web/launcher.html`、`tools/*`
+- **結果 / 驗證**：`py_compile`、`bash -n`、頁面 JS 語法檢查通過；以模擬 API 在 375 px 手機寬度預覽版面正常。
+  撰寫期間車子（172.20.10.5）SSH 逾時離線，**尚未部署與實車驗證**。
+- **待辦 / 已知問題**
+  - 電池電壓讀 `/battery_state`，門檻以 Burger 3S 鋰電池設定（<11.0 V 紅、<11.5 V 黃）。
+
+---
+
+## 2026-11-10　feat(launcher)：8000 整合 8080，手機一個網址操作全部功能
+
+- **類型**：feat
+- **做了什麼**
+  - `launcher.py`：新增 `proxy()`，把 map_server（8080）的 `map*.png`、`robot_state`、`scan`、
+    `coverage/status|runs.csv`（GET）與 `coverage/start|stop|resume`、`teleop`、`slam/restart`（POST）
+    轉接到 8000，同源呼叫；白名單以外一律 404，map_server 沒起來回 502「系統未啟動」。
+    開始覆蓋、重啟 SLAM 逾時 40 秒，其餘 5 秒。
+  - `launcher.html` 全面改版成手機分頁式介面：
+    - 頂端：系統狀態、三步驟（① 啟動系統 → ② 遙控建圖 → ③ 自動覆蓋）與「下一步」提示，依狀態自動切換。
+    - 「操作」：系統未啟動時只顯示一顆「啟動系統」大按鈕；就緒後是地圖（畫法與 8080 相同）、
+      開始／繼續／結束、按住式 3×3 搖桿（放開、手指滑出、切到背景都會停車）、直立速度滑桿、可收合的圖層與圖例（記住選擇）。
+    - 「數據」：本次任務 12 項指標、CSV 下載（尚無紀錄時跳提示，不再跳到錯誤頁）、車況。
+    - 「系統」：啟動／停止、車型、重新建圖、ROS 節點、系統日誌、關機／重開、電腦版 8080 連結。
+  - 8080 電腦版頁面不變。
+- **為什麼**：使用者要 8000 與 8080 整合，讓手機操作更方便易懂。原本 8080 是寬螢幕側欄版面，手機上很擠，且要記兩個網址。
+- **影響檔案**：`scripts/launcher.py`、`web/launcher.html`
+- **結果 / 驗證**（車上 172.20.10.5，手機尺寸 375×812）
+  - 按「啟動系統」約 40 秒後地圖出現，步驟自動跳到「② 遙控建圖」；數據、系統分頁顯示正常（電池 12.46 V）。
+  - 轉接：`/map.png` 200（約 0.12 s）、`/coverage/status` 200、`/teleop` 送零速度回 `ok`、白名單外路徑 404、系統未啟動時 502。
+  - CSV 尚無紀錄時跳出提示。測完已從 API 停止系統，無殘留行程。
+  - **未實測**：實際按住搖桿讓車子移動、自動覆蓋全程（需有人在車旁）。
+- **備註**：測試期間硬碟剩餘從 4.0 GB 降到 3.1 GB，原因是 VS Code 遠端連線重新安裝了 `~/.vscode-server`（658 MB），不是程式寫檔。
+
+---
+
+## 2026-11-10　部署車上控制台並實測；fix(launcher)：電池電壓讀不到
+
+- **類型**：fix / chore
+- **做了什麼**
+  - `sync_to_robot.sh` 同步到車上，`install_launcher.sh` 安裝 `ccpp-launcher.service`（已 enable，開機自啟）。
+  - 實測發現 `rostopic echo -n 1 /battery_state/voltage` 在樹莓派上要約 6.5 秒，超過原本 6 秒逾時，電壓一直是空的。
+    改成獨立的 `_battery_poller` 執行緒、逾時 20 秒、每 20 秒讀一次，不再卡住主輪詢；`rosnode list` 逾時 5 → 8 秒。
+- **影響檔案**：`scripts/launcher.py`
+- **結果 / 驗證**（從同熱點的筆電呼叫 `http://172.20.10.5:8000`）
+  - 啟動：約 38 秒地圖頁（8080）就緒，8 個節點（map_server、move_base、turtlebot3_core／lds／diagnostics、gmapping…）。
+  - 同步新版時控制台自動重啟，正在跑的 roslaunch 沒被中斷，狀態顯示「執行中（終端機開的）」，電壓讀到 12.48 V。
+  - 停止：約 12 秒回到「未啟動」，`pgrep` 確認 roslaunch／rosmaster／gmapping／move_base／map_server 無殘留。
+  - 手機寬度實頁畫面正常。尚未按「關機／重新開機」實測（會真的關掉車子）。
+
+---
+
+## 2026-11-10　chore：車上程式與本地同步、整理本地與車上資料夾
+
+- **類型**：chore
+- **做了什麼**
+  - 比對車上 `~/catkin_ws/src/turtlebot3_ccpp`（172.20.10.5）與本地：車上停在 2026-09-24 版
+    （有線尾內縮、脫困／受困處理，但沒有「掃描線中途點」與「任務指標／CSV」），沒有本地缺少的修改。
+  - 先把車上整包備份到 `~/backup/turtlebot3_ccpp_20261110_101919`，再把本地的
+    `scripts/`、`launch/`、`web/`、`test/*.py`、`CMakeLists.txt`、`package.xml` 推上車（轉成 LF 換行），
+    md5 與本地一致，`py_compile` 通過。
+  - 車上：刪掉從 Windows 帶上去的 `__pycache__`（cpython-313）；
+    `devel/lib/turtlebot3_ccpp/` 刪除舊架構留下的 7 個失效 relay（ccpp_manager.py 等），重跑 `catkin_make`。
+  - 本地：刪 `scripts/`、`test/` 的 `__pycache__`；`docs/README.md` 的 03_海報 段落改成只剩 `專題海報.pdf`。
+- **為什麼**：專案擱置一段時間，車上與本地版本不一致，下次實車測試前要先對齊。
+- **影響檔案**：`docs/README.md`、本檔；車上套件目錄
+- **結果 / 驗證**：車上檔案 md5 與本地相同、可編譯；尚未在車上 `roslaunch` 實跑。
+- **車上清理（使用者確認後執行）**：刪除與專案無關的資料，硬碟 90% → 73%（剩 3.8 GB）。
+  - 舊專案 `tb3_web_crtl`、`my_tb3_driver` 先打包到 `~/backup/old_packages_tb3_web_crtl_my_tb3_driver_20261110.tar.gz`
+    （`tb3_web_crtl` 有 10 個未推送 commit；打包前已移除遠端網址內嵌的 GitHub 權杖）後刪除；`rosboard` 一併刪除。
+  - 刪除 `~/opencv`、`~/opencv_contrib`（OpenCV 4.5.0 已裝在 `/usr/local`，`cv2` 仍可用）、
+    `~/.vscode-server` 等 VS Code／AI 工具資料夾、`~/.cache`、重複的 `catkin_ws/opencr_update`，`rosclean purge` 清掉 ROS 日誌。
+  - `build/`、`devel/` 清掉重新 `catkin_make`，`rospack find turtlebot3_ccpp` 正常。
+- **待辦 / 已知問題**
+  - 中途點與任務指標兩個功能仍未實車驗證。
+  - 舊權杖需到 GitHub 撤銷；`/etc/systemd/system/tb3_web.service`（已停用、指向已刪的腳本）留給使用者自行移除。
+
+---
+
+## 2026-10-04　feat(web)：「規劃資訊」改為任務指標面板，並記錄每次執行數據
+
+- **類型**：feat
+- **做了什麼**
+  - `coverage_planner.py`：新增 `COVER_R = 0.10`、`coverage_mask()`／`coverage_ratio()`
+    （線段取樣標格後一次距離轉換）；`plan()` 多回傳 `sweeps`（依走訪順序的掃描線，不含換行銜接）。
+  - `map_server.py`
+    - 規劃時記錄規劃時間（含安全邊距膨脹）、規劃覆蓋率、規劃路徑長、可達面積，並保存規劃當下的可走格 `cov_grid`。
+    - 新增 `cov_metrics()`：實際覆蓋率（行走軌跡在 `cov_grid` 上掃過的比例，軌跡沒變就用快取）、
+      任務完成率（到達路點 / 總路點）、跳過數、累計執行時間（停止後繼續會接著算）、實際行走長。
+    - `run_coverage()` 改成計時外殼，原本主體改名 `_run_coverage()`；每次結束（完成、停止、錯誤）
+      把指標追加到 `data/coverage_runs.csv`（utf-8-sig）。新增 `/coverage/runs.csv` 下載。
+    - `/coverage/status` 多回傳 `metrics`。
+  - `web/index.html`：「規劃資訊」改為「任務指標」，分規劃／執行兩組；加 CSV 下載連結。
+    原本的連通區間、臨界點、cell、主軸、λ 比從面板移除，但仍寫在 CSV 裡。
+- **為什麼**：使用者要能產出實質數據（覆蓋率、規劃時間、任務完成率）做實驗比較。
+  實際覆蓋率沿用規劃當下的地圖算，分母才和規劃覆蓋率一致（SLAM 執行中地圖會變大、原點會移）。
+- **影響檔案**：`scripts/coverage_planner.py`、`scripts/map_server.py`、`web/index.html`
+- **結果 / 驗證**：以假 ROS 模組載入 `map_server`，用合成地圖跑 `/coverage/start`、模擬行走與結束，
+  指標、CSV 內容與下載路由皆正確；補點與不補點的 `sweeps` 算出相同規劃覆蓋率；網頁 JS 以 `node --check` 通過。尚未實車驗證。
+- **待辦 / 已知問題**
+  - 軌跡每 0.1 m 才記一點，實際覆蓋率對最後一小段略為低估。
+  - 停止後再繼續，CSV 會多一列（同一個 task 編號），分析時取每個 task 的最後一列。
+
+---
+
+## 2026-10-04　feat(coverage)：掃描線補中途點，讓實車照直線走
+
+- **類型**：feat
+- **做了什麼**
+  - `coverage_planner.py`：新增 `VIA_STEP = 0.25` 與 `_densify()`，每條掃描線依此間距補上中途點；
+    `plan()` 多回傳 `via`（與 `waypoints` 等長的旗標，True = 中途點），並新增 `via_step` 參數（`inf` = 只給頭尾，同舊行為）。
+  - `map_server.py`：新增 `VIA_NEAR = 0.12` 與 `cov_via`；`_go_to()` 新增 `near` 參數，
+    中途點只要車子進入半徑就直接送下一點（不取消目標，move_base 會無縫接手），不等 move_base 判定到達；
+    輪詢間隔 0.5 → 0.2 秒，避免高速通過中途點時才發現。線頭、線尾仍照舊等到達並對準方向。
+  - `test/coverage_bench.py`：改呼叫 `plan(..., via_step=math.inf)`，因為統計假設路點是「掃描線、銜接線」兩兩交替。
+- **為什麼**：實車測試發現每條來回線只送頭尾兩點，navfn 依 costmap 成本自己找路，
+  長線常被拉彎、沒照直線走，覆蓋會漏。補點把路線釘在掃描線上；
+  中途點若也等 move_base 判定到達，DWA 每點都會減速停車再轉向，所以改成「靠近就換點」。
+- **影響檔案**：`scripts/coverage_planner.py`、`scripts/map_server.py`、`test/coverage_bench.py`
+- **結果 / 驗證**：合成地圖確認中途點間距 ≤ 0.25 m、`via` 旗標線頭線尾為 False；
+  `coverage_bench.py` 14 個場地數值與補點前一致（覆蓋率 94.9%～99.1%）。尚未上實車驗證。
+- **待辦 / 已知問題**
+  - 需實車確認：中途點是否仍有頓挫、`VIA_STEP`／`VIA_NEAR` 是否要調。
+  - 路點總數變多，網頁進度「done / total」的分母會跟著變大。
+
+---
+
+## 2026-09-29　docs(簡報)：DAHV_tdfklM 精簡為「圖為主、字為輔」並補上 22 頁講稿
+
+- **類型**：docs
+- **做了什麼**
+  - 依使用者要求「整理核心重點、盡量用圖搭配少量文字、附上講稿」，整份簡報改寫。
+  - 六步驟頁（p11～16）：「怎麼做」長段落改成 3 條短句，「產生的結果」縮成一句；
+    右側實機截圖由 700 寬放大到 860 寬（p11 兩張放大到 650 寬）。
+  - p3 摘要：276 px 長段落改成「問題／做法／成果」三行，右側新增覆蓋路徑成果圖（MAHVpmX51Tg）。
+  - p4：刪掉背景兩張無關的房間照與底部冗長句子；「沒擺正／有擺正」示意圖左右對調，
+    使其對應上方的「①地圖的方向是歪的／PCA 主軸對齊」。
+  - p5：左右原本是同一張房間照，改成原始地圖（MAHVvasuUYU）對膨脹後（MAHVpnzrTkw）；
+    兩個圖框原帶 -90° 旋轉，先轉正再重新定位。
+  - p10、p13、p17、p19 文字精簡；p13 刪掉與「產生的結果」重複的圖說。
+  - 22 頁全部寫入演講者備忘稿（講稿），含備問頁提示與常見提問清單。
+- **為什麼**：原本多頁是整段文字，不適合上台講；使用者要求把要講的內容移到講稿、版面留給圖。
+- **影響檔案**：無（只動 Canva 設計 DAHV_tdfklM，不含專案程式）。
+- **結果 / 驗證**：已 commit 至 Canva；每頁以回傳縮圖逐頁確認版面無破圖、無文字溢出。
+- **待辦 / 已知問題**
+  - Canva MCP 無法改字級：`format_text` 的 `fontSize` 送出後不生效，`add_text` 新增的文字固定 16 px。
+    因此「四張圖看完整流程」的 2×2 回顧頁沒有做（標題與圖說無法排到合適字級），需要的話得手動加。
+  - p6 與 p7 都是系統架構，正式報告建議只留一頁。
+  - 成果展示頁的影片框仍是空的。
+
+---
+
+## 2026-09-23　docs(簡報)：新版專題簡報 DAHV_tdfklM 從 12 頁骨架補成 19 頁完稿
+
+- **類型**：docs
+- **做了什麼**
+  - 使用者新開一份骨架簡報（Canva `DAHV_tdfklM`，原 12 頁多為佔位文字），
+    依其指示套用舊簡報 `DAHVDXdRNpE` 的「A232 直角藍」樣式並補完內容，現為 19 頁。
+  - 新增 7 頁：研究方法六步驟各一頁（①地圖前處理 ②PCA ③切帶 ④cell 分解
+    ⑤cell 內牛耕 ⑥cell 間銜接）＋「實驗設定與場地」。
+  - 內容來源：`docs/03_海報/答辯資料/`（硬體規格、套件清單、已知限制）與
+    `docs/01_學習資料/20_驗證與實驗方法.md`（光達實測 4.99 Hz、最遠有效 3.02 m）。
+  - 圖片沿用該簡報第 18 頁「可用圖片」的既有素材（Canva mediaId），未上傳新檔。
+  - 修正骨架上第 3、4 頁標題與內容對調的問題（第 3 頁內容是研究動機，標題卻寫背景與系統摘要）。
+- **為什麼**：原骨架只有佔位文字，且使用者要求 20 分鐘的簡報份量、方法章節以圖片為主視覺。
+- **影響檔案**：無（只動 Canva 設計，不含專案程式）。
+- **結果 / 驗證**：已 commit 至 Canva；頁序經 page_metadata 確認為
+  封面 / 目錄 / 動機摘要 / 系統架構 / 現成套件(備問) / 硬體規格 / 研究方法總覽 /
+  ①～⑥ / 實驗設定 / 成果展示 / 結論 / 結尾 / 可用圖片 ×2。
+- **待辦 / 已知問題**
+  - 成果展示頁的影片框仍是空的，待使用者放入實機影片。
+  - ⑥ cell 間銜接沿用 ④ 的 A～D 圖，若有「走訪順序」專屬截圖可換掉。
+  - 字型為 Canva 預設，MCP 無法改字型；若要與舊簡報一致需手動調整。
+
+---
+
+## 2026-09-13　fix(coverage,launch,web)：車子卡死不再原地跳光路點 — 線尾內縮、脫困重試、受困停止可接續；軌跡改用地圖座標
+
+- **類型**：fix
+- **症狀（使用者實機回報）**
+  1. 行走軌跡與「覆蓋路徑」圖層對不上。
+  2. 車子停滯後無法自救，停在原地一直跳過路點（同日稍早「停滯 3 秒就跳下一點」的方案不合用）。
+- **根因**
+  - **卡死**：掃描線端點落在可走區邊界，離牆只有 0.10~0.125 m；Burger 外接圓半徑 0.11~0.15 m，
+    在線尾要轉向下一條線時車尾會掃到牆 → DWA 找不到可行軌跡。move_base 內建自救（清 costmap、
+    原地旋轉）同樣轉不了身；而舊方案取消後直接送下一點，車還在原位，於是每一點都一樣失敗。
+  - **軌跡對不上**（兩個原因）：
+    ① 軌跡取自 `/odom`，odom 座標會累積漂移，卻被當成地圖座標畫（答辯資料已知限制第 11 項）；
+       規劃起點 `robot_pos` 也是 odom 座標。
+    ② 官方全域 costmap 膨脹 1.0 m，小場地幾乎整片都有成本，navfn 為了避開高成本把貼牆的掃描線
+       繞到場地中間走（每條線只有兩個端點路點，中間怎麼走由 navfn 決定）。
+- **動了什麼**
+  - **`scripts/coverage_planner.py`**：新增 `END_TRIM = 0.09`，`_slice_runs` 把每條掃描線兩端各內縮
+    0.09 m（區間太短縮成中點），端點離障礙 ≈ 0.19 m，與側向（第一條線離邊界 `SPACING/2`）一致。
+    `a0/a1` 維持真實範圍供 `_link_runs` 判斷連通，**cell 分解結果不變**。`plan()` 新增 `end_trim` 參數。
+  - **`scripts/map_server.py`**
+    - 位置與軌跡改由 `pose_tick`（10 Hz）用 TF 查 `map → base_footprint`，移除 `/odom` 訂閱。
+    - 執行邏輯拆成 `_go_to`（送單一目標＋停滯偵測）與 `run_coverage(start_idx)`：
+      失敗（停滯或 move_base 放棄）→ 已在路點 0.15 m 內就算到；否則 `_escape` 脫困後**重送同一點**，
+      `RETRY_MAX = 2` 次仍失敗才跳過。
+    - `_escape`：直接發 `/cmd_vel` 以 0.05 m/s 直線退開 0.12 m（先試後退、再試前進），
+      該方向要同時通過 **SLAM 地圖**（車身掃過的長條區全為自由格，補雷射 0.12 m 內量不到的盲區）
+      與 **雷射**（±35° 扇形最近障礙 > 0.25 m）檢查才動；行進中有東西靠近就停；最後呼叫
+      `/move_base/clear_costmaps`。
+    - **受困停止**：連續 `STUCK_MAX = 3` 個路點失敗且車子移動 < 0.30 m → 狀態改 `error`、
+      進度退回第一個失敗的路點、撤掉這串跳過紀錄，提示使用者手動移車。車子若有在移動
+      （只是那幾點真的到不了）則照常跳過繼續。
+    - 新增 `POST /coverage/resume`：沿用同一條路徑從 `done` 接著走、不重新規劃；
+      僅 `stopped`／`error` 且尚有未走路點時接受。重啟 SLAM 時一併清空 `cov_skips`。
+  - **`launch/start.launch`**：`global_costmap/inflation_radius = 0.25`（寫在舊參數位置，
+    costmap 以 pre-Hydro 方式載入時會搬進 `inflation_layer`）。局部 costmap 維持官方值。
+  - **`web/index.html`**：新增「⏵ 從中斷處繼續」按鈕（`stopped`／`error` 且有未走路點時可按）。
+- **關鍵決策**
+  - **內縮線尾，不加大 `MARGIN`**：側向只需車身半寬，只有要轉身的線尾需要外接圓的空間；
+    加大 `MARGIN` 會連窄通道一起封掉。
+  - **脫困走直線、不原地轉**：卡死的原因正是轉不了身；差速車只能沿車頭方向進退。
+  - **受困就停，不跳光**：跳過只對「點到不了但車能動」有意義；以「連續失敗＋幾乎沒移動」區分兩者。
+- **結果 / 驗證**
+  - `py_compile`、`node --check`、launch XML 解析皆通過。
+  - `test/coverage_bench.py` 前後對照（覆蓋率｜轉場穿牆）：
+
+    | 場地 | 覆蓋率 前 → 後 | 轉場穿牆 前 → 後 |
+    |---|---|---|
+    | 長方形4x2 | 100.0 → 98.7% | 0 → 0 |
+    | 含柱4x2 | 100.0 → 98.4% | 0 → 0 |
+    | 雙柱4x2 | 98.4 → 95.7% | 2 → 2 |
+    | L形4x4 | 100.0 → 97.7% | 1 → 1 |
+    | 斜置15度 | 100.0 → 99.1% | 8 → 0 |
+    | 斜置30度 | 100.0 → 95.6% | 30 → 19 |
+    | 斜置45度 | 95.9 → 94.9% | 3 → 0 |
+
+    14 個場地覆蓋率平均降約 1.9 個百分點（線尾各少掃約 9 cm）；掃描線穿牆全為 0；
+    端點離牆較遠，斜置場地的直線轉場穿牆明顯減少。
+  - 以假 ROS（假車依 `/cmd_vel` 積分、假 move_base 依劇本回應、假地圖與假雷射）跑 10 個情境全數通過：
+    正常走完；停滯一次→後退 0.12 m→重試成功不跳過；單點到不了→脫困 2 次後跳過並繼續；
+    四周貼滿障礙→不移動、連續 3 點失敗後停止並退回路點 3；按繼續從路點 3 走完；
+    無未走路點時拒絕繼續；連續 4 點到不了但車有移動→照常跳過不誤判受困；
+    路點旁 8 cm 停滯→視同到達；後方地圖是牆→改為前進脫困。
+  - **尚未上實機**。
+- **已知待辦 / 風險**
+  - 脫困會繞過 costmap 直接驅動馬達（0.05 m/s、最多 0.12 m），安全靠地圖＋雷射雙重檢查；
+    假設 `base_scan` 與車身同向（TB3 URDF 如此）。
+  - 請在機器人上確認 `rosparam get /move_base/global_costmap/inflation_layer/inflation_radius`
+    為 0.25；若官方參數檔有 `plugins` 設定，要改寫在 `inflation_layer` 底下才會生效。
+  - 請確認 footprint：`rosparam get /move_base/local_costmap/footprint`（官方 burger 可能是
+    後方較長的矩形，外接圓約 0.15 m；若實機仍在線尾卡住，把 `END_TRIM` 加到 0.12）。
+  - `docs/01_學習資料` 第 13、15 章與答辯資料的「已知限制 11（odom 漂移）」描述已過時，尚未更新。
+
+---
+
+## 2026-09-13　feat(web)：新增「規劃路點」圖層與跳過標記；地圖 canvas 改為顯示解析度繪製
+
+- **類型**：feat
+- **動機**：實機上車子會自己開進動不了的地方，接著連續跳過一串路點，但網頁只顯示
+  「路點 i/n 跳過」最後一筆文字，看不出是哪些路點、在地圖的哪裡、為什麼被跳過。
+- **動了什麼**
+  - **後端 `scripts/map_server.py`**：新增共享狀態 `cov_skips = [[路點序號, 原因], ...]`；
+    `run_coverage` 跳過時記一筆（原因＝「停滯」或「無法到達」），`coverage_start` 清空，
+    `/coverage/status` 多回傳 `skipped` 欄位（序號對應 `path_px` 的索引）。
+  - **前端 `web/index.html`**：
+    - 新圖層「規劃路點」：○ 待走、● 已到達、✕ 跳過（紅＝無法到達、橘＝停滯）、
+      ◎ 目前目標；跳過與目前目標旁標路點序號（從 1 起算，與「路點 i/n 跳過」訊息一致）。
+      疊在行走軌跡之上，✕ 先描深色底，壓在紅色安全邊距上也看得清楚。
+    - 圖層區下方加圖例；「規劃資訊」表新增「跳過路點 k / n」。
+    - **canvas 改以實際顯示解析度繪製**（見踩到的坑）。
+- **踩到的坑：疊加圖層全部是馬賽克**
+  - 原本 canvas 的像素尺寸＝地圖格數（例如 78 × 54），再用 CSS 放大十幾倍，
+    所以線條、圓點、文字都跟著地圖格子一起被放大成方塊；新圖層的序號完全讀不出來。
+    這個問題既有圖層（cell 標籤、覆蓋路徑）本來就有，只是之前沒有需要細看的東西。
+  - 修法：`fitCanvas` 把 canvas 的像素尺寸設成 CSS 尺寸 × `devicePixelRatio`，
+    `draw` 每次 `setTransform(zoom)`，**所有繪圖座標仍是地圖像素，既有繪圖程式碼不用改**；
+    `imageSmoothingEnabled = false` 讓地圖格子維持銳利方塊，外觀與原本相同。
+  - `shadowBlur` 不吃 transform，機器人光暈改乘上 `zoom` 以維持原本大小。
+  - 新圖層的字級與線寬用螢幕像素（`cssPx()`）指定，任何縮放下都一樣粗細；
+    圓點半徑上限 1.5 格（7.5 cm），不會和相鄰掃描線（3.6 格）的點黏在一起。
+- **影響檔案**：`scripts/map_server.py`、`web/index.html`。
+- **結果 / 驗證**
+  - `py_compile` 通過；抽出頁面 script 以 `node --check` 通過。
+  - 以假 ROS 模組跑 `map_server` 真正的 Flask 路由（合成 3.0 × 1.8 m 房間＋中央障礙、
+    真實 `plan()` 輸出、手動塞入 5 筆跳過），Chrome 實際開啟：主控台無錯誤；
+    跳過 ✕ 與序號、目前目標 ◎、已到達／待走圓點皆清晰可辨；
+    「跳過路點」顯示 `5 / 24`；canvas 為 1761 × 1220（CSS 1174 × 813 × dpr 1.5）。
+  - 尚未在實機地圖上看過。
+
+---
+
+## 2026-09-13　fix(coverage,launch)：貼牆路點不再一碰就卡住 — 停滯偵測＋move_base 容錯覆寫
+
+- **類型**：fix
+- **症狀**：覆蓋執行時，機器人走到貼近安全邊距的路點（多半是掃描線兩端）就停住，
+  等幾十秒才跳下一點。
+- **為什麼會停**：網頁上的紅色「安全邊距」圖層只決定路點放哪裡，執行期間沒有人檢查它；
+  真正讓車停的是 move_base。`MARGIN = 0.10 m` ≈ Burger 半寬 0.105 m，再加上 SLAM 定位
+  幾公分的誤差，車身一靠近路點就壓到 costmap 障礙區 → DWA 找不到可行軌跡而送出速度 0 →
+  move_base 乾等 `controller_patience`（官方約 15 s）→ 清 costmap、原地旋轉 → `ABORTED` →
+  `run_coverage` 才跳過。
+- **動了什麼**
+  - **A. `launch/start.launch`**：在官方 yaml 載入之後覆寫四個 move_base 參數：
+    `NavfnROS/default_tolerance = 0.1`（路點落在障礙區時改規劃到附近可達點）、
+    `DWAPlannerROS/xy_goal_tolerance = 0.10`（官方 0.05）、
+    `controller_patience = 5.0`、`planner_patience = 2.0`（早點放棄）。
+  - **B. `scripts/map_server.py` 的 `run_coverage`**：
+    - 新增 `_robot_pose(frame)`，用 TF 查 `base_footprint` 在地圖座標的 (x, y, yaw)。
+    - **停滯偵測**：等待迴圈每 0.5 s 查一次位姿，位移沒超過 `STALL_DIST = 0.03 m`、
+      轉角也沒超過 `STALL_YAW = 0.20 rad`，連續 `STALL_SEC = 3.0 s` 就自行取消目標，
+      不等 move_base 的 patience 和自救動作。
+    - **貼在旁邊就算到**：沒拿到 `SUCCEEDED` 但離路點 < `GOAL_NEAR = 0.15 m` 時，
+      視同到達、不記跳過；否則照舊跳過，訊息區分「停滯」與「無法到達」。
+- **關鍵決策**
+  - **不縮 `footprint` / `robot_radius`、不調 `inflation_radius`**：前者等於允許真的撞牆，
+    後者只影響「偏好離牆多遠」，不會移動「壓到就停」的那條界線。
+  - 停滯判定把**原地旋轉也算作進展**，否則 DWA 對準方向的原地轉身會被誤判為卡住。
+  - TF 查不到時完全不做停滯判定，行為退回改版前（等 move_base 回報）。
+  - `GOAL_NEAR` 取 0.15 m 而非更大：掃描線端點提早收尾會少掃靠牆那一段，
+    0.15 m 小於覆蓋寬度 0.20 m。
+- **影響檔案**：`launch/start.launch`、`scripts/map_server.py`。
+- **結果 / 驗證**
+  - `py_compile` 通過；launch XML 解析通過，四個覆寫參數都在。
+  - 以假 ROS 模組（rospy／actionlib／tf2 全換成替身、模擬時鐘）跑 `run_coverage` 五種情境，
+    全數符合預期：正常到達 6.0 s 不誤判；遠處卡住 4.0 s 跳過並標「停滯」；
+    路點旁 8 cm 卡住 4.0 s 視同到達；原地慢轉 5 s 後到達不誤判；TF 不可用時行為同改版前。
+  - **尚未上實機驗證**；參數官方值是憑印象，請在機器人上用
+    `rosparam get /move_base/controller_patience` 等確認，並確認
+    `/move_base/base_global_planner` 是 navfn（否則 `NavfnROS/default_tolerance` 無效）。
+- **已知待辦 / 風險**
+  - 停滯 3 s 就取消，比 `controller_patience` 早，所以 **move_base 的自救動作不會再被觸發**。
+    若 local costmap 殘留假障礙把車困住，後續幾個路點可能被連續快速跳過；
+    實機若遇到，可在停滯時先呼叫 `/move_base/clear_costmaps` 再決定是否跳過。
+  - 根本解仍是讓路點離牆有餘裕（`MARGIN` 0.15），代價是靠牆覆蓋率與窄通道。
+
+---
+
+## 2026-09-11　docs(海報)：v5 版面重排 — 摘要＋五步圖解研究方法，新增示意圖產生器
+
+- **類型**：docs
+- **動了什麼**：新增 `docs/03_海報/gen_poster_v5.py`（產出 `改_v5.docx`）與
+  `gen_method_figs.py`（產出 `fig/method_1~5_*.png`）。
+  - **版面**：標題 → 左欄「一、摘要／二、系統架構（沿用架構圖＋橫式照片預留框）」、
+    右欄「三、研究方法」五步（① PCA 主軸對齊 → ② 切帶 → ③ cell 分解 → ④ cell 內牛耕 →
+    ⑤ cell 間銜接，每步左圖右文、步驟間向下箭頭）→ 通欄「四、成果展示」（實驗條件註記＋
+    預留框）→「五、結果討論」（結論｜限制與未來工作）。
+  - **字數**：內文（不含標題）從 v4 的 1,989 字降到 756 字；摘要 144 字（上限 150）。
+  - **標題**改為「TurtleBot3 牛耕式路徑規劃系統」，副標沿用。
+  - 架構圖縮 0.794 放進左欄（字 7.5 pt），單行標籤依字數自動加寬，修掉 v4 被截斷的
+    「目前狀態」「網頁架設」等；錯字「機器人的位子」→「位置」。
+- **為什麼**：使用者回饋 v4「字太多、缺有效圖片」，並親自定下六區塊版面與五步流程；
+  實機照片由使用者自行拍攝後放入預留框。
+- **關鍵決策**
+  - **示意圖由規劃器實際算出**，不是手繪：合成地圖餵給 `coverage_planner` 的
+    `principal_axes`／`_slice_runs`／`_link_runs`／`_build_cells`／`plan`，
+    並 assert 中間結果與 `plan()` 的 cell 數一致。
+  - **合成場地選 2.4 × 1.5 m、斜 25°、含一個 0.45 m 障礙物**：掃過 3 種尺寸 × 4 種角度，
+    3.0 × 1.8 m 與 2.7 × 1.6 m 會觸發「最外側掃描帶沿鋸齒邊界碎裂」切出 6～23 個 cell，
+    2.4 × 1.5 m 在 15°～30° 都穩定切出 4 個（覆蓋率 99.2%～99.7%、掃描線穿牆 0）。
+  - 成果展示的前提寫「長方形（長寬比 ≥ 1.5）」而非「四邊形」：正方形會讓 PCA 退化。
+- **踩到的坑**
+  - v4 的圖形分屬兩個錨定段落（原點差 1.34 cm）。v5 把所有圖形集中到同一段，
+    輸出檔只剩一個座標系，之後不必再換算。
+  - scratchpad 裡取名 `inspect.py` 的腳本會遮蔽標準庫，讓 numpy import 失敗。
+- **影響檔案**：`docs/03_海報/gen_poster_v5.py`、`gen_method_figs.py`（新增）、
+  `改_v5.docx`、`fig/*.png`（產物）。`改_v4.docx` 未修改。
+- **結果 / 驗證**：Word 開啟並轉 PDF 無修復提示、單頁；逐區塊目視確認無溢框、無重疊。
+- **已知待辦**：架構圖 7.5 pt 偏小（版面之後再談）；鋸齒邊界碎裂缺陷仍未修，
+  實機斜置場地若切出大量碎 cell，成果圖會受影響。
+
+---
+
+## 2026-09-09　docs(學習資料)：`index.html` 改版 — 六步流程主視覺、程式碼摺疊、取消章號
+
+- **類型**：docs
+- **動了什麼**：把前一版「六部章節式」的 `index.html` 重構成**以演算法流程為主軸**的互動頁面。
+  - **首屏主視覺**：`① 地圖前處理 → ② PCA 主軸對齊 → ③ 切帶與中心線取樣 →
+    ④ cell 分解 → ⑤ cell 內路徑規劃 → ⑥ cell 間銜接規劃` 六個節點，
+    點任一節點展開該步的**輸入 / 方法 / 輸出 / 為何這樣做**卡片，並可跳到完整說明。
+  - **章節拆進階段**：不再以「章」為單位。例如階段 ① = 第 07 章全章 + 8.1 形態學膨脹，
+    階段 ② = 8.2~8.5，階段 ⑤ = 12.1~12.3，階段 ⑥ = 12.4~12.9。
+    每個階段標題下標示「內容來源：第 NN 章 …」保留回溯性。
+  - **取消章號**：主線只用階段編號 ①~⑥，附錄 16 章只有標題不編號
+    （原本 09→10→11→12→08→07→02 的跳號很難讀）。小節編號（7.1、8.1）保留，
+    因為內文有大量「第 03 章 3.5」這種交叉引用。
+  - **程式碼全部摺疊**：331 個程式碼區塊改成預設收合的 `<details>`，
+    摘要行直接用區塊第一行的來源註解（例如 `scripts/coverage_planner.py:222-224`），
+    不用點開就知道那段在哪。196 個 ASCII 示意圖維持直接顯示（那是講解主力，不是程式碼）。
+  - 第 09 章獨立成「演算法演進史」，第 22、23 章合成「實測與能力邊界」，兩者仍屬主線。
+- **為什麼**：使用者回饋——版面與開頭數字要重整、程式碼不要、
+  而且希望「一進來就看懂牛耕演算法的流程」，再點擊逐步深入。
+- **關鍵決策：六步而不是五步**
+  - 使用者原本列的是 `PCA → 切帶取樣 → cell 分解 → cell 內 → cell 間` 五步。
+  - 但 `apply_safety_margin()`（`binary_dilation` 膨脹）是在 `map_server.py` 裡
+    **`plan()` 之外、之前**被呼叫的（`map_server.py:163`、`468`），
+    而 `plan()` 的第一件事就是拿 `free` 去做 PCA。
+  - 少了這一步，「PCA 吃的點集哪裡來」會斷掉，所以補上 ① 地圖前處理。
+- **踩到的坑：章節重組讓內文的交叉引用全部指向不存在的錨點**
+  - 內文有大量「第 10 章」「第 22 章」字樣，前一版都轉成 `#ch10` 這種錨點。
+    章節被拆進階段之後，`#ch10` 不再存在。
+  - 修法是加一張 `chapter_anchors()` 對照表（10→`#s3`、09→`#hist`、22/23→`#limits`…），
+    讓 `mdblocks` 轉連結時查表。第 08 章橫跨 ①②，指向 ②（PCA 是它的主體）。
+  - 另外每段內容改成用**自己的章號**產生錨點，避免不同章的同名 h3 在同一階段裡碰撞。
+- **影響檔案**：
+  - `docs/01_學習資料/index.html` — 重寫（1,013 KB）
+  - 24 個 `.md` 原始檔 — **未修改**
+- **結果 / 驗證**：
+  - **切片完整性**：逐章掃出所有 h2 小節，確認每一節都出現在產物裡；
+    24 章共 200+ 個小節只有 1 個不在——第 23 章的「全書章節索引」，
+    因為它索引的是原始九部編排，重排後已失效，**刻意移除**。
+  - **結構**：標籤配對平衡；頁內錨點 100% 可解析（含全部改寫過的交叉引用）；
+    外部資源 0 個（維持完全離線）。
+  - **實機**：瀏覽器實測六節點點擊展開／互斥收合、深淺色、側欄搜尋與捲動追蹤、
+    程式碼摺疊標籤、ASCII 圖對齊，皆正常。
+  - ⚠ 修掉一個渲染缺陷：`第 ① 步` 的圈號在等寬字型堆疊裡沒有字形，
+    會顯示成方框；改用無襯線字型。程式碼摺疊圖示同理改成純 ASCII 的 `</>`。
+- **已知待辦**：產生這份 HTML 的三支腳本（`mdconv.py` 語法高亮、`mdblocks.py` Markdown
+  轉換、`build.py` + `structure.py` 組版與結構定義）仍不在版控裡，`.md` 更新後無法重新產生。
+
+---
+
+## 2026-09-09　docs(學習資料)：24 章講義合併為單檔離線 `index.html`，改以牛耕為主線重排
+
+- **類型**：docs
+- **動了什麼**：新增 `docs/01_學習資料/index.html`（979 KB，單一檔案、零外部依賴），
+  把該目錄下 24 章 Markdown（582 KB、約 14,200 行）合併成一份可離線閱讀的講義。
+  - **章節重排成六部**：原始 Markdown 是九部編排，本頁改以**牛耕演算法為主線**——
+    第一部（09→10→11→12）講演算法本身，第五部（18、20~23、19）講驗證、調校與能力邊界；
+    其餘章節依「牛耕會用到什麼」歸成三個支線部（數學與地圖資料／ROS 與導航／系統與網頁工程）。
+  - **內容一字未刪**。第 08 章兩段純數學術語的旁支（譜定理、`eigh` 與 `eig` 的差別）
+    改成預設收合的 `<details>`，讓主線動線乾淨，點開仍可閱讀。
+  - **頁面功能**：側欄兩層目錄（章 + 節）、章節搜尋（`/` 聚焦）、捲動位置追蹤、
+    深／淺色切換（記在 `localStorage`）、閱讀進度條、列印時自動展開所有摺疊區塊。
+  - 章末的「上一章／下一章」與內文所有「第 NN 章」字樣都自動轉成頁內錨點連結。
+- **為什麼**：24 個 `.md` 分散，交叉參照要一直開檔案；要一份能直接雙擊閱讀、
+  也能離線帶著看的整合版本。
+- **關鍵決策：不套 CDN，自己寫 Markdown 轉換器與語法高亮**
+  - 機器人端可能沒有網路，載不到 CDN 就整份掛掉（同第 15 章前端「零外部依賴」的理由）。
+  - 更關鍵的是**無語言標記的 code fence 有 723 個，絕大多數是 ASCII 示意圖不是程式碼**。
+    通用高亮器會把 `████`、`●───→` 這些字元亂上色。改成只有標了語言的 331 個區塊才高亮，
+    197 個示意圖以等寬虛線框原樣保留。
+- **踩到的三個坑**
+  - **`fold_sections` 把程式碼註解當成標題**：掃描「下一個同級標題」時，
+    fence 內的 Python 註解 `# scripts/coverage_planner.py:38-40` 被 `^#{1,6}\s` 匹配成 h1，
+    導致 `</details>` 被插進程式碼區塊中間。修法是掃描時追蹤 fence 開合狀態。
+  - **表格裡的 `<br>` 被跳脫成字面文字**：`inline()` 會整段 `html.escape`，
+    `<br>` 變成畫面上看得到的 `&lt;br&gt;`。修法是跳脫後把 `&lt;br&gt;` 還原成真正的換行。
+  - ⚠ **忘了宣告 `<meta charset="utf-8">`**：這不是 Artifact 而是獨立檔案，
+    外層 `<!doctype>`／`<head>` 要自己寫。少了 charset 整頁中文變亂碼——
+    這個缺陷靜態檢查完全看不出來，是實際開瀏覽器才發現的。
+- **影響檔案**：
+  - `docs/01_學習資料/index.html` — 新增（產物）
+  - 24 個 `.md` 原始檔 — **未修改**
+- **結果 / 驗證**：
+  - **內容完整性**：逐章比對「實質字元數」（只取中日文與英數），24 章總計
+    源碼 179,593 字元 vs 產物 179,250，差 −0.19%；再做逐行比對，
+    全書只有 13 行未命中，全部確認為比對方式的假影（摺疊標題被摘要取代、
+    有序清單編號由 CSS 產生、表格 `<br>`），**沒有內容遺失**。
+  - **結構**：所有標籤配對平衡；頁內錨點 100% 可解析（0 個死連結）；
+    殘留的 `.md` 連結 0 個；外部 `http(s)` 資源 0 個（確認完全離線）。
+  - **實機**：以 `python -m http.server` 開瀏覽器實測深／淺色、側欄搜尋與捲動追蹤、
+    表格換行、ASCII 示意圖對齊、摺疊區塊，皆正常。
+- **已知待辦**：產生這份 HTML 的腳本（Markdown 轉換器 + 語法高亮 + 組版）目前不在版控裡，
+  `.md` 更新後無法重新產生。若要維護這份講義，需要把腳本一併收進專案。
+
+---
+
+## 2026-09-09　docs(海報)：`改_v4.docx` — 字級統一、架構圖縮 4/5 置中、版面改用絕對座標重排
+
+- **類型**：docs
+- **動了什麼**：新增 `docs/03_海報/gen_poster_v4.py`，同樣以 `改_v2.docx` 為底本產出
+  `改_v4.docx`（v2、v3 的腳本與檔案都保留）。內容承接 v3 的四步鏈，這次處理的是版面：
+  - **字級統一**：全篇內文一律 11 pt（v3 的「一、」還是 12 pt）；架構圖內原本混了
+    寫死的 10 pt 與吃 Normal 樣式的 10.5 pt，一併統一。
+  - **系統架構圖縮 4/5 並水平置中**：41 個圖形整組等比縮放，框、字級、內距同步縮
+    （字級 → 8.5 pt）。原圖靠左（x 0.00～20.68），縮完置中為 x 5.31～21.85。
+  - **騰出的空間給三～六**：四格內文統一 10.10 cm 高、上下兩排等高，三、四由 v3 的
+    8.60 cm 再加高。內文補回 v3 為了塞版面砍掉的細節（costmap 分工、連通判準只做
+    區間比較、未知格不進規劃等）。
+  - **減少框內留白**：文字方塊內距由 7.2／3.6 pt 縮到 2.83／1.42 pt（VML 那份也補上
+    `inset`）。
+  - **標題與內文之間的空隙**壓到 0.05～0.15 cm（原本 0.48 cm）。
+- **關鍵發現：檔案裡有兩個錨定段落，座標系差 1.34 cm**
+  - 浮動圖形的 `wp:positionV relativeFrom="paragraph"` 是相對各自錨定段落算的。
+    本檔頂層有兩個 `w:p`：段 0 有 61 個圖形（標題列、各節標題、架構圖、三～六內文），
+    段 1 只有 2 個（「一、」的內文方塊，和架構圖裡的一條接點）。
+  - 兩者原點差 1.34 cm。反推證據：v2 中「一」內文在段 1 的 y=4.16、高 4.62，
+    加 1.34 後底部正好 10.12 ＝ 段 0 中「二、系統架構」標題的位置；段 1 那條接點
+    y=12.35 加 1.34 後落在架構圖中段，與相鄰方塊對得上。
+  - v3 只做等量平移，平移量與原點無關，所以沒出錯；v4 要做絕對定位與縮放，
+    就必須先換算到同一個座標系，否則「一」的內文會壓到「二」的標題上。
+- **為什麼**：v3 給使用者看過後的回饋——字級不一致、架構圖偏左、框內留白太多、
+  標題與內文之間有空隙、三～六的篇幅不夠。
+- **影響檔案**：
+  - `docs/03_海報/gen_poster_v4.py` — 新增
+  - `docs/03_海報/改_v4.docx` — 新增（`.gitignore` 忽略 `docs/**/*.docx`，不進版控）
+  - v2、v3 的腳本與檔案皆未修改
+- **結果 / 驗證**：
+  - 所有 `.xml` / `.rels` 皆可被 `ElementTree` 解析。
+  - 63 個圖形逐一核對 DrawingML 與 VML 兩份座標是否同步；除了頁首背景圖與幾個原本就
+    用 `wp:align` 對齊、VML `margin-left` 本來就對不上的圖形（v2 即如此）之外全部一致。
+  - 版面座標核對：一 內文 5.15→7.50、二 標題 7.85→8.86、架構圖 9.16→17.25、
+    三四 標題 17.70、內文 18.79→28.89、五六 標題 29.34、內文 30.56→40.66；
+    最低點 40.66 cm 未超出下邊界 40.73 cm，最右點 27.16 cm 未超出文字寬。
+  - 架構圖置中檢查：左右邊距皆為 5.31 cm。
+  - 內文高度粗估：一 1.79/2.35、三四五 各 9.52/10.10，皆有餘裕。
+- **待辦 / 已知問題**：
+  - 架構圖字級縮到 8.5 pt（4/5 × 10.5 pt），A3 尺寸下偏小，需目視確認可讀性。
+  - 內文高度仍是粗估（把西文詞當可自由斷行），需在 Word 裡確認未爆框。
+    本機沒有 LibreOffice，無法自動算圖驗證。
+  - 第六節內容仍待討論；`test/coverage_bench.py` 的 `--baseline` 參數尚未補。
+
+---
+
+## 2026-09-09　docs(海報)：`改_v3.docx` — 內容重心移到牛耕演算法，並補上版面重排
+
+- **類型**：docs
+- **動了什麼**：新增 `docs/03_海報/gen_poster_v3.py`，以 `改_v2.docx` 為底本產出
+  `改_v3.docx`（v2 的腳本與檔案都保留不動，可對照）。
+  - **三～五重寫成一條四步鏈**：PCA 主軸對齊 → 取得長軸／短軸 → 沿短軸切帶取樣切
+    cell → 每個 cell 各自蛇行。小節標題同步改為
+    「三、核心方法 : 可走區與主軸對齊」「四、核心方法 : 切帶與 cell 分解」
+    「五、核心方法 : 牛耕與 cell 排序」。
+  - **敘述改白話**：拿掉「實對稱半正定」「譜定理」「特徵值為非負實數」等術語，
+    改用「點散得最開／最窄的方向」「兩者一定互相垂直」描述長短軸的來源。
+  - **一、研究動機與目的**縮短約三成（框高 4.62 → 3.10 cm），把版面讓給演算法。
+  - **版面重排**：「二、系統架構」整組 49 個圖形（含標題、方塊與連接線）與三、四
+    兩格整體上移 1.50 cm，三、四框高 7.10／7.31 → 8.60 cm，四格大小拉齊。
+  - **六、驗證結果與討論**內文暫清成一行佔位字，驗證項目待討論後再補。
+  - 順手清掉「五、」標題框裡殘留的更早版本文字（`ROS基本概念`、
+    `核心方法(2)  安全邊距膨脹`）—— 標題框只有 0.92 cm 高，這些字會溢出到框外。
+- **為什麼**：v2 的內容已經追不上程式。v2 第五節寫「掃描帶只取投影極值、等於假設該帶
+  連通」，第六節把「做真正的牛耕式區域分解」列為未來工作；但 `35d16ea` 之後
+  `scripts/coverage_planner.py` 早已實作完 `_slice_runs`（中心線取樣切 run）、
+  `_link_runs`（投影範圍重疊判連通）、`_build_cells`（一對一才延伸，分裂／合併即臨界點）
+  與貪婪最近鄰的 cell 排序。海報再照 v2 講會與程式和口試說詞對不上。
+- **影響檔案**：
+  - `docs/03_海報/gen_poster_v3.py` — 新增（產檔腳本）
+  - `docs/03_海報/改_v3.docx` — 新增（產出）
+  - `docs/03_海報/gen_poster_v2.py`、`改_v2.docx` — 未修改
+- **結果 / 驗證**：
+  - 產檔後所有 `.xml` / `.rels` 皆可被 `ElementTree` 解析。
+  - 63 個圖形的 DrawingML（`wp:positionV` / `wp:extent`）與 VML
+    （`margin-top` / `height`）兩份座標一致（唯一不同步者是頁首背景圖，v2 即如此）。
+  - 版面最低點 40.65 cm，未超出下邊界 40.73 cm（頁高 42 cm）。
+  - 內文高度粗估：一 3.07/3.10、三 8.40/8.60、四 8.40/8.60、五 7.55/8.50，皆未爆框。
+- **待辦 / 已知問題**：
+  - **粗估不等於實際**：估算把西文詞當可自由斷行處理，但 Word 不會把 `run`、`cell`、
+    `costmap`、`move_base` 斷在詞中間，實際高度可能略高於估算；三、四只剩 0.20 cm
+    餘裕，需在 Word 裡目視確認有無爆框。本機沒有 LibreOffice，無法自動算圖驗證。
+  - 第六節內容待討論：要驗證哪些項目、放不放 PCA 與地圖軸對齊的量化對照。
+  - `test/coverage_bench.py` 目前沒有 baseline 模式（把主軸換成地圖座標軸），
+    第六節若要做對照表需要先補一個 `--baseline` 參數。
+
+---
+
+## 2026-09-06　fix：`scripts/map_server.py` 補上執行權限（8080 連不上 + move_base 等不到 TF 的共同根因）
+
+- **類型**：fix
+- **動了什麼**：`git update-index --chmod=+x scripts/map_server.py`，
+  索引模式由 `100644` 改為 `100755`。無程式碼變更。
+- **症狀**：機器人端 `roslaunch turtlebot3_ccpp start.launch` 出現
+  `[WARN] Timed out waiting for transform from base_footprint to map ...`
+  `canTransform: target_frame map does not exist. canTransform: source_frame base_footprint does not exist.`
+  且網頁 `172.20.10.5:8080` 無法連線。
+- **為什麼**：開發機是 Windows、`core.filemode=false`，本地檔案模式不會被 git 追蹤，
+  所以 `map_server.py` 是以 `100644` 進索引的（對照組：`test/map_server_raw.py` 是在
+  Linux 上 add 的，索引裡是 `100755`）。機器人端 clone 出來就沒有 `+x`，
+  roslaunch 的節點解析（`roslib.packages.find_node` 會以 `os.access(path, os.X_OK)` 過濾）
+  找不到它，印出
+  `ERROR: cannot launch node of type [turtlebot3_ccpp/map_server.py] ... permission is set to executable (chmod +x)`
+  後**繼續啟動其他節點**，所以整包看起來有在跑。
+- **一個原因、兩個症狀**：
+  1. `map_server` 沒起來 → Flask 沒跑 → 8080 連線被拒。
+  2. `map_server` 沒起來 → `map_server.py:614` 的 `slam_launch()` 沒執行 →
+     gmapping 與 `turtlebot3_remote.launch`（robot_state_publisher）都沒上線 →
+     `map` 與 `base_footprint` 兩個 frame 皆不存在 → move_base 的 `Costmap2DROS`
+     建構子卡在等待迴圈，每 5 秒印一次那個 WARN，**永遠不會恢復**。
+     （這個 WARN 本身是可自癒的：SLAM 一上線就會過。但這次 SLAM 根本不會上線。）
+- **注意這是 SLAM 搬出 launch 後才浮現的耦合**：`35d16ea` 把 SLAM 生命週期交給
+  `map_server.py` 管理之後，`map_server` 就成了 SLAM 的唯一啟動者 ——
+  它掛掉不再只是「網頁沒了」，而是連導航定位一起沒了。
+- **怎麼驗的**：`git ls-files -s scripts/` 確認模式已變 `100755`。
+  機器人端 `chmod +x` 後重跑可立即驗證（不必等本次 commit）。
+- **沒有動的**：`scripts/coverage_planner.py` 維持 `100644` —— 它是被
+  `map_server.py` 以 `sys.path.insert` + `import` 載入的模組，不是 roslaunch 節點，
+  不需要執行權限。
+
+---
+
 ## 2026-08-30　docs：`01_學習資料/` 全部重寫為九部 24 章講義；新增 `test/coverage_bench.py`
 
 - **類型**：docs / test

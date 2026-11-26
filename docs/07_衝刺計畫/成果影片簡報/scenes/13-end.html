@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<title>13 結尾</title>
+<link rel="stylesheet" href="base.css">
+<link rel="stylesheet" href="map.css">
+<style></style>
+<script src="../assets/scenes.js"></script>
+<script src="map.js"></script>
+<script src="engine.js"></script>
+</head>
+<body>
+<div class="stage">
+<div class="abs" id="line" style="left:0; top:538px; width:1920px; height:4px; background:#DAFF3C; box-shadow:0 0 22px #DAFF3C;"></div>
+<h1 class="abs k" id="t" style="left:0; top:330px; width:1920px; text-align:center; font-size:150px;">謝謝觀看</h1>
+<p class="abs" id="n1" style="left:0; top:600px; width:1920px; text-align:center; font-size:40px; font-weight:700;">陳紹桓　陳柏屹</p>
+<p class="abs mute" id="n2" style="left:0; top:670px; width:1920px; text-align:center; font-size:30px;">指導老師　卓世明</p>
+<p class="abs mute" id="n3" style="left:0; top:760px; width:1920px; text-align:center; font-size:26px;">牛耕式演算法——以 TurtleBot3 實作</p>
+</div>
+<script>
+Scene({ duration: 8, steps: [3.4], tracks: [
+  { sel: '#line', at: 0, dur: 1.2, fx: 'grow', origin: 'center center' },
+  { sel: '#t', at: 1.0, dur: 0.7, fx: 'up', dy: 40 },
+  { sel: '#n1', at: 1.8, dur: 0.5, fx: 'up' }, { sel: '#n2', at: 2.1, dur: 0.5, fx: 'up' },
+  { sel: '#n3', at: 2.6, dur: 0.6, fx: 'fade' },
+]});
+</script>
+</body>
+</html>
