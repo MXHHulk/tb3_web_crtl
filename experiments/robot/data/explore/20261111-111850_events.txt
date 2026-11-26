@@ -1,0 +1,30 @@
+{
+  "task": "20261111-111850",
+  "start": "2026-11-11 11:18:50",
+  "result": "done",
+  "reason": "已找不到可探索的邊界",
+  "total_s": 122.3,
+  "explore_s": 121.9,
+  "area_start_m2": 1.65,
+  "area_end_m2": 2.01,
+  "frontiers_end": 0,
+  "path_len_m": 5.95,
+  "home_result": "timeout",
+  "home_err_m": 0.182,
+  "batt_start_v": 11.710000038146973,
+  "batt_end_v": 11.630000114440918,
+  "map_file": "explore_20261111_111919",
+  "params": "{\"robot_base_frame\": \"base_footprint\", \"costmap_topic\": \"map\", \"costmap_updates_topic\": \"map_updates\", \"visualize\": \"false\", \"planner_frequency\": \"0.33\", \"progress_timeout\": \"30.0\", \"potential_scale\": \"3.0\", \"orientation_scale\": \"0.0\", \"gain_scale\": \"1.0\", \"transform_tolerance\": \"0.3\", \"min_frontier_size\": \"0.5\", \"EXPLORE_IDLE_S\": 90.0, \"EXPLORE_MAX_S\": 600.0}"
+}
+
+    0.0s  開始
+    0.3s  起點 (-0.00, 0.01) 朝向 87°
+    3.3s  explore_lite: Waiting to connect to move_base server
+    3.6s  explore_lite: Connected to move_base server
+    6.6s  explore_lite: Got a callback on a goalHandle that we're not tracking.                 This is an internal SimpleActionClient/ActionClient bug.                 This could also be a GoalID collision
+   27.8s  explore_lite: Exploration stopped.
+   28.0s  explore_lite: Exploration stopped.
+   28.5s  結束探索：已找不到可探索的邊界
+   31.3s  地圖已存：explore_20261111_111919
+   31.3s  開回起點
+  121.7s  回起點結果：timeout

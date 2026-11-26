@@ -4,6 +4,25 @@
 
 ---
 
+## 2026-11-26　chore(vcs)：版本統一、車上資料備份、資料夾整理
+
+- **類型**：chore / feat(tools)
+- **背景**：程式同時存在電腦、車上、GitHub；GitHub `main` 停在 PR #2、落後 `rebuild`；車上實驗紀錄（`data/`、`maps/`）只存在車上、沒有任何備份。
+- **做了什麼**
+  - 確認車上一致：車上 `.synced_commit`＝26f1a1f，19 個程式檔 sha1 與 HEAD 逐檔相同（之後的 commit 都只改文件）。
+  - `tools/sync_to_robot.sh` 新增 `--check`：以 `git archive` 打包 HEAD（與實際同步內容相同，含 LF 轉換）後逐檔比 sha1，列出車上「多出／缺少／內容不同」，不改車上。
+  - 新增 `tools/pull_from_robot.sh`：車上 `data/`、`maps/` → `experiments/robot/`，只增不刪，每次在 `pull_log.txt` 記時間與車上版本。
+    首次備份 676 KB（coverage 1 次、explore 3 次紀錄，6 月與 11/11 地圖）；`coverage_runs.csv` 末列 97.73%／13.65 m／16.79 m 與 11/11 日志一致。
+  - 資料夾整理：根目錄三份 README 審查報告 → `docs/05_開發日志/審查/`；系展申請單 → `docs/08_系展/`；
+    刪除本地 `turtlebot3_ccpp/maps/`（6 月舊地圖，逐檔確認已包含在車上備份內）；新增 `media/`（影片素材，不進版控）。
+  - `.gitignore`：`maps/` 改為只忽略 `turtlebot3_ccpp/maps/`、`turtlebot3_ccpp/data/`（否則 experiments 內的 maps 也被忽略）；新增 `*.bag`、`media/`、`.claude/`（含 94 MB 技能包與本機設定）。
+  - README 新增「版本與資料放在哪裡」與更新後的改程式流程；`docs/README.md` 補 07、08。
+- **影響檔案**：`turtlebot3_ccpp/tools/sync_to_robot.sh`、`turtlebot3_ccpp/tools/pull_from_robot.sh`（新）、`.gitignore`、`README.md`、`docs/README.md`、`experiments/`（新）
+- **結果 / 驗證**：`sync_to_robot.sh --check` 回報「✓ 車上 19 個程式檔與 HEAD 完全一致」；備份檔數與車上 `find data maps -type f` 相同。
+- **待辦**：`rebuild` 合回 `main` 並打 `v1.0-baseline`；車上 SD 卡已用 88%（15 GB 剩 1.7 GB），錄 rosbag 前要注意。
+
+---
+
 ## 2026-11-25　docs(slides)：成果動畫簡報（13 頁網頁簡報，按一下播一段）
 
 - **類型**：docs

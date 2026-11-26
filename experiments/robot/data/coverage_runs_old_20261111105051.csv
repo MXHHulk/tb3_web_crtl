@@ -1,0 +1,3 @@
+﻿time,task,state,area,plan_ms,plan_cov,actual_cov,total,reached,skipped,completion,exec_s,plan_len,actual_len,n_cells,n_critical,axis_deg,ratio
+2026-11-11 10:23:51,20261111-102345,stopped,1.07,207.7,0.7887,0.0751,33,3,0,0.0909,5.3,8.1,0.34,3,1,84.5,3.37
+2026-11-11 10:24:26,20261111-102345,stopped,1.07,207.7,0.7887,0.2864,33,9,0,0.2727,33.0,8.1,2.8,3,1,84.5,3.37

@@ -1,0 +1,29 @@
+{
+  "task": "20261111-104713",
+  "start": "2026-11-11 10:47:13",
+  "result": "done",
+  "reason": "已找不到可探索的邊界",
+  "total_s": 73.1,
+  "explore_s": 72.7,
+  "area_start_m2": 1.58,
+  "area_end_m2": 2.08,
+  "frontiers_end": 0,
+  "path_len_m": 5.05,
+  "home_result": "reached",
+  "home_err_m": 0.019,
+  "batt_start_v": 11.670000076293945,
+  "batt_end_v": 11.630000114440918,
+  "map_file": "explore_20261111_104808",
+  "params": "{\"robot_base_frame\": \"base_footprint\", \"costmap_topic\": \"map\", \"costmap_updates_topic\": \"map_updates\", \"visualize\": \"false\", \"planner_frequency\": \"0.33\", \"progress_timeout\": \"30.0\", \"potential_scale\": \"3.0\", \"orientation_scale\": \"0.0\", \"gain_scale\": \"1.0\", \"transform_tolerance\": \"0.3\", \"min_frontier_size\": \"0.5\", \"EXPLORE_IDLE_S\": 90.0, \"EXPLORE_MAX_S\": 600.0}"
+}
+
+    0.0s  開始
+    0.4s  起點 (0.00, -0.00) 朝向 5°
+    2.9s  explore_lite: Waiting to connect to move_base server
+    3.1s  explore_lite: Connected to move_base server
+   54.6s  explore_lite: Exploration stopped.
+   54.6s  explore_lite: Exploration stopped.
+   54.6s  結束探索：已找不到可探索的邊界
+   57.7s  地圖已存：explore_20261111_104808
+   57.7s  開回起點
+   72.6s  回起點結果：reached

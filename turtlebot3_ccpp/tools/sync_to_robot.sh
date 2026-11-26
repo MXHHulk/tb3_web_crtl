@@ -3,6 +3,7 @@
 #
 #   bash turtlebot3_ccpp/tools/sync_to_robot.sh            # 同步 HEAD
 #   bash turtlebot3_ccpp/tools/sync_to_robot.sh --build    # 同步後在車上跑 catkin_make
+#   bash turtlebot3_ccpp/tools/sync_to_robot.sh --check    # 只比對：車上程式是否與 HEAD 逐檔一致（不改車上）
 #   ROBOT=ubuntu@192.168.0.50 bash turtlebot3_ccpp/tools/sync_to_robot.sh   # 換車子 IP
 #
 # 本地 repo 的 turtlebot3_ccpp/ 資料夾 ＝ 車上 ~/catkin_ws/src/turtlebot3_ccpp（一對一）。
@@ -23,6 +24,27 @@ BUILD=0
 [[ "${1:-}" == "--build" ]] && BUILD=1
 
 cd "$(git rev-parse --show-toplevel)"
+
+# ── --check：逐檔比對 sha1（HEAD 用 git archive 打包，與實際同步內容相同，含 LF 轉換） ──
+if [[ "${1:-}" == "--check" ]]; then
+    TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+    mkdir "$TMP/a"; git archive --format=tar "HEAD:$PKG" -- "${PATHS[@]}" | tar xf - -C "$TMP/a"
+    (cd "$TMP/a" && find . -type f | sed 's|^\./||' | sort | xargs sha1sum) \
+        | sed 's/ \*/  /' | sort -k2 > "$TMP/.local"
+    ssh -o ConnectTimeout=8 "$ROBOT" "cd ~/$DEST && cat .synced_commit 2>/dev/null | sed 's/^/車上 .synced_commit = /' >&2;
+        find ${PATHS[*]} -type f -not -path '*/__pycache__/*' 2>/dev/null | sort | xargs sha1sum" \
+        | sort -k2 > "$TMP/.robot"
+    echo "本地 HEAD = $(git rev-parse --short HEAD)"
+    if diff -q "$TMP/.local" "$TMP/.robot" >/dev/null; then
+        echo "✓ 車上 $(wc -l < "$TMP/.local") 個程式檔與 HEAD 完全一致"; exit 0
+    fi
+    join -j2 -o 0,1.1,2.1 -a1 -a2 -e '-' "$TMP/.local" "$TMP/.robot" | while read -r f l r; do
+        [[ "$l" == '-' ]] && echo "  車上多出：$f"
+        [[ "$r" == '-' ]] && echo "  車上缺少：$f"
+        [[ "$l" != '-' && "$r" != '-' && "$l" != "$r" ]] && echo "  內容不同：$f"
+    done
+    echo "✗ 車上與 HEAD 不一致（若是車上被直接改過，先把改動拿回本地 commit，再同步）"; exit 1
+fi
 
 if [[ -n "$(git status --porcelain -- "${PATHS[@]/#/$PKG/}")" ]]; then
     echo "✗ 以下程式有未 commit 的變更，請先 commit 再同步："

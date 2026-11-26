@@ -29,24 +29,38 @@ turtlebot3_ccpp_local/
 │   ├── config/        gmapping_params.yaml
 │   ├── web/           launcher.html（手機版）、index.html（電腦版）
 │   ├── test/          量測與離線評估工具（不在正式啟動流程）
-│   ├── tools/         同步腳本、開機服務
-│   ├── CMakeLists.txt / package.xml
-│   └── maps/、data/   地圖與執行紀錄（車上產生，不進版控、不同步）
-└── docs/              文件（架構說明、學習資料、論文、海報、簡報、開發日誌、規範），不上車
+│   ├── tools/         同步／備份腳本、開機服務
+│   └── CMakeLists.txt / package.xml
+├── experiments/
+│   └── robot/         車上 data/、maps/ 的備份（pull_from_robot.sh 拉回，進版控）
+├── media/             照片、錄影、剪輯素材（不進版控，請另外備份到雲端硬碟）
+└── docs/              文件（架構說明、學習資料、論文、海報、簡報、開發日誌、規範、衝刺計畫、系展），不上車
 ```
+
+## 版本與資料放在哪裡
+
+| 位置 | 角色 | 規則 |
+|---|---|---|
+| 電腦（本 repo） | 唯一改程式的地方 | 改完 → CHANGELOG → commit → push |
+| GitHub | 正式版本與備份 | `main`＝車上穩定版；里程碑打 tag（`v1.0-baseline`＝改導航前） |
+| TB3 | 只執行 | 只經 `sync_to_robot.sh` 更新，不在車上改程式；車上 `.synced_commit` 記錄版本 |
+
+車上產生的紀錄（`data/`、`maps/`）每次實驗後用 `pull_from_robot.sh` 拉回 `experiments/robot/` 並 commit。
 
 ## 改程式的流程
 
-1. 改 `turtlebot3_ccpp/` 底下的程式
-2. 在 `docs/05_開發日志/CHANGELOG.md` 最上面補一筆
-3. `git commit`、`git push origin rebuild`
-4. 同步到車上（只送已 commit 的內容；改了 CMakeLists 加 `--build`）：
+1. 先確認車上與本地一致：`bash turtlebot3_ccpp/tools/sync_to_robot.sh --check`
+2. 改 `turtlebot3_ccpp/` 底下的程式
+3. 在 `docs/05_開發日志/CHANGELOG.md` 最上面補一筆
+4. `git commit`、`git push`
+5. 同步到車上（只送已 commit 的內容；改了 CMakeLists 加 `--build`）：
 
 ```bash
 bash turtlebot3_ccpp/tools/sync_to_robot.sh
 ```
 
-5. 改到 launch 或 SLAM／move_base 參數時，要在手機「系統」頁停止再啟動才會生效。
+6. 改到 launch 或 SLAM／move_base 參數時，要在手機「系統」頁停止再啟動才會生效。
+7. 實驗跑完備份紀錄：`bash turtlebot3_ccpp/tools/pull_from_robot.sh`，再 commit `experiments/`。
 
 ## 使用
 
