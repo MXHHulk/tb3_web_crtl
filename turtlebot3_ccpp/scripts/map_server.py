@@ -20,7 +20,7 @@ TurtleBot3 地圖伺服器（Module A）
 import csv, io, json, math, os, signal, socket, subprocess, sys, threading, time
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
-from coverage_planner import (plan as plan_coverage, SPACING as COV_SPACING,
+from coverage_planner import (plan as plan_coverage, SPACING as COV_SPACING, SCAN_AXES, MIN_RUN,
                               MARGIN as COV_MARGIN, apply_safety_margin, coverage_ratio,
                               remove_noise, COVER_R as COV_COVER_R, _seg_free, _rdp)
 from astar import plan_path as astar_plan
@@ -32,6 +32,7 @@ from geometry_msgs.msg import PoseStamped, Twist
 from nav_msgs.msg import OccupancyGrid
 from rosgraph_msgs.msg import Log
 from sensor_msgs.msg import BatteryState, LaserScan
+from std_msgs.msg import Empty as EmptyMsg
 from PIL import Image, ImageDraw
 from scipy.ndimage import binary_erosion, binary_dilation, label as nd_label
 import tf2_ros
@@ -162,6 +163,10 @@ tf_buffer = None   # tf2 緩衝（map ← 雷射座標查詢用）
 teleop_lock = threading.Lock()
 teleop_cmd  = {'v': 0.0, 'w': 0.0, 't': -1e9}
 cmd_pub     = None
+reset_pub   = None   # /reset（turtlebot3_core 收到就把里程計歸零）
+
+nav_lock   = threading.Lock()
+nav_status = {'state': 'idle', 'msg': '', 'goal': None, 'result': None}   # /nav/goto：開到指定位姿
 
 slam_lock = threading.Lock()
 slam_proc = None
@@ -184,12 +189,17 @@ def _exploring():
         return exp_status['state'] in EXP_BUSY
 
 
+def _navigating():
+    with nav_lock:
+        return nav_status['state'] == 'running'
+
+
 def manual_allowed():
-    """手動遙控是否被允許（覆蓋執行中、自動建圖中一律禁止）。"""
+    """手動遙控是否被允許（覆蓋執行中、自動建圖中、/nav/goto 中一律禁止）。"""
     with cov_lock:
         if cov_status['state'] == 'running':
             return False
-    return not _exploring()
+    return not _exploring() and not _navigating()
 
 
 # ════════════════════════════════════════════════════════
@@ -508,6 +518,8 @@ def explore_start(delay=0.0):
     with cov_lock:
         if cov_status['state'] == 'running':
             return False, '自動覆蓋執行中，請先按結束'
+    if _navigating():
+        return False, '正在開往指定位置，請稍候'
     with map_lock:
         if map_data.get('data') is None:
             return False, '地圖尚未就緒，請等 SLAM 啟動'
@@ -991,7 +1003,7 @@ def _drive(v, w):
     cmd_pub.publish(tw)
 
 
-def _follow_line(fid, p0, p1, stop_at_end=True):
+def _follow_line(fid, p0, p1, stop_at_end=True, alive=None):
     """
     自己控制車子從 p0 沿直線開到 p1（不經 move_base／DWA），回傳 'ok' / 'blocked' / 'stalled' / 'stopped'。
 
@@ -1017,6 +1029,8 @@ def _follow_line(fid, p0, p1, stop_at_end=True):
     t_limit = rospy.get_time() + L / LINE_V_MIN + 15.0
 
     def running():
+        if alive is not None:                        # /nav/goto：看導航任務是否仍在執行
+            return alive()
         with cov_lock:
             return cov_status['state'] == 'running'
 
@@ -1313,6 +1327,9 @@ def cov_metrics():
     return {
         'task':       info.get('task'),
         'nav_mode':   info.get('nav_mode'),
+        'scan_axis':  info.get('scan_axis'),
+        'pca_axis_deg': info.get('pca_axis_deg'),
+        'n_turns':    info.get('n_turns'),
         'state':      st['state'],
         'area':       info.get('area'),
         'plan_ms':    info.get('plan_ms'),
@@ -1532,6 +1549,166 @@ def get_scan():
     return jsonify({'points': pts})
 
 
+def _count_turns(wps, thr_deg=30):
+    """路點序列中方向改變超過 thr_deg 的次數（中途點共線不算）：PCA vs 沿地圖軸的主要比較指標。"""
+    n = 0
+    for i in range(1, len(wps) - 1):
+        h1 = math.atan2(wps[i][1] - wps[i - 1][1], wps[i][0] - wps[i - 1][0])
+        h2 = math.atan2(wps[i + 1][1] - wps[i][1], wps[i + 1][0] - wps[i][0])
+        if abs(math.degrees(_wrap(h2 - h1))) > thr_deg:
+            n += 1
+    return n
+
+
+# ════════════════════════════════════════════════════════
+#  /nav/goto：開到指定位姿（自動實驗用：回起點、轉到指定朝向）
+# ════════════════════════════════════════════════════════
+NAV_GOAL_TOL = 0.08    # 到達判定（公尺）
+NAV_RETRY    = 2       # 失敗後脫困重試次數
+
+
+def nav_stop():
+    with nav_lock:
+        if nav_status['state'] == 'running':
+            nav_status.update(state='stopped', msg='已停止')
+
+
+def _rotate_to(fid, yaw, alive):
+    """原地轉到 yaw（rad，地圖座標），回傳 'ok' / 'stalled' / 'stopped'。轉動中不前進，只用車身中心原地旋轉。"""
+    rate = rospy.Rate(20)
+    t_end = rospy.get_time() + 20.0
+    try:
+        while not rospy.is_shutdown():
+            if not alive():
+                return 'stopped'
+            pose = _robot_pose(fid)
+            if pose is None:
+                _drive(0.0, 0.0)
+                rate.sleep()
+                continue
+            e = _wrap(yaw - pose[2])
+            if abs(e) < ROT_TOL:
+                return 'ok'
+            if rospy.get_time() > t_end:
+                return 'stalled'
+            _drive(0.0, math.copysign(max(ROT_W_MIN, min(ROT_W_MAX, 1.5 * abs(e))), e))
+            rate.sleep()
+        return 'stopped'
+    finally:
+        _drive(0.0, 0.0)
+
+
+def _nav_run(x, y, yaw):
+    """在目前的地圖上用自寫 A* 開到 (x, y)，再原地轉到 yaw（None＝不轉）。不經 move_base。"""
+    alive = lambda: nav_status['state'] == 'running'
+    fid = map_data.get('frame_id', 'map')
+    result, why = 'failed', ''
+    try:
+        with map_lock:
+            raw, meta = map_data.get('data'), dict(map_meta)
+        clean, _ = remove_noise(raw)
+        free = (clean == 0) & ~apply_safety_margin(clean, COV_MARGIN, meta['resolution'])
+        res, ox, oy = meta['resolution'], meta['origin_x'], meta['origin_y']
+        for attempt in range(1 + NAV_RETRY):
+            pose = _robot_pose(fid)
+            if pose is None:
+                why = '查不到機器人位置'
+                break
+            if math.hypot(pose[0] - x, pose[1] - y) < NAV_GOAL_TOL:
+                result = 'ok'
+                break
+            if attempt > 0:
+                _escape_nav(fid)
+            start = (pose[0], pose[1])
+            if _seg_free(free, res, ox, oy, start, (x, y)):
+                pts = [start, (x, y)]
+            else:
+                r = astar_plan(free, res, ox, oy, start, (x, y))
+                if not r['path']:
+                    why = f"A* 算不出路線（{r['why']}）"
+                    continue
+                pts = r['path']
+            result = 'ok'
+            for k in range(1, len(pts)):
+                rr = _follow_line(fid, pts[k - 1], pts[k], stop_at_end=True, alive=alive)
+                if rr != 'ok':
+                    result, why = rr, {'stalled': '停滯', 'blocked': '前方有障礙'}.get(rr, rr)
+                    break
+            if result == 'ok':
+                break
+            if result == 'stopped':
+                break
+        if result == 'ok' and yaw is not None:
+            rr = _rotate_to(fid, yaw, alive)
+            if rr != 'ok':
+                result, why = rr, '轉向未完成'
+    except Exception as e:
+        result, why = 'failed', f'錯誤：{e}'
+    finally:
+        _drive(0.0, 0.0)
+        with nav_lock:
+            if nav_status['state'] == 'running':
+                nav_status.update(state='done' if result == 'ok' else 'failed',
+                                  result=result, msg=why)
+            else:
+                nav_status.update(result=result)
+
+
+def _escape_nav(fid):
+    """/nav/goto 失敗後的脫困：與覆蓋的 _escape 相同的地圖＋雷射檢查，退後（不行就前進）一小段。
+    （_escape 只在覆蓋執行中才會動，所以另寫一份看導航狀態的版本。）"""
+    pose = _robot_pose(fid)
+    if pose is None or cmd_pub is None:
+        return False
+    for sign in (-1, 1):
+        heading = 0.0 if sign > 0 else math.pi
+        near = _scan_min(heading)
+        if near is None or near < ESCAPE_CLEAR or not _map_clear(pose, sign, ESCAPE_DIST):
+            continue
+        rate, t_end = rospy.Rate(10), rospy.get_time() + 2 * ESCAPE_DIST / ESCAPE_V
+        while not rospy.is_shutdown() and rospy.get_time() < t_end and nav_status['state'] == 'running':
+            p = _robot_pose(fid)
+            if p is not None and math.hypot(p[0] - pose[0], p[1] - pose[1]) >= ESCAPE_DIST:
+                break
+            _drive(sign * ESCAPE_V, 0.0)
+            rate.sleep()
+        _drive(0.0, 0.0)
+        return True
+    return False
+
+
+@app.route('/nav/goto', methods=['POST'])
+def nav_goto():
+    """開到指定位姿：JSON {x, y, yaw_deg（可省略）}，地圖座標。以 GET /coverage/status 的 nav 欄位看進度。"""
+    body = request.get_json(silent=True) or {}
+    try:
+        x, y = float(body['x']), float(body['y'])
+        yaw = math.radians(float(body['yaw_deg'])) if body.get('yaw_deg') is not None else None
+    except (KeyError, TypeError, ValueError):
+        return jsonify({'ok': False, 'msg': '需要 x、y（公尺），可選 yaw_deg'}), 400
+    with cov_lock:
+        if cov_status['state'] == 'running':
+            return jsonify({'ok': False, 'msg': '自動覆蓋執行中'}), 409
+    if _exploring():
+        return jsonify({'ok': False, 'msg': '自動建圖中'}), 409
+    with map_lock:
+        if map_data.get('data') is None:
+            return jsonify({'ok': False, 'msg': '地圖尚未就緒'}), 409
+    with nav_lock:
+        if nav_status['state'] == 'running':
+            return jsonify({'ok': False, 'msg': '已在導航中'}), 409
+        nav_status.update(state='running', msg='', goal=[x, y, body.get('yaw_deg')], result=None)
+    teleop_halt()
+    threading.Thread(target=_nav_run, args=(x, y, yaw), daemon=True).start()
+    return jsonify({'ok': True})
+
+
+@app.route('/nav/stop', methods=['POST'])
+def nav_stop_route():
+    nav_stop()
+    return jsonify({'ok': True})
+
+
 def _cov_save_plan(r, raw, clean, free, meta, start):
     """
     任務開始時把「規劃當下」的輸入與輸出存檔，事後可完整重建、離線重算（SLAM 地圖之後還會變）：
@@ -1547,7 +1724,7 @@ def _cov_save_plan(r, raw, clean, free, meta, start):
     plan = {
         'info': info,
         'start': list(start) if start else None,
-        'params': {'spacing': COV_SPACING, 'margin': COV_MARGIN, 'cover_r': COV_COVER_R,
+        'params': {'spacing': COV_SPACING, 'margin': COV_MARGIN, 'cover_r': COV_COVER_R, 'min_run': MIN_RUN,
                    'line_v': LINE_V, 'k_head': LINE_K_HEAD, 'k_cte': LINE_K_CTE,
                    'corr_max_deg': round(math.degrees(LINE_CORR_MAX), 1), 'front_stop': FRONT_STOP},
         'axes': {'center': [float(c) for c in center], 'axis_a': [float(c) for c in axis_a],
@@ -1600,9 +1777,15 @@ def coverage_start():
 
     if not meta or raw.get('data') is None:
         return jsonify({'ok': False, 'msg': '地圖尚未就緒'})
-    nav_mode = (request.get_json(silent=True) or {}).get('nav_mode') or NAV_DEFAULT
+    body = request.get_json(silent=True) or {}
+    nav_mode = body.get('nav_mode') or NAV_DEFAULT
     if nav_mode not in NAV_MODES:
         return jsonify({'ok': False, 'msg': f'未知的導航模式：{nav_mode}'})
+    scan_axis = body.get('scan_axis') or 'pca'
+    if scan_axis not in SCAN_AXES:
+        return jsonify({'ok': False, 'msg': f'未知的掃描方向：{scan_axis}'})
+    if _navigating():
+        return jsonify({'ok': False, 'msg': '正在開往指定位置，請稍候'})
 
     teleop_halt()                                  # 交出 /cmd_vel 控制權前先停車
 
@@ -1615,7 +1798,7 @@ def coverage_start():
         start = (robot_pos['x'], robot_pos['y']) if robot_pos['x'] is not None else None
 
     r = plan_coverage(free, meta['resolution'], meta['origin_x'], meta['origin_y'],
-                      start=start)
+                      start=start, scan_axis=scan_axis)
     plan_ms = (time.perf_counter() - t_plan) * 1000.0
     if not r['waypoints']:
         return jsonify({'ok': False, 'msg': '無可走路徑，地圖可能不完整'})
@@ -1638,6 +1821,9 @@ def coverage_start():
         cov_info.update(
             task       = time.strftime('%Y%m%d-%H%M%S'),
             nav_mode   = nav_mode,
+            scan_axis  = scan_axis,
+            pca_axis_deg = round(math.degrees(math.atan2(r['pca_axis'][1], r['pca_axis'][0])), 1),
+            n_turns    = _count_turns(r['waypoints']),
             n_stuck    = 0,
             n_escape   = 0,
             synced     = _synced_commit(),
@@ -1732,6 +1918,11 @@ def coverage_status():
     st['slam_managed'] = slam_cfg['manage']
     st['explore'] = explore_snapshot()
     st['cover_r'] = COV_COVER_R
+    st['battery_v'] = battery_v['v']
+    with nav_lock:
+        st['nav'] = dict(nav_status)
+    pose = _robot_pose(map_data.get('frame_id', 'map')) if map_data else None
+    st['pose'] = [round(pose[0], 3), round(pose[1], 3), round(math.degrees(pose[2]), 1)] if pose else None
     return jsonify(st)
 
 
@@ -1742,6 +1933,8 @@ def explore_snapshot():
             ex['elapsed'] = round(time.time() - exp_status['t0'], 1)
     with map_lock:
         ex.update(area=map_stats['area'], frontiers=map_stats['frontiers'])
+    ex['task'] = exp_rec.get('task')
+    ex['home_result'] = exp_rec.get('home_result')
     ex['busy'] = ex['state'] in EXP_BUSY
     ex['max_s'] = EXPLORE_MAX_S
     return ex
@@ -1793,9 +1986,16 @@ def slam_restart():
             cov_status['state'] = 'stopped'
     explore_stop('重新建圖，自動建圖已停止')
     teleop_halt()
+    nav_stop()
+    reset_odom = bool((request.get_json(silent=True) or {}).get('reset_odom'))
 
     with slam_lock:
         slam_kill()
+        # 重設里程計：SLAM 地圖的座標方向＝里程計原點的方向（gmapping 以第一筆 odom 當起點），
+        # 而里程計只在系統啟動時歸零。要讓新地圖以「車子現在的朝向」為 0°，就要在 SLAM 停著時重設。
+        if reset_odom and reset_pub is not None:
+            reset_pub.publish(EmptyMsg())
+            time.sleep(1.5)
 
         with map_lock:
             map_png = map_eroded = map_dilated = map_margin = map_noise = None
@@ -1822,14 +2022,14 @@ def slam_restart():
             rospy.logerr('[slam] 重啟失敗：%s', e)
             return jsonify({'ok': False, 'msg': f'重啟失敗：{e}'}), 500
 
-    return jsonify({'ok': True, 'msg': 'SLAM 已重啟，請等待新地圖'})
+    return jsonify({'ok': True, 'msg': 'SLAM 已重啟，請等待新地圖' + ('（里程計已重設）' if reset_odom else '')})
 
 
 # ════════════════════════════════════════════════════════
 #  主函式
 # ════════════════════════════════════════════════════════
 def main():
-    global tf_buffer, cmd_pub
+    global tf_buffer, cmd_pub, reset_pub
     rospy.init_node('map_server')
     port = rospy.get_param('~port', 8080)
     slam_cfg['manage'] = bool(rospy.get_param('~manage_slam', True))
@@ -1843,6 +2043,7 @@ def main():
     tf2_ros.TransformListener(tf_buffer)
 
     cmd_pub = rospy.Publisher('/cmd_vel', Twist, queue_size=1)
+    reset_pub = rospy.Publisher('/reset', EmptyMsg, queue_size=1)
 
     rospy.Subscriber('/map',  OccupancyGrid, map_callback,  queue_size=1)
     rospy.Subscriber('/scan', LaserScan,     scan_callback, queue_size=1)

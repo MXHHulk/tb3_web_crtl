@@ -28,6 +28,8 @@ _ap.add_argument('--jump', type=float, default=0.0)
 _ap.add_argument('--k-cte', type=float, default=None)
 _ap.add_argument('--corr-max', type=float, default=None, help='度')
 _ap.add_argument('--seed', type=int, default=1)
+_ap.add_argument('--scan-axis', default='pca', help='pca／map_x')
+_ap.add_argument('--goto-home', action='store_true', help='覆蓋後用 /nav/goto 開回起點並轉到 30°，檢查到達誤差')
 _ap.add_argument('--latency', type=float, default=0.0, help='速度指令延遲幾秒才生效（模擬通訊與馬達反應）')
 ARGS = _ap.parse_args()
 MAP, MODE, STALL_P = ARGS.map, ARGS.mode, ARGS.stall_p
@@ -121,6 +123,7 @@ mod('nav_msgs'); mod('nav_msgs.msg', OccupancyGrid=Any)
 mod('rosgraph_msgs'); mod('rosgraph_msgs.msg', Log=Any)
 mod('sensor_msgs'); mod('sensor_msgs.msg', BatteryState=Any, LaserScan=Any)
 mod('std_srvs'); mod('std_srvs.srv', Empty=Any)
+mod('std_msgs'); mod('std_msgs.msg', Empty=Any)
 mod('actionlib_msgs'); mod('actionlib_msgs.msg', GoalStatus=types.SimpleNamespace(SUCCEEDED=3))
 
 
@@ -226,7 +229,8 @@ with ms.map_lock:
 ms.robot_pos.update(x=SIM['x'], y=SIM['y'])
 
 c = ms.app.test_client()
-r = c.post('/coverage/start', json={'nav_mode': MODE}).get_json()
+r = c.post('/coverage/start', json={'nav_mode': MODE, 'scan_axis': ARGS.scan_axis}).get_json()
+HOME = (SIM['x'], SIM['y'])
 assert r['ok'], r
 wall0 = time.time()
 while True:
@@ -259,3 +263,14 @@ print(f"  SLAM 誤差 σ={ARGS.slam_sigma} m、跳動 {OFS['n_jump']} 次（{ARG
 print(f"  直行 {len(line_rows)} 個控制週期｜車子以為的側偏 中位 {np.median(seen)*100:.1f} / 95% {np.percentile(seen,95)*100:.1f} cm"
       f"｜真實側偏 中位 {np.median(true)*100:.1f} / 95% {np.percentile(true,95)*100:.1f} / 最大 {true.max()*100:.1f} cm")
 print(f"  方向誤差 中位 {np.median(head):.1f}° / 90% {np.percentile(head,90):.1f}°｜修正角 90% {np.percentile(corr,90):.1f}°")
+
+print(f"  scan_axis={M.get('scan_axis')}  房間主軸（PCA）={M.get('pca_axis_deg')}°  轉彎數={M.get('n_turns')}  cell={M.get('n_cells')}")
+if ARGS.goto_home:
+    r = c.post('/nav/goto', json={'x': HOME[0], 'y': HOME[1], 'yaw_deg': 30}).get_json()
+    assert r['ok'], r
+    while c.get('/coverage/status').get_json()['nav']['state'] == 'running':
+        time.sleep(0.2)
+    nav = c.get('/coverage/status').get_json()['nav']
+    err = math.hypot(SIM['x'] + OFS['x'] - HOME[0], SIM['y'] + OFS['y'] - HOME[1])
+    yaw_e = math.degrees(math.atan2(math.sin(SIM['yaw'] + OFS['yaw'] - math.radians(30)), math.cos(SIM['yaw'] + OFS['yaw'] - math.radians(30))))
+    print(f"  /nav/goto 回起點：{nav['state']} {nav.get('msg','')}  位置誤差 {err*100:.1f} cm、朝向誤差 {yaw_e:.1f}°")

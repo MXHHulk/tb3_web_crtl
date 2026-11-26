@@ -32,6 +32,9 @@ PERIM_INSET = 1  # 外圈離可走區邊緣再往內幾格（5 cm/格）：可�
                  # 車身側邊離牆約 6 cm；再貼近的話，光達把牆畫厚 1 格就會擦到
 PERIM_MIN_LEN = 0.6   # 外圈總長小於此（公尺）就不走（場地太小，掃描線已涵蓋）
 RDP_EPS  = 0.02  # 外圈輪廓簡化的容許誤差（公尺）：把鋸齒狀的格子邊界拉成直線段
+MIN_RUN  = 0.20  # 連續可走區間短於此（公尺）就丟掉不走。原本 1 格（5 cm）：房間斜放時，最外一條掃描帶沿著牆在格子上的
+                 # 鋸齒邊緣走，被切成一串 5～12 cm 的碎片，每片變一個 cell（斜 15° 時 21 個 cell、19 段轉場穿牆）。
+                 # 0.20 m（約車長 1.5 倍，比這短的區間也不值得跑一趟；牆邊由外圈補）：見 test/pca_vs_axis.py --sweep-min-run
 VIA_STEP = 0.25  # 掃描線上中途點的最大間距（公尺）。只給頭尾兩點時 navfn 會依 costmap
                  # 成本自己找路，長線常被拉彎；每隔一小段給一個點，路線就被釘在掃描線上。
 
@@ -362,8 +365,11 @@ def coverage_ratio(free, res, ox, oy, segs, radius=COVER_R):
     return float((coverage_mask(free.shape, res, ox, oy, segs, radius) & free).sum()) / total
 
 
+SCAN_AXES = ('pca', 'map_x')
+
+
 def plan(free, res, ox, oy, spacing=SPACING, start=None, end_trim=END_TRIM,
-         via_step=VIA_STEP, perimeter=True):
+         via_step=VIA_STEP, perimeter=True, scan_axis='pca', min_run=None):
     """
     完整的覆蓋路徑規劃，回傳含診斷資訊的 dict。
 
@@ -376,6 +382,8 @@ def plan(free, res, ox, oy, spacing=SPACING, start=None, end_trim=END_TRIM,
       end_trim: 掃描線兩端各內縮的距離（公尺），見 END_TRIM
       via_step: 掃描線中途點最大間距（公尺），見 VIA_STEP；inf = 只給頭尾
       perimeter: 最後是否沿外緣補走一圈（見 _perimeter）
+      scan_axis: 'pca'＝PCA 長軸當掃描方向（本專題方法）；'map_x'＝固定沿地圖 x 軸（對照組，傳統牛耕）
+      min_run : 連續可走區間最短長度（公尺），短於此不走；None＝MIN_RUN
     輸出 dict
       waypoints : [(x, y), ...] 依序走訪的路點（掃描線已依 VIA_STEP 補上中途點）
       via       : [bool, ...] 與 waypoints 等長；True = 掃描線上的中途點
@@ -383,7 +391,8 @@ def plan(free, res, ox, oy, spacing=SPACING, start=None, end_trim=END_TRIM,
       sweeps    : [((x0, y0), (x1, y1)), ...] 依走訪順序的掃描線與外圈各段（不含換行銜接），算覆蓋率用
       perimeter : [(x, y), ...] 外圈頂點（未補中途點）；沒有外圈時為 []
       cells     : [[(x, y), ...], ...] 各 cell 的路點，已依走訪順序排列
-      axes      : (重心, 長軸, 短軸, 特徵值)
+      axes      : (重心, 掃描方向, 換行方向, 特徵值)；scan_axis='map_x' 時掃描方向固定為 (1, 0)
+      pca_axis  : PCA 長軸（房間在地圖上的方向），與 scan_axis 無關
       n_runs    : 連續可走區間總數
       critical  : 臨界點清單 [(run 序號, 'split'/'merge'), ...]
     """
@@ -399,6 +408,11 @@ def plan(free, res, ox, oy, spacing=SPACING, start=None, end_trim=END_TRIM,
 
     # ── 1. PCA：由環境自己決定掃描方向 ────────────────
     center, axis_a, axis_b, eigvals = principal_axes(pts)
+    pca_axis = axis_a                              # 房間長軸在地圖上的方向（不論用哪種掃描方向都記）
+    if scan_axis == 'map_x':                       # 對照組：不看環境，固定沿地圖座標軸掃
+        axis_a, axis_b = np.array([1.0, 0.0]), np.array([0.0, 1.0])
+    elif scan_axis != 'pca':
+        raise ValueError(f'未知的 scan_axis：{scan_axis}')
     diffs  = pts - center
     proj_a = diffs @ axis_a
     proj_b = diffs @ axis_b
@@ -409,7 +423,8 @@ def plan(free, res, ox, oy, spacing=SPACING, start=None, end_trim=END_TRIM,
     b_centers = b_min + spacing / 2 + spacing * np.arange(max(1, n_bands))
 
     runs = _slice_runs(free, res, ox, oy, center, axis_a, axis_b,
-                       (proj_a.min(), proj_a.max()), b_centers, min_len=res,
+                       (proj_a.min(), proj_a.max()), b_centers,
+                       min_len=max(res, MIN_RUN if min_run is None else min_run),
                        end_trim=end_trim)
     if not runs:
         return empty
@@ -473,6 +488,7 @@ def plan(free, res, ox, oy, spacing=SPACING, start=None, end_trim=END_TRIM,
             'perimeter': ring,
             'cells': ordered,
             'axes': (center, axis_a, axis_b, eigvals),
+            'pca_axis': pca_axis,
             'n_runs': len(runs),
             'critical': critical}
 
