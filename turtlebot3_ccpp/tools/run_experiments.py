@@ -268,8 +268,9 @@ class Runner:
                 return
             S['next'] += 1
             self.save_state()
-        self.log('全部完成')
-        self.goto(S['home'][0], S['home'][1], None)
+        # 回起點並轉回「對齊房間長邊」：下一次實驗直接以車頭方向當房間方向（不必再人工擺正）
+        ok, why = self.goto(S['home'][0], S['home'][1], wrap_deg(S['room_dir_deg']))
+        self.log('全部完成' + ('，已回起點並對齊房間長邊' if ok else f'；回起點失敗：{why}（下次實驗前請手動擺正）'))
 
 
 def build_schedule(cfg):
