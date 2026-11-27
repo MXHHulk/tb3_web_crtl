@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-產生 scenes/NN-*.html（9 鏡）與 index.html。每鏡的版面、文字、時間軸都在這支檔案裡，改這裡再重跑。
+產生 scenes/NN-*.html（8 鏡）與 index.html。每鏡的版面、文字、時間軸都在這支檔案裡，改這裡再重跑。
 數據與出處以 ../簡報生成.md 為準；【待填】不得填假設值。
 
 用法：python tools/build_scenes.py
@@ -273,7 +273,7 @@ document.getElementById('dia').innerHTML = g.join('')
   + `<text x="${(a + C + z1) / 2}" y="${yd - 2.2}" class="dt">15</text>`
   + `<text x="${(z0 + z1) / 2}" y="${yd + 6}" class="dt big">= 35 cm</text></g>`
   + `<text x="${a + C / 2}" y="${a + C / 2 + 1.5}" class="ok">過濾後，這裡都能走</text>`;
-Scene({ duration: 11, steps: [2.4, 6.0], tracks: [
+Scene({ duration: 9.2, steps: [2.4, 6.0, 9.2], tracks: [
   { sel: '.freec', at: 0, dur: 0.6, fx: 'fade', max: 1 },
   { sel: '#kick', at: 0.2, dur: 0.4, fx: 'up' }, { sel: '#t', at: 0.4, dur: 0.6, fx: 'up' },
   { sel: '.dotn', at: 1.2, dur: 0.4, fx: 'pop' },
@@ -348,41 +348,8 @@ Scene({ duration: 10.4, steps: [1.4, 2.2, 3.0, 5.0, 7.2, 9.4], tracks: [
 .ch .lab { position:absolute; bottom:18px; width:200px; text-align:center; font-size:26px; font-weight:700; white-space:nowrap; }
 .sw { display:inline-block; width:22px; height:22px; border-radius:4px; vertical-align:-3px; margin-right:10px; }''')
 
-# ═══ 08 結論與未來規劃（與海報「五、結果與討論」一致）═══════
-concl = [('自動建圖', '開機後自主探索建圖，實測 <span class="num acid">6 / 6</span> 次建出完整地圖'),
-         ('覆蓋規劃', 'PCA 主軸對齊＋cell 分解；6 次實測規劃，<span class="num acid">331</span> 段掃描線全在可走區內'),
-         ('循跡執行', '自寫 A*＋直線循跡取代 move_base：受困 <span class="num acid">2 → 0</span> 次、覆蓋時間 <span class="num acid">10.1 → 3.2</span> 分、覆蓋率 <span class="num acid">82.7 → 90.9%</span>')]
-future = [('A* 牆邊原地轉向仍偶有擦撞', '3 次實驗推估 3 次', '改善定位、加強轉向前的空間檢查'),
-          ('只驗證單一長方形空間', 'L 形、多房間時 PCA 只給一個方向', '先分區，再各自規劃'),
-          ('要先建完圖才能規劃', '大空間要等整張地圖建好', '邊建圖邊覆蓋')]
-body = '''<p class="abs kicker" id="kick" style="left:96px; top:64px;">結論與未來規劃</p>
-<h1 class="abs k title" id="t" style="left:96px; top:108px;">完成了什麼，還差什麼</h1>
-<p class="abs h1" style="left:96px; top:250px; font-size:36px; font-weight:900;">結論</p>
-<div class="abs h1" style="left:96px; top:306px; width:820px; height:2px; background:#DAFF3C;"></div>
-<p class="abs h2" style="left:1010px; top:250px; font-size:36px; font-weight:900;">限制與未來規劃</p>
-<div class="abs h2" style="left:1010px; top:306px; width:820px; height:2px; background:#39E6FF;"></div>
-'''
-for k, (a, b) in enumerate(concl):
-    y = 340 + k * 220
-    body += (f'<div class="abs cc{k}" style="left:96px; top:{y}px; width:820px;"><p style="font-size:34px; font-weight:900;">{a}</p>'
-             f'<p style="font-size:28px; line-height:1.5; margin-top:8px;">{b}</p></div>\n')
-for k, (a, b, c) in enumerate(future):
-    y = 340 + k * 220
-    body += (f'<div class="abs ff{k}" style="left:1010px; top:{y}px; width:820px;"><p style="font-size:34px; font-weight:900;">{a}</p>'
-             f'<p class="mute" style="font-size:26px; margin-top:6px;">{b}</p>'
-             f'<p style="font-size:28px; margin-top:8px;"><span class="cyan">未來</span>　{c}</p></div>\n')
-scene('08-conclusion', '08 結論與未來規劃', body, '''
-Scene({ duration: 8, steps: [3.6, 6.8], tracks: [
-  { sel: '#kick', at: 0.2, dur: 0.4, fx: 'up' }, { sel: '#t', at: 0.4, dur: 0.6, fx: 'up' },
-  { sel: '.h1', at: 0.9, dur: 0.5, fx: 'fade' },
-  { sel: '.cc0', at: 1.2, dur: 0.45, fx: 'up' }, { sel: '.cc1', at: 1.9, dur: 0.45, fx: 'up' }, { sel: '.cc2', at: 2.6, dur: 0.45, fx: 'up' },
-  { sel: '.h2', at: 4.0, dur: 0.5, fx: 'fade' },
-  { sel: '.ff0', at: 4.4, dur: 0.45, fx: 'up' }, { sel: '.ff1', at: 5.1, dur: 0.45, fx: 'up' }, { sel: '.ff2', at: 5.8, dur: 0.45, fx: 'up' },
-]});
-''')
-
-# ═══ 09 實機展示（最後一頁；之後接實機影片）═══════════════
-scene('09-demo', '09 實機展示', """
+# ═══ 08 實機展示（最後一頁；之後接實機影片）═══════════════
+scene('08-demo', '08 實機展示', """
 <div class="abs" id="line" style="left:0; top:538px; width:1920px; height:4px; background:#DAFF3C; box-shadow:0 0 22px #DAFF3C;"></div>
 <p class="abs kicker" id="kick" style="left:0; top:250px; width:1920px; text-align:center;">接下來播放實車錄影</p>
 <h1 class="abs k" id="t" style="left:0; top:300px; width:1920px; text-align:center; font-size:150px;">實機展示</h1>
