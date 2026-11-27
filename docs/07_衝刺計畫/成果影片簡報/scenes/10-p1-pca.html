@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<title>10 問題一：為什麼要 PCA</title>
+<link rel="stylesheet" href="base.css">
+<link rel="stylesheet" href="map.css">
+<style>.axl { fill:none; stroke:#FF4FD8; stroke-width:.026; stroke-linecap:round; filter:url(#glow); }</style>
+<script src="../assets/scenes.js"></script>
+<script src="map.js"></script>
+<script src="engine.js"></script>
+</head>
+<body>
+<div class="stage">
+<div id="mapbox" class="abs" style="left:840px; top:40px; width:1040px; height:1000px;"></div>
+<p class="abs kicker" id="kick" style="left:96px; top:100px;">問題一</p>
+<h1 class="abs k" id="t" style="left:96px; top:146px; font-size:64px; line-height:1.25; width:740px;">為什麼用 PCA，<br>不沿地圖座標軸？</h1>
+<p class="abs" id="pp" style="left:96px; top:380px; width:700px; font-size:32px; line-height:1.55;"><span class="pill p">問題</span>車子開機時沒擺正，SLAM 地圖就是斜的；沿地圖座標軸掃，掃描線被斜牆切得<span class="pink">又短又碎</span>。</p>
+<p class="abs" id="ps" style="left:96px; top:560px; width:700px; font-size:32px; line-height:1.55;"><span class="pill s">解法</span>用 PCA 找出房間的長邊，當作掃描方向。</p>
+<p class="abs" id="pr" style="left:96px; top:680px; width:700px; font-size:32px; line-height:1.55;"><span class="pill r">結果</span>掃描線和牆平行，<span class="acid">不管車子開機時朝哪個方向</span>。</p>
+</div>
+<script>
+const d = SCENES.tilt, M = MapSVG;
+document.getElementById('mapbox').innerHTML = M.open(d.bounds, 0.1, 'id="map" style="left:0; top:0; width:100%; height:100%;"')
+  + M.cells(d.wall, d.res, 'wall') + `<g id="axg">${d.axisLines.map(l => M.poly(l, 'axl')).join('')}</g>` + M.route(d.plan) + M.close();
+Scene({ duration: 11, steps: [5.2, 10.4], tracks: [
+  { sel: '.wall', at: 0, dur: 0.6, fx: 'fade' },
+  { sel: '#kick', at: 0.2, dur: 0.4, fx: 'up' }, { sel: '#t', at: 0.4, dur: 0.6, fx: 'up' },
+  { sel: '.axl', at: 3.2, dur: 0.5, fx: 'draw', stagger: 0.06 },
+  { sel: '#pp', at: 3.4, dur: 0.5, fx: 'up' },
+  { sel: '#axg', at: 5.6, dur: 0.6, fx: 'out' },
+  { sel: '#ps', at: 5.8, dur: 0.5, fx: 'up' },
+  { sel: '.rt-sweep', at: 6.0, dur: 3.4, fx: 'draw', ease: 'lin' },
+  { sel: '.rt-ring', at: 9.2, dur: 0.8, fx: 'draw' },
+  { sel: '#pr', at: 9.4, dur: 0.5, fx: 'up' },
+], onTime: (t, u) => {
+  // 房間先是正的，再轉成斜 30°（模擬車子沒擺正）
+  const p = u.E.inout(u.clamp((t - 1.0) / 1.8));
+  document.getElementById('map').style.transform = `rotate(${30 * (1 - p)}deg)`;
+}});
+</script>
+</body>
+</html>

@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<title>09 循跡執行</title>
+<link rel="stylesheet" href="base.css">
+<link rel="stylesheet" href="map.css">
+<style>.rt-move { display:none; }
+.lk { fill:none; stroke:#F2F7F5; stroke-width:.035; stroke-linecap:round; stroke-linejoin:round; filter:url(#glow); }</style>
+<script src="../assets/scenes.js"></script>
+<script src="map.js"></script>
+<script src="engine.js"></script>
+</head>
+<body>
+<div class="stage">
+<div id="mapbox" class="abs" style="left:20px; top:40px; width:1140px; height:1000px;"></div>
+<p class="abs kicker" id="kick" style="left:1220px; top:110px;">循跡執行</p>
+<h1 class="abs k" id="t" style="left:1220px; top:156px; font-size:60px; line-height:1.25; width:640px;">掃描線直線循跡，<br>cell 之間走 A*</h1>
+<div class="abs" id="r1" style="left:1220px; top:390px; width:640px;">
+  <p class="acid" style="font-size:34px; font-weight:900;">直線循跡</p>
+  <p style="font-size:30px; line-height:1.5; margin-top:6px;">沿著每條掃描線開直線；偏離了，就依偏離的距離把方向修回來。</p>
+</div>
+<div class="abs" id="r2" style="left:1220px; top:610px; width:640px;">
+  <p style="font-size:34px; font-weight:900;">A* 銜接</p>
+  <p style="font-size:30px; line-height:1.5; margin-top:6px;">從一個 cell 到下一個，A* 在地圖格子上找一條繞開障礙、和牆保持距離的路線。</p>
+</div>
+<p class="abs mute" id="r3" style="left:1220px; top:870px; width:640px; font-size:26px; line-height:1.5;">這兩段原本交給 ROS 的 move_base（DWA），在牆邊容易卡住，所以改成自己寫（問題四）。</p>
+</div>
+<script>
+const d = SCENES.cover, M = MapSVG;
+document.getElementById('mapbox').innerHTML = M.open(d.bounds, 0.1, 'style="left:0; top:0; width:100%; height:100%;"')
+  + M.cells(d.wall, d.res, 'wall') + `<g class="obsg">${M.cells(d.obs, d.res, 'obs')}</g>` + M.route(d.plan)
+  + d.links.map(l => M.poly(l, 'lk')).join('') + M.close();
+Scene({ duration: 9.6, steps: [5.4, 8.6], tracks: [
+  { sel: '.wall', at: 0, dur: 0.6, fx: 'fade' }, { sel: '.obsg', at: 0.3, dur: 0.4, fx: 'fade' },
+  { sel: '#kick', at: 0.2, dur: 0.4, fx: 'up' }, { sel: '#t', at: 0.4, dur: 0.6, fx: 'up' },
+  { sel: '.rt-sweep', at: 0.9, dur: 4.2, fx: 'draw', ease: 'lin' },
+  { sel: '#r1', at: 1.4, dur: 0.5, fx: 'up' },
+  { sel: '.lk', at: 5.8, dur: 1.2, fx: 'draw', stagger: 0.3 },
+  { sel: '#r2', at: 5.8, dur: 0.5, fx: 'up' },
+  { sel: '.rt-ring', at: 7.0, dur: 1.0, fx: 'draw' },
+  { sel: '#r3', at: 7.6, dur: 0.5, fx: 'fade' },
+]});
+</script>
+</body>
+</html>

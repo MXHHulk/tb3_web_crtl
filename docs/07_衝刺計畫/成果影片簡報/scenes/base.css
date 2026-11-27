@@ -26,3 +26,6 @@ svg { position: absolute; overflow: visible; }
 .ph .rec { position: absolute; left: 40px; bottom: 36px; font-size: 26px; color: #8FB3B8; }
 .ph .rec b { color: #FF4FD8; font-family: "Bahnschrift", sans-serif; letter-spacing: 3px; margin-right: 14px; }
 .ph .scan { position: absolute; left: 0; right: 0; height: 2px; background: rgba(218,255,60,.35); }
+/* 問題／解法／結果 標籤 */
+.pill { display: inline-block; padding: 2px 14px; border-radius: 4px; color: #08161b; font-size: 24px; font-weight: 900; letter-spacing: .08em; margin-right: 14px; vertical-align: 3px; font-style: normal; }
+.pill.p { background: #FF4FD8; } .pill.s { background: #DAFF3C; } .pill.r { background: #39E6FF; }

@@ -38,6 +38,27 @@ def grid_of(data, ox, oy):
     return cells(wall), cells(obs)
 
 
+def astar_links(free, ox, oy, cells):
+    """cell 之間用專案的 A*（scripts/astar.py）規劃銜接路線：上一個 cell 的終點 → 下一個 cell 的起點。"""
+    from astar import plan_path as astar_plan
+    out = []
+    for a, b in zip(cells[:-1], cells[1:]):
+        r = astar_plan(free, RES, ox, oy, tuple(a[-1]), tuple(b[0]))
+        if r['path']:
+            out.append([pt(q) for q in r['path']])
+    return out
+
+
+def band_cuts(cells):
+    """cell 的分界（y）：相鄰兩條掃描線分屬不同 cell 組合的地方取中點（07／11 頁畫水平切線用）。"""
+    rows = {}
+    for i, c in enumerate(cells):
+        for p in c:
+            rows.setdefault(round(p[1], 3), set()).add(i)
+    ys = sorted(rows)
+    return [r3((a + b) / 2) for a, b in zip(ys[:-1], ys[1:]) if rows[a] != rows[b]]
+
+
 def free_of(data):
     return (data == 0) & ~apply_safety_margin(data, MARGIN, RES)
 
@@ -99,6 +120,7 @@ def main():
     # 01 開場／07 參考：海報場地放大 2.2 倍、斜放 30°、含障礙
     data, ox, oy, _ = gf.room_map(30, 2.2)
     S['cover'] = scene(data, ox, oy, {'plan': plan_json(free_of(data), ox, oy)})
+    S['cover']['links'] = astar_links(free_of(data), ox, oy, S['cover']['plan']['cells'])
 
     # 05／06：同一個房間、不含障礙、斜放 30°
     data, ox, oy, _ = gf.room_map(30, 2.2, obstacle=False)
@@ -119,21 +141,27 @@ def main():
     from scipy.ndimage import binary_dilation
     unk = data == -1
     obs_only = obs_mask & ~binary_dilation(unk)
-    obs_zone = binary_dilation(obs_only, iterations=int(MARGIN / RES)) & ~(data == -1)
+    # 障礙＋安全邊距：與規劃程式相同（apply_safety_margin：round(MARGIN/RES)＝3 格的正方形膨脹）
+    obs_zone = apply_safety_margin(np.where(obs_only, 100, 0), MARGIN, RES)
     old = axis_lines(free, ox, oy, spacing=0.16, ignore=obs_zone)   # 舊版：障礙區當作可走，線直接穿過
     zr, zc = np.where(obs_zone)
-    zx0, zx1 = ox + zc.min() * RES, ox + (zc.max() + 1) * RES       # 障礙＋安全邊距的左右邊界＝切點
-    zy0, zy1 = oy + zr.min() * RES, oy + (zr.max() + 1) * RES
-    fr = np.where(free.any(axis=1))[0]
-    n_cross = sum(1 for l in old if zy0 <= l[0][1] <= zy1)           # 掃描線（水平）落在障礙區高度內＝穿過障礙
+    zx0, zx1 = ox + zc.min() * RES, ox + (zc.max() + 1) * RES
+    zy0, zy1 = oy + zr.min() * RES, oy + (zr.max() + 1) * RES       # 障礙＋邊距的上下緣＝切點（掃描線是水平的）
+    orr = np.where(obs_only.any(axis=1))[0]
+    oy0, oy1 = oy + orr.min() * RES, oy + (orr.max() + 1) * RES     # 障礙物本身的上下緣
+    fr, fc = np.where(free.any(axis=1))[0], np.where(free.any(axis=0))[0]
+    n_cross = sum(1 for l in old if oy0 <= l[0][1] <= oy1)           # 掃描線（水平）落在障礙物本身的高度內＝穿過障礙物
+    pj = plan_json(free, ox, oy)
+    links = astar_links(free, ox, oy, pj['cells'])
     S['field'] = scene(data, ox, oy, {
-        'plan': plan_json(free, ox, oy),
+        'plan': pj,
+        'links': links,
         'oldLines': old,
-        # 切點 x0,x1、可走區 y 範圍、障礙區 y 範圍、可走區 x 範圍（09 頁畫 4 個 cell 的範圍用）
-        'cuts': [r3(zx0), r3(zx1), r3(oy + fr.min() * RES), r3(oy + (fr.max() + 1) * RES),
-                 r3(zy0), r3(zy1), r3(ox + np.where(free.any(axis=0))[0].min() * RES),
-                 r3(ox + (np.where(free.any(axis=0))[0].max() + 1) * RES)],
+        # 切點：障礙＋邊距的 x0,x1,y0,y1；可走區 x0,x1,y0,y1
+        'cuts': [r3(zx0), r3(zx1), r3(zy0), r3(zy1), r3(ox + fc.min() * RES), r3(ox + (fc.max() + 1) * RES),
+                 r3(oy + fr.min() * RES), r3(oy + (fr.max() + 1) * RES)],
         'oldStats': [len(old), n_cross],
+        'bandCuts': band_cuts(pj['cells']),
     })
 
     with open(os.path.join(OUT, 'scenes.js'), 'w', encoding='utf-8') as f:

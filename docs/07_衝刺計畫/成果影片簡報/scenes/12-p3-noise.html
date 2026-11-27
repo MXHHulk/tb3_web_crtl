@@ -2,7 +2,7 @@
 <html lang="zh-Hant">
 <head>
 <meta charset="UTF-8">
-<title>10 問題二：假障礙</title>
+<title>12 問題三：假障礙</title>
 <link rel="stylesheet" href="base.css">
 <link rel="stylesheet" href="map.css">
 <style>.freec { fill:rgba(120,170,178,.10); }
@@ -19,13 +19,13 @@
 <body>
 <div class="stage">
 <svg id="dia" class="abs" style="left:100px; top:150px; width:760px; height:760px;" viewBox="0 0 60 60"></svg>
-<p class="abs kicker" id="kick" style="left:960px; top:120px;">問題二</p>
-<h1 class="abs k" id="t" style="left:960px; top:166px; font-size:72px; line-height:1.25; width:880px;">光達雜點，被當成障礙物</h1>
-<p class="abs lede" id="l1" style="left:960px; top:380px; width:880px;">一顆 <span class="num">5 cm</span> 的雜點，四周各擴 <span class="num">3 格（15 cm）</span>，<br>就變成 <span class="num pink">35 cm</span> 見方的禁區。</p>
-<p class="abs lede" id="l2" style="left:960px; top:560px; width:880px;">把 3 格以下的小團塊過濾掉：</p>
-<div class="abs" id="area" style="left:960px; top:650px;">
-  <p class="num" style="font-size:130px; line-height:1;"><span class="mute" style="font-size:70px;">0.69 → </span><span id="a2" class="acid">0.82</span><span style="font-size:52px;"> m²</span></p>
-  <p style="font-size:32px; font-weight:700; margin-top:8px;">可規劃面積 <span class="acid">+18%</span><span class="mute" style="font-size:26px; font-weight:500;">（實測 6 次中雜點最多的一次）</span></p>
+<p class="abs kicker" id="kick" style="left:960px; top:110px;">問題三</p>
+<h1 class="abs k" id="t" style="left:960px; top:156px; font-size:64px; line-height:1.25; width:900px;">光達雜點，被當成障礙物</h1>
+<p class="abs" id="pp" style="left:960px; top:300px; width:900px; font-size:32px; line-height:1.55;"><span class="pill p">問題</span>一顆 <span class="num">5 cm</span> 的雜點，四周各擴 <span class="num">3 格（15 cm）</span>，<br>就變成 <span class="num pink">35 cm</span> 見方的禁區，路線被迫繞開。</p>
+<p class="abs" id="ps" style="left:960px; top:480px; width:900px; font-size:32px; line-height:1.55;"><span class="pill s">解法</span>規劃前，把 3 格以下的小團塊當成雜點過濾掉。</p>
+<div class="abs" id="pr" style="left:960px; top:600px; width:900px;">
+  <p style="font-size:32px; line-height:1.55;"><span class="pill r">結果</span>可規劃面積 <span class="acid">+18%</span><span class="mute" style="font-size:26px;">（實測 6 次中雜點最多的一次）</span></p>
+  <p class="num" style="font-size:130px; line-height:1; margin-top:20px;"><span class="mute" style="font-size:70px;">0.69 → </span><span id="a2" class="acid">0.82</span><span style="font-size:52px;"> m²</span></p>
 </div>
 </div>
 <script>
@@ -50,9 +50,9 @@ Scene({ duration: 11, steps: [2.4, 6.0], tracks: [
   { sel: '#kick', at: 0.2, dur: 0.4, fx: 'up' }, { sel: '#t', at: 0.4, dur: 0.6, fx: 'up' },
   { sel: '.dotn', at: 1.2, dur: 0.4, fx: 'pop' },
   { sel: '.zonec', at: 2.6, dur: 0.8, fx: 'pop' }, { sel: '.dim', at: 3.4, dur: 0.6, fx: 'fade' },
-  { sel: '#l1', at: 3.0, dur: 0.5, fx: 'up' },
-  { sel: '#l2', at: 6.2, dur: 0.5, fx: 'up' },
-  { sel: '#area', at: 7.0, dur: 0.5, fx: 'up' },
+  { sel: '#pp', at: 3.0, dur: 0.5, fx: 'up' },
+  { sel: '#ps', at: 6.2, dur: 0.5, fx: 'up' },
+  { sel: '#pr', at: 7.0, dur: 0.5, fx: 'up' },
   { sel: '.ok', at: 7.0, dur: 0.5, fx: 'fade' },
   { sel: '#a2', at: 7.2, dur: 1.4, fx: 'count', from: 0.69, to: 0.82, dec: 2 },
 ], onTime: (t, u) => {

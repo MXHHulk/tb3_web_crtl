@@ -2,7 +2,7 @@
 <html lang="zh-Hant">
 <head>
 <meta charset="UTF-8">
-<title>06 PCA 找主軸</title>
+<title>06 ① PCA ② 切帶</title>
 <link rel="stylesheet" href="base.css">
 <link rel="stylesheet" href="map.css">
 <style>.pt { fill:#39E6FF; opacity:.75; }
@@ -15,10 +15,10 @@
 <body>
 <div class="stage">
 <div id="mapbox" class="abs" style="left:840px; top:40px; width:1040px; height:1000px;"></div>
-<p class="abs kicker" id="kick" style="left:96px; top:200px;">PCA 主軸</p>
-<h1 class="abs k" id="t" style="left:96px; top:250px; font-size:76px; line-height:1.25; width:720px;">用 PCA 找出<br>房間的長邊</h1>
-<p class="abs lede" id="l1" style="left:96px; top:520px; width:700px;">把可走的格子當成一團點，變化最大的方向就是房間長邊。</p>
-<p class="abs lede" id="l2" style="left:96px; top:700px; width:700px;">掃描線沿著它走，<span class="acid">永遠平行牆面</span>。</p>
+<p class="abs kicker" id="kick" style="left:96px; top:200px;">覆蓋規劃 ① ②</p>
+<h1 class="abs k" id="t" style="left:96px; top:250px; font-size:76px; line-height:1.25; width:720px;">找出房間長邊，<br>沿短軸切帶</h1>
+<p class="abs lede" id="l1" style="left:96px; top:500px; width:700px;"><span class="acid">① PCA</span>：把可走的格子當成一團點，散布最廣的方向當長軸，垂直的當短軸。</p>
+<p class="abs lede" id="l2" style="left:96px; top:690px; width:700px;"><span class="acid">② 切帶</span>：沿短軸切成等寬的帶，每帶一條掃描線，沿長軸來回掃。</p>
 <p class="abs mute" id="lg" style="left:96px; top:900px; width:720px; font-size:28px; line-height:1.6;"><span class="acid">黃</span>：沿長邊來回掃<br><span class="cyan">青</span>：最後沿牆補走一圈，補掃描線頭尾照不到的牆邊</p>
 </div>
 <script>
