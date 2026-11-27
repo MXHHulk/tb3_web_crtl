@@ -9,7 +9,7 @@
 <iframe id="f" allow="fullscreen"></iframe>
 <p id="hud"></p>
 <script>
-const S = [["01-cover", "01 開場"], ["02-layers", "02 系統三層"], ["03-flow", "03 一鍵流程"], ["04-mapping", "04 自動建圖"], ["05-method", "05 覆蓋規劃五步驟"], ["06-pca", "06 ① PCA ② 切帶"], ["07-cells", "07 ③ cell 分解 ④ 牛耕 ⑤ 銜接"], ["08-margin", "08 安全邊距"], ["09-execute", "09 循跡執行"], ["10-p1-pca", "10 問題一：為什麼要 PCA"], ["11-p2-cross", "11 問題二：穿過障礙"], ["12-p3-noise", "12 問題三：假障礙"], ["13-p4-dwa", "13 問題四：move_base → 自寫 A*＋循跡"], ["14-conclusion", "14 結論與未來規劃"], ["15-demo", "15 實機展示"]];
+const S = [["01-cover", "01 開場"], ["02-layers", "02 系統三層"], ["03-flow", "03 一鍵流程"], ["04-p1-pca", "04 問題一：為什麼要 PCA"], ["05-p2-cross", "05 問題二：穿過障礙"], ["06-p3-noise", "06 問題三：假障礙"], ["07-p4-dwa", "07 問題四：move_base → 自寫 A*＋循跡"], ["08-conclusion", "08 結論與未來規劃"], ["09-demo", "09 實機展示"]];
 let i = 0, hideT = null;
 // 記住上次看到第幾頁；頁數變少時（例如 14→13 頁）舊頁碼會超出範圍、畫面全黑，所以超出就從第 1 頁開始
 try { const k = parseInt(localStorage.getItem('ccpp-scene'), 10); if (k >= 0 && k < S.length) i = k; } catch (e) {}
