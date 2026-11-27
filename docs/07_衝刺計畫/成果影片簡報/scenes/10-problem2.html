@@ -5,12 +5,13 @@
 <title>10 問題二：假障礙</title>
 <link rel="stylesheet" href="base.css">
 <link rel="stylesheet" href="map.css">
-<style>.gd { stroke:rgba(120,170,178,.2); stroke-width:.12; }
-.zone { fill:rgba(255,79,216,.25); stroke:#FF4FD8; stroke-width:.25; stroke-dasharray:.9 .7; }
+<style>.freec { fill:rgba(120,170,178,.10); }
+.zonec { fill:rgba(255,79,216,.30); }
 .dotn { fill:#DAFF3C; }
 .dl { stroke:#F2F7F5; stroke-width:.3; }
-.dt { fill:#FF4FD8; font-size:2.8px; font-weight:700; text-anchor:middle; font-family:Bahnschrift, sans-serif; }
-.dt.w { fill:#DAFF3C; } .dt.big { fill:#F2F7F5; font-size:3.6px; }</style>
+.dt { fill:#FF4FD8; font-size:2.8px; font-weight:700; text-anchor:middle; }
+.dt.w { fill:#DAFF3C; } .dt.big { fill:#F2F7F5; font-size:3.6px; }
+.ok { fill:#DAFF3C; font-size:3.6px; font-weight:900; text-anchor:middle; }</style>
 <script src="../assets/scenes.js"></script>
 <script src="map.js"></script>
 <script src="engine.js"></script>
@@ -20,7 +21,7 @@
 <svg id="dia" class="abs" style="left:100px; top:150px; width:760px; height:760px;" viewBox="0 0 60 60"></svg>
 <p class="abs kicker" id="kick" style="left:960px; top:120px;">問題二</p>
 <h1 class="abs k" id="t" style="left:960px; top:166px; font-size:72px; line-height:1.25; width:880px;">光達雜點，被當成障礙物</h1>
-<p class="abs lede" id="l1" style="left:960px; top:380px; width:880px;">一顆 <span class="num">5 cm</span> 的雜點，四周各擴 <span class="num">13 cm</span>，<br>就變成 <span class="num pink">31 cm</span> 寬的禁區。</p>
+<p class="abs lede" id="l1" style="left:960px; top:380px; width:880px;">一顆 <span class="num">5 cm</span> 的雜點，四周各擴 <span class="num">3 格（15 cm）</span>，<br>就變成 <span class="num pink">35 cm</span> 見方的禁區。</p>
 <p class="abs lede" id="l2" style="left:960px; top:560px; width:880px;">把 3 格以下的小團塊過濾掉：</p>
 <div class="abs" id="area" style="left:960px; top:650px;">
   <p class="num" style="font-size:130px; line-height:1;"><span class="mute" style="font-size:70px;">0.69 → </span><span id="a2" class="acid">0.82</span><span style="font-size:52px;"> m²</span></p>
@@ -28,32 +29,36 @@
 </div>
 </div>
 <script>
-// 單位：公分。5 cm 雜點在正中央，往四周各擴 13 cm → 5 + 13 + 13 = 31 cm
+// 單位：公分，一格 5 cm（格子畫法同地圖頁）。雜點 1 格在 (5,5)，禁區往四周各擴 3 格 → 7×7 格＝35 cm
+const C = 5, I = 0.6, n = 5, R = 3;
+const cell = (gx, gy, cls) => `<rect class="${cls}" x="${gx * C + I}" y="${gy * C + I}" width="${C - 2 * I}" height="${C - 2 * I}"/>`;
 const g = [];
-for (let x = 0; x <= 60; x += 5) g.push(`<line x1="${x}" y1="0" x2="${x}" y2="60" class="gd"/>`);
-for (let y = 0; y <= 60; y += 5) g.push(`<line x1="0" y1="${y}" x2="60" y2="${y}" class="gd"/>`);
-const a = 27.5, M = 13, z0 = a - M, z1 = a + 5 + M, yd = z1 + 5;
+for (let gx = 0; gx < 12; gx++) for (let gy = 0; gy < 11; gy++) {
+  const isN = gx === n && gy === n, inZ = Math.abs(gx - n) <= R && Math.abs(gy - n) <= R;
+  g.push(cell(gx, gy, isN ? 'dotn' : inZ ? 'zonec' : 'freec'));
+}
+const z0 = (n - R) * C, z1 = (n + R + 1) * C, a = n * C, yd = z1 + 4;
 const tick = x => `<line x1="${x}" y1="${yd - 1.5}" x2="${x}" y2="${yd + 1.5}" class="dl"/>`;
 document.getElementById('dia').innerHTML = g.join('')
-  + `<rect class="zone" x="${z0}" y="${z0}" width="${z1 - z0}" height="${z1 - z0}" rx="${M}"/>`
-  + `<rect class="dotn" x="${a}" y="${a}" width="5" height="5"/>`
-  + `<g class="dim"><line x1="${z0}" y1="${yd}" x2="${z1}" y2="${yd}" class="dl"/>${tick(z0)}${tick(a)}${tick(a + 5)}${tick(z1)}`
-  + `<text x="${z0 + M / 2}" y="${yd - 2.2}" class="dt">13</text><text x="${a + 2.5}" y="${yd - 2.2}" class="dt w">5</text>`
-  + `<text x="${a + 5 + M / 2}" y="${yd - 2.2}" class="dt">13</text>`
-  + `<text x="${(z0 + z1) / 2}" y="${yd + 6}" class="dt big">= 31 cm</text></g>`;
+  + `<g class="dim"><line x1="${z0}" y1="${yd}" x2="${z1}" y2="${yd}" class="dl"/>${tick(z0)}${tick(a)}${tick(a + C)}${tick(z1)}`
+  + `<text x="${(z0 + a) / 2}" y="${yd - 2.2}" class="dt">15</text><text x="${a + C / 2}" y="${yd - 2.2}" class="dt w">5</text>`
+  + `<text x="${(a + C + z1) / 2}" y="${yd - 2.2}" class="dt">15</text>`
+  + `<text x="${(z0 + z1) / 2}" y="${yd + 6}" class="dt big">= 35 cm</text></g>`
+  + `<text x="${a + C / 2}" y="${a + C / 2 + 1.5}" class="ok">過濾後，這裡都能走</text>`;
 Scene({ duration: 11, steps: [2.4, 6.0], tracks: [
-  { sel: '.gd', at: 0, dur: 0.6, fx: 'fade', max: 1 },
+  { sel: '.freec', at: 0, dur: 0.6, fx: 'fade', max: 1 },
   { sel: '#kick', at: 0.2, dur: 0.4, fx: 'up' }, { sel: '#t', at: 0.4, dur: 0.6, fx: 'up' },
   { sel: '.dotn', at: 1.2, dur: 0.4, fx: 'pop' },
-  { sel: '.zone', at: 2.6, dur: 1.2, fx: 'pop' }, { sel: '.dim', at: 3.6, dur: 0.6, fx: 'fade' },
+  { sel: '.zonec', at: 2.6, dur: 0.8, fx: 'pop' }, { sel: '.dim', at: 3.4, dur: 0.6, fx: 'fade' },
   { sel: '#l1', at: 3.0, dur: 0.5, fx: 'up' },
   { sel: '#l2', at: 6.2, dur: 0.5, fx: 'up' },
   { sel: '#area', at: 7.0, dur: 0.5, fx: 'up' },
+  { sel: '.ok', at: 7.0, dur: 0.5, fx: 'fade' },
   { sel: '#a2', at: 7.2, dur: 1.4, fx: 'count', from: 0.69, to: 0.82, dec: 2 },
 ], onTime: (t, u) => {
   // 過濾：6.2 s 起禁區與雜點一起淡掉
   const gone = u.clamp((t - 6.2) / 0.8);
-  if (t > 6.2) ['.zone', '.dotn', '.dim'].forEach(q => document.querySelector(q).style.opacity = 1 - gone * 0.85);
+  if (t > 6.2) document.querySelectorAll('.zonec, .dotn, .dim').forEach(e => e.style.opacity = 1 - gone * 0.85);
 }});
 </script>
 </body>

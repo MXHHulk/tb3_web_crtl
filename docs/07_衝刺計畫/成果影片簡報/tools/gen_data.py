@@ -111,17 +111,29 @@ def main():
         'points': [[r3(ox + x * RES), r3(oy + y * RES)] for y, x in zip(ys[sub], xs[sub])],
     })
 
-    # 07／08：2.0 × 1.0 m 場地（開發日誌 2026-08-16 的場地尺寸）＋中央障礙，擺正
-    data, ox, oy, _ = gf.room_map(0, size=(2.0, 1.0), obs_size=(0.36, 0.30), obs_at=(0.0, 0.0))
+    # 07／09：2.0 × 1.2 m 場地＋中央障礙，擺正。原本 2.0 × 1.0 m；安全邊距實際擴 3 格（15 cm）後障礙物下方通道消失、
+    # 只剩 3 個 cell，加高到 1.2 m 才恢復上下左右 4 個 cell（示意圖，不是實測場地）
+    data, ox, oy, _ = gf.room_map(0, size=(2.0, 1.2), obs_size=(0.36, 0.30), obs_at=(0.0, 0.0))
     free = free_of(data)
     obs_mask = (data == 100)
     from scipy.ndimage import binary_dilation
     unk = data == -1
     obs_only = obs_mask & ~binary_dilation(unk)
     obs_zone = binary_dilation(obs_only, iterations=int(MARGIN / RES)) & ~(data == -1)
+    old = axis_lines(free, ox, oy, spacing=0.16, ignore=obs_zone)   # 舊版：障礙區當作可走，線直接穿過
+    zr, zc = np.where(obs_zone)
+    zx0, zx1 = ox + zc.min() * RES, ox + (zc.max() + 1) * RES       # 障礙＋安全邊距的左右邊界＝切點
+    zy0, zy1 = oy + zr.min() * RES, oy + (zr.max() + 1) * RES
+    fr = np.where(free.any(axis=1))[0]
+    n_cross = sum(1 for l in old if zy0 <= l[0][1] <= zy1)           # 掃描線（水平）落在障礙區高度內＝穿過障礙
     S['field'] = scene(data, ox, oy, {
         'plan': plan_json(free, ox, oy),
-        'oldLines': axis_lines(free, ox, oy, spacing=0.16, ignore=obs_zone),   # 舊版：障礙區當作可走，線直接穿過
+        'oldLines': old,
+        # 切點 x0,x1、可走區 y 範圍、障礙區 y 範圍、可走區 x 範圍（09 頁畫 4 個 cell 的範圍用）
+        'cuts': [r3(zx0), r3(zx1), r3(oy + fr.min() * RES), r3(oy + (fr.max() + 1) * RES),
+                 r3(zy0), r3(zy1), r3(ox + np.where(free.any(axis=0))[0].min() * RES),
+                 r3(ox + (np.where(free.any(axis=0))[0].max() + 1) * RES)],
+        'oldStats': [len(old), n_cross],
     })
 
     with open(os.path.join(OUT, 'scenes.js'), 'w', encoding='utf-8') as f:

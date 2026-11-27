@@ -5,7 +5,11 @@
 <title>11 問題三：DWA → A*</title>
 <link rel="stylesheet" href="base.css">
 <link rel="stylesheet" href="map.css">
-<style></style>
+<style>.ch .base { position:absolute; left:20px; right:20px; bottom:70px; height:2px; background:#2a4a50; }
+.ch .bar { position:absolute; bottom:72px; width:120px; border-radius:6px 6px 0 0; }
+.ch .val { position:absolute; width:200px; text-align:center; font-size:48px; }
+.ch .lab { position:absolute; bottom:18px; width:200px; text-align:center; font-size:30px; font-weight:700; }
+.sw { display:inline-block; width:22px; height:22px; border-radius:4px; vertical-align:-3px; margin-right:10px; }</style>
 <script src="../assets/scenes.js"></script>
 <script src="map.js"></script>
 <script src="engine.js"></script>
@@ -13,33 +17,30 @@
 <body>
 <div class="stage">
 <svg id="corner" class="abs"></svg>
-<p class="vtext" style="top:760px;">DWA / A*</p>
-<p class="abs kicker" id="kick" style="left:96px; top:76px;">問題三</p>
-<h1 class="abs k" id="t" style="left:96px; top:120px; font-size:64px;">DWA 在牆邊卡住，覆蓋拖很久甚至停擺</h1>
-<p class="abs lede" id="sub" style="left:96px; top:220px; font-size:34px;">改用自寫 <span class="acid">A* 規劃路線＋直線循跡</span>，同一場地各跑 3 次：</p>
-<p class="abs num" id="ghost" style="left:76px; top:270px; font-size:420px; line-height:1.15; color:transparent; -webkit-text-stroke:3px rgba(143,179,184,.5); font-stretch:condensed;">2</p>
-<p class="abs mute" id="bl" style="left:104px; top:650px; font-size:32px;">DWA 受困次數</p>
-<div class="abs" id="after" style="left:760px; top:300px; width:1100px; text-align:right;">
-  <p style="font-size:36px; font-weight:700;">A* 受困次數</p>
-  <p class="num acid" style="font-size:372px; line-height:1; letter-spacing:-6px;"><span id="big">0</span></p>
-  <p class="mute" style="font-size:30px; margin-top:12px;">3 次全部跑完，沒有一次卡住</p>
-</div>
-<div class="abs row" style="left:104px; top:730px; width:720px;"><p class="mute" style="position:absolute; top:10px; font-size:28px;">覆蓋時間</p><p class="num" style="position:absolute; left:256px; font-size:44px;">10.1 → 3.2 分</p></div>
-<div class="abs row" style="left:104px; top:798px; width:720px;"><p class="mute" style="position:absolute; top:10px; font-size:28px;">全部跑完</p><p class="num" style="position:absolute; left:256px; font-size:44px;">1 → 3 次</p></div>
-<div class="abs row" style="left:104px; top:866px; width:720px;"><p class="mute" style="position:absolute; top:10px; font-size:28px;">覆蓋率（附帶）</p><p class="num" style="position:absolute; left:256px; font-size:44px;">82.7 → 90.9%</p></div>
+<p class="abs kicker" id="kick" style="left:96px; top:64px;">問題三</p>
+<h1 class="abs k title" id="t" style="left:96px; top:108px;">DWA 在牆邊卡住，覆蓋拖很久甚至停擺</h1>
+<p class="abs lede" id="sub" style="left:96px; top:210px; font-size:34px;">改用自寫 <span class="acid">A* 規劃路線＋直線循跡</span>，同一場地各跑 3 次：</p>
+<p class="abs" id="lg" style="left:1300px; top:222px; font-size:26px;"><span class="sw" style="background:#DAFF3C;"></span>A*（本專題）　<span class="sw" style="background:#5f8288;"></span><span class="mute">DWA</span></p>
+<div class="abs ch C0" style="left:150px; top:320px; width:480px; height:620px;"><p style="font-size:40px; font-weight:900;">受困次數</p><p class="mute" style="font-size:24px;">3 次實驗中</p><div class="base"></div><div class="bar B0" style="left:60px; height:4px; background:#DAFF3C;"></div><p class="val num B0v" style="left:20px; bottom:76px; color:#DAFF3C;">0 次</p><p class="lab" style="left:20px;">A*</p><div class="bar B0" style="left:260px; height:267px; background:#5f8288;"></div><p class="val num B0v" style="left:220px; bottom:339px; color:#8FB3B8;">2 次</p><p class="lab" style="left:220px;">DWA</p></div>
+<div class="abs ch C1" style="left:720px; top:320px; width:480px; height:620px;"><p style="font-size:40px; font-weight:900;">覆蓋時間</p><p class="mute" style="font-size:24px;">平均（分鐘）</p><div class="base"></div><div class="bar B1" style="left:60px; height:108px; background:#DAFF3C;"></div><p class="val num B1v" style="left:20px; bottom:180px; color:#DAFF3C;">3.2 分</p><p class="lab" style="left:20px;">A*</p><div class="bar B1" style="left:260px; height:336px; background:#5f8288;"></div><p class="val num B1v" style="left:220px; bottom:408px; color:#8FB3B8;">10.1 分</p><p class="lab" style="left:220px;">DWA</p></div>
+<div class="abs ch C2" style="left:1290px; top:320px; width:480px; height:620px;"><p style="font-size:40px; font-weight:900;">覆蓋率</p><p class="mute" style="font-size:24px;">平均</p><div class="base"></div><div class="bar B2" style="left:60px; height:364px; background:#DAFF3C;"></div><p class="val num B2v" style="left:20px; bottom:436px; color:#DAFF3C;">90.9%</p><p class="lab" style="left:20px;">A*</p><div class="bar B2" style="left:260px; height:331px; background:#5f8288;"></div><p class="val num B2v" style="left:220px; bottom:403px; color:#8FB3B8;">82.7%</p><p class="lab" style="left:220px;">DWA</p></div>
+<p class="abs mute" id="note" style="left:150px; top:990px; font-size:24px;">A* 3 次全部跑完；DWA 只跑完 1 次，另 2 次受困提早結束，實際所需時間更長</p>
 </div>
 <script>
 const d = SCENES.cover, M = MapSVG;
-document.getElementById('corner').outerHTML = M.open(d.bounds, 0.1, 'id="corner" class="abs" style="left:1300px; top:-1120px; width:1560px; height:1560px; opacity:.55;"')
+document.getElementById('corner').outerHTML = M.open(d.bounds, 0.1, 'id="corner" class="abs" style="left:1500px; top:-1180px; width:1560px; height:1560px; opacity:.35;"')
   + M.cells(d.wall, d.res, 'wall') + M.route(d.plan) + M.close();
-Scene({ duration: 14, steps: [2.6, 5.5, 7.8], tracks: [
-  { sel: '.rt-sweep', at: 0, dur: 3.0, fx: 'draw', ease: 'lin' }, { sel: '.rt-ring', at: 2.6, dur: 0.6, fx: 'draw' },
+Scene({ duration: 10, steps: [1.8, 4.4, 6.6, 8.8], tracks: [
   { sel: '#kick', at: 0.2, dur: 0.4, fx: 'up' }, { sel: '#t', at: 0.4, dur: 0.6, fx: 'up' },
-  { sel: '#sub', at: 1.0, dur: 0.5, fx: 'up' },
-  { sel: '#ghost', at: 1.6, dur: 0.8, fx: 'fade' }, { sel: '#bl', at: 1.9, dur: 0.5, fx: 'up' },
-  { sel: '#after', at: 3.4, dur: 0.5, fx: 'up' },
-  { sel: '#big', at: 3.5, dur: 1.2, fx: 'count', from: 2, to: 0 },
-  { sel: '.row', at: 6.0, dur: 0.45, fx: 'up', stagger: 0.4 },
+  { sel: '#sub', at: 1.0, dur: 0.5, fx: 'up' }, { sel: '#lg', at: 1.2, dur: 0.5, fx: 'fade' },
+  { sel: '.C0', at: 2.0, dur: 0.4, fx: 'fade' }, { sel: '.B0', at: 2.3, dur: 0.9, fx: 'grow', origin: 'center bottom', stagger: 0.25 },
+  { sel: '.B0v', at: 3.2, dur: 0.4, fx: 'up', stagger: 0.25 },
+  { sel: '.C1', at: 4.6, dur: 0.4, fx: 'fade' }, { sel: '.B1', at: 4.9, dur: 0.9, fx: 'grow', origin: 'center bottom', stagger: 0.25 },
+  { sel: '.B1v', at: 5.8, dur: 0.4, fx: 'up', stagger: 0.25 },
+  { sel: '.C2', at: 6.8, dur: 0.4, fx: 'fade' }, { sel: '.B2', at: 7.1, dur: 0.9, fx: 'grow', origin: 'center bottom', stagger: 0.25 },
+  { sel: '.B2v', at: 8.0, dur: 0.4, fx: 'up', stagger: 0.25 },
+  { sel: '#note', at: 8.4, dur: 0.5, fx: 'fade' },
+  { sel: '.rt-sweep', at: 0, dur: 3.0, fx: 'draw', ease: 'lin' }, { sel: '.rt-ring', at: 2.6, dur: 0.6, fx: 'draw' },
 ]});
 </script>
 </body>

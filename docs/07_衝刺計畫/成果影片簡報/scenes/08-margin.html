@@ -5,13 +5,13 @@
 <title>08 安全邊距</title>
 <link rel="stylesheet" href="base.css">
 <link rel="stylesheet" href="map.css">
-<style>.gd { stroke:rgba(120,170,178,.18); stroke-width:.15; }
-.box { fill:#FF4FD8; }
-.zone { fill:rgba(255,79,216,.22); stroke:#FF4FD8; stroke-width:.3; stroke-dasharray:1 .8; }
+<style>.freec { fill:rgba(120,170,178,.10); }
+.obsc { fill:#FF4FD8; }
+.zonec { fill:rgba(255,79,216,.30); }
 .body { fill:rgba(57,230,255,.18); stroke:#39E6FF; stroke-width:.45; }
 .ctr { fill:#DAFF3C; } .hd { stroke:#DAFF3C; stroke-width:.5; }
-.dl { stroke:#DAFF3C; stroke-width:.35; } .dt { fill:#DAFF3C; font-size:3.2px; font-weight:700; text-anchor:middle; font-family:Bahnschrift, sans-serif; }
-.bt { fill:#08161b; font-size:3.4px; font-weight:900; text-anchor:middle; }
+.dl { stroke:#DAFF3C; stroke-width:.35; } .dt { fill:#DAFF3C; font-size:3.2px; font-weight:700; text-anchor:middle; }
+.bt { fill:#08161b; font-size:3.6px; font-weight:900; text-anchor:middle; stroke:#FF4FD8; stroke-width:1.4; paint-order:stroke; }
 .ct { fill:#DAFF3C; font-size:3px; font-weight:700; }</style>
 <script src="../assets/scenes.js"></script>
 <script src="map.js"></script>
@@ -19,34 +19,38 @@
 </head>
 <body>
 <div class="stage">
-<svg id="dia" class="abs" style="left:60px; top:150px; width:900px; height:840px;" viewBox="0 0 90 84"></svg>
+<svg id="dia" class="abs" style="left:60px; top:140px; width:900px; height:840px;" viewBox="0 0 90 84"></svg>
 <p class="abs kicker" id="kick" style="left:1040px; top:150px;">安全邊距</p>
-<h1 class="abs k" id="t" style="left:1040px; top:196px; font-size:68px; line-height:1.25; width:820px;">障礙物往外擴 13 cm，<br>車子就撞不到</h1>
-<p class="abs lede" id="l1" style="left:1040px; top:440px; width:820px;">車身半寬 <span class="num">10.5 cm</span>，<br>加上地圖格子邊緣的誤差 <span class="num">2.5 cm</span>，<br>合計 <span class="num acid">13 cm</span>。</p>
-<p class="abs lede" id="l2" style="left:1040px; top:650px; width:820px;">路徑只規劃在擴完之後剩下的空地上：<br>車子中心走在線上，車身剛好碰不到。</p>
-<div class="abs" id="d1" style="left:1040px; top:860px;"><p class="num acid" style="font-size:90px; line-height:1;">約 4 成</p><p class="mute" style="font-size:28px;">實測地圖的空地，扣掉安全邊距後車子中心能走的比例</p></div>
+<h1 class="abs k" id="t" style="left:1040px; top:196px; font-size:68px; line-height:1.25; width:820px;">障礙物往外擴 3 格，<br>車子就撞不到</h1>
+<p class="abs lede" id="l1" style="left:1040px; top:440px; width:840px;">車身半寬 <span class="num">10.5 cm</span>，加上格子誤差 <span class="num">2.5 cm</span>，<br>需要 13 cm；一格 5 cm，取 <span class="num acid" style="white-space:nowrap;">3 格＝15 cm</span>。</p>
+<p class="abs lede" id="l2" style="left:1040px; top:640px; width:840px;">路徑只規劃在擴完之後剩下的空地上，<br>車子中心走在上面，車身碰不到障礙物。</p>
+<div class="abs" id="d1" style="left:1040px; top:850px;"><p class="num acid" style="font-size:90px; line-height:1;">約 4 成</p><p class="mute" style="font-size:28px;">實測地圖的空地，扣掉安全邊距後車子中心能走的比例</p></div>
 </div>
 <script>
-// 單位：公分。障礙物 30×20 cm（粉），外擴 13 cm 的禁區（圓角＝往四周等距外擴），右側放一台車（官方車身：輪軸往後 10.5、往前 4.1、左右 10.5）
+// 單位：公分，一格 5 cm。障礙物 6×4 格；禁區＝每格往四周各擴 3 格（正方形，與程式 apply_safety_margin 相同）
+const C = 5, I = 0.6, ob = [3, 6, 6, 4], R = 3;                  // 障礙物：左下格 (3,6)，寬 6 格、高 4 格
+const cell = (gx, gy, cls) => `<rect class="${cls}" x="${gx * C + I}" y="${gy * C + I}" width="${C - 2 * I}" height="${C - 2 * I}"/>`;
 const g = [];
-for (let x = 0; x <= 90; x += 5) g.push(`<line x1="${x}" y1="0" x2="${x}" y2="84" class="gd"/>`);
-for (let y = 0; y <= 84; y += 5) g.push(`<line x1="0" y1="${y}" x2="90" y2="${y}" class="gd"/>`);
-const bx = 15, by = 32, bw = 30, bh = 20, M = 13, cx = bx + bw + M, cy = 42;
+for (let gx = 0; gx < 18; gx++) for (let gy = 0; gy < 16; gy++) {
+  const inObs = gx >= ob[0] && gx < ob[0] + ob[2] && gy >= ob[1] && gy < ob[1] + ob[3];
+  const inZone = gx >= ob[0] - R && gx < ob[0] + ob[2] + R && gy >= ob[1] - R && gy < ob[1] + ob[3] + R;
+  g.push(cell(gx, gy, inObs ? 'obsc' : inZone ? 'zonec' : 'freec'));
+}
+const zx = (ob[0] + ob[2] + R) * C, ox1 = (ob[0] + ob[2]) * C;  // 禁區右緣、障礙物右緣
+const cx = zx + C / 2, cy = (ob[1] + ob[3] / 2) * C;              // 車子中心：禁區外第一格的中心
 document.getElementById('dia').innerHTML = g.join('')
-  + `<rect class="zone" x="${bx - M}" y="${by - M}" width="${bw + 2 * M}" height="${bh + 2 * M}" rx="${M}"/>`
-  + `<rect class="box" x="${bx}" y="${by}" width="${bw}" height="${bh}"/>`
-  + `<g class="dim"><line x1="${bx + bw}" y1="${by - M - 5}" x2="${cx}" y2="${by - M - 5}" class="dl"/>`
-  + `<line x1="${bx + bw}" y1="${by - M - 7}" x2="${bx + bw}" y2="${by - M - 3}" class="dl"/><line x1="${cx}" y1="${by - M - 7}" x2="${cx}" y2="${by - M - 3}" class="dl"/>`
-  + `<text x="${bx + bw + M / 2}" y="${by - M - 7}" class="dt">13 cm</text></g>`
+  + `<g class="dim"><line x1="${ox1}" y1="${ob[1] * C - R * C - 4}" x2="${zx}" y2="${ob[1] * C - R * C - 4}" class="dl"/>`
+  + `<line x1="${ox1}" y1="${ob[1] * C - R * C - 6}" x2="${ox1}" y2="${ob[1] * C - R * C - 2}" class="dl"/><line x1="${zx}" y1="${ob[1] * C - R * C - 6}" x2="${zx}" y2="${ob[1] * C - R * C - 2}" class="dl"/>`
+  + `<text x="${(ox1 + zx) / 2}" y="${ob[1] * C - R * C - 6.5}" class="dt">3 格＝15 cm</text></g>`
   + `<g class="car"><rect x="${cx - 10.5}" y="${cy - 4.1}" width="21" height="14.6" class="body"/>`
   + `<circle cx="${cx}" cy="${cy}" r="1.3" class="ctr"/><line x1="${cx}" y1="${cy}" x2="${cx}" y2="${cy - 8}" class="hd"/></g>`
-  + `<text x="${bx + bw / 2}" y="${by + bh / 2 + 1.6}" class="bt">障礙物</text>`
-  + `<text x="${cx + 13}" y="${cy + 1.5}" class="ct">車子中心</text>`;
+  + `<text x="${(ob[0] + ob[2] / 2) * C}" y="${cy + 1.4}" class="bt">障礙物</text>`
+  + `<text x="${cx + 12}" y="${cy + 1.4}" class="ct">車子中心</text>`;
 Scene({ duration: 10, steps: [2.4, 5.6], tracks: [
-  { sel: '.gd', at: 0, dur: 0.6, fx: 'fade', max: 1 },
-  { sel: '.box', at: 0.4, dur: 0.4, fx: 'pop' }, { sel: '.bt', at: 0.6, dur: 0.4, fx: 'fade' },
+  { sel: '.freec', at: 0, dur: 0.6, fx: 'fade', max: 1 },
+  { sel: '.obsc', at: 0.4, dur: 0.4, fx: 'pop' }, { sel: '.bt', at: 0.6, dur: 0.4, fx: 'fade' },
   { sel: '#kick', at: 0.2, dur: 0.4, fx: 'up' }, { sel: '#t', at: 0.4, dur: 0.6, fx: 'up' },
-  { sel: '.zone', at: 2.6, dur: 1.0, fx: 'pop' }, { sel: '.dim', at: 3.4, dur: 0.5, fx: 'fade' },
+  { sel: '.zonec', at: 2.6, dur: 0.8, fx: 'pop' }, { sel: '.dim', at: 3.4, dur: 0.5, fx: 'fade' },
   { sel: '#l1', at: 3.0, dur: 0.5, fx: 'up' },
   { sel: '.car', at: 5.8, dur: 0.6, fx: 'up', dy: 20 }, { sel: '.ct', at: 6.2, dur: 0.4, fx: 'fade' },
   { sel: '#l2', at: 6.2, dur: 0.5, fx: 'up' }, { sel: '#d1', at: 7.2, dur: 0.5, fx: 'up' },
