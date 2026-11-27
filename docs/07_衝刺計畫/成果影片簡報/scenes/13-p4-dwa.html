@@ -2,13 +2,13 @@
 <html lang="zh-Hant">
 <head>
 <meta charset="UTF-8">
-<title>13 問題四：DWA → A*</title>
+<title>13 問題四：move_base → 自寫 A*＋循跡</title>
 <link rel="stylesheet" href="base.css">
 <link rel="stylesheet" href="map.css">
 <style>.ch .base { position:absolute; left:20px; right:20px; bottom:70px; height:2px; background:#2a4a50; }
 .ch .bar { position:absolute; bottom:72px; width:120px; border-radius:6px 6px 0 0; }
 .ch .val { position:absolute; width:200px; text-align:center; font-size:44px; }
-.ch .lab { position:absolute; bottom:18px; width:200px; text-align:center; font-size:30px; font-weight:700; }
+.ch .lab { position:absolute; bottom:18px; width:200px; text-align:center; font-size:26px; font-weight:700; white-space:nowrap; }
 .sw { display:inline-block; width:22px; height:22px; border-radius:4px; vertical-align:-3px; margin-right:10px; }</style>
 <script src="../assets/scenes.js"></script>
 <script src="map.js"></script>
@@ -18,15 +18,15 @@
 <div class="stage">
 <svg id="corner" class="abs"></svg>
 <p class="abs kicker" id="kick" style="left:96px; top:64px;">問題四</p>
-<h1 class="abs k title" id="t" style="left:96px; top:108px;">DWA 在牆邊卡住</h1>
-<p class="abs" id="pp" style="left:96px; top:228px; font-size:32px;"><span class="pill p">問題</span>移動交給 ROS 的 DWA，牆邊找不到路就卡住，覆蓋拖很久甚至停擺。</p>
-<p class="abs" id="ps" style="left:96px; top:290px; font-size:32px;"><span class="pill s">解法</span>改用自寫 <span class="acid">A* 規劃路線＋直線循跡</span>。</p>
+<h1 class="abs k title" id="t" style="left:96px; top:108px;">move_base 在牆邊卡住</h1>
+<p class="abs" id="pp" style="left:96px; top:228px; font-size:32px;"><span class="pill p">問題</span>移動交給 ROS 的 move_base，它負責開車的 DWA 在牆邊找不到路就卡住，覆蓋拖很久甚至停擺。</p>
+<p class="abs" id="ps" style="left:96px; top:290px; font-size:32px;"><span class="pill s">解法</span>算路線、開車兩層一起換掉：自寫 <span class="acid">A* 規劃路線＋直線循跡開車</span>。</p>
 <p class="abs" id="pr" style="left:96px; top:352px; font-size:32px;"><span class="pill r">結果</span>同一場地各跑 3 次：</p>
-<p class="abs" id="lg" style="left:1300px; top:362px; font-size:26px;"><span class="sw" style="background:#DAFF3C;"></span>A*（本專題）　<span class="sw" style="background:#5f8288;"></span><span class="mute">DWA</span></p>
-<div class="abs ch C0" style="left:150px; top:430px; width:480px; height:560px;"><p style="font-size:36px; font-weight:900;">受困次數</p><p class="mute" style="font-size:22px;">3 次實驗中</p><div class="base"></div><div class="bar B0" style="left:60px; height:4px; background:#DAFF3C;"></div><p class="val num B0v" style="left:20px; bottom:76px; color:#DAFF3C;">0 次</p><p class="lab" style="left:20px;">A*</p><div class="bar B0" style="left:260px; height:213px; background:#5f8288;"></div><p class="val num B0v" style="left:220px; bottom:285px; color:#8FB3B8;">2 次</p><p class="lab" style="left:220px;">DWA</p></div>
-<div class="abs ch C1" style="left:720px; top:430px; width:480px; height:560px;"><p style="font-size:36px; font-weight:900;">覆蓋時間</p><p class="mute" style="font-size:22px;">平均（分鐘）</p><div class="base"></div><div class="bar B1" style="left:60px; height:86px; background:#DAFF3C;"></div><p class="val num B1v" style="left:20px; bottom:158px; color:#DAFF3C;">3.2 分</p><p class="lab" style="left:20px;">A*</p><div class="bar B1" style="left:260px; height:269px; background:#5f8288;"></div><p class="val num B1v" style="left:220px; bottom:341px; color:#8FB3B8;">10.1 分</p><p class="lab" style="left:220px;">DWA</p></div>
-<div class="abs ch C2" style="left:1290px; top:430px; width:480px; height:560px;"><p style="font-size:36px; font-weight:900;">覆蓋率</p><p class="mute" style="font-size:22px;">平均</p><div class="base"></div><div class="bar B2" style="left:60px; height:291px; background:#DAFF3C;"></div><p class="val num B2v" style="left:20px; bottom:363px; color:#DAFF3C;">90.9%</p><p class="lab" style="left:20px;">A*</p><div class="bar B2" style="left:260px; height:265px; background:#5f8288;"></div><p class="val num B2v" style="left:220px; bottom:337px; color:#8FB3B8;">82.7%</p><p class="lab" style="left:220px;">DWA</p></div>
-<p class="abs mute" id="note" style="left:150px; top:1004px; font-size:24px;">A* 3 次全部跑完；DWA 只跑完 1 次，另 2 次受困提早結束，實際所需時間更長</p>
+<p class="abs" id="lg" style="left:960px; top:362px; font-size:26px;"><span class="sw" style="background:#DAFF3C;"></span>自寫 A*＋直線循跡（本專題）　<span class="sw" style="background:#5f8288;"></span><span class="mute">move_base（navfn＋DWA）</span></p>
+<div class="abs ch C0" style="left:150px; top:430px; width:480px; height:560px;"><p style="font-size:36px; font-weight:900;">受困次數</p><p class="mute" style="font-size:22px;">3 次實驗中</p><div class="base"></div><div class="bar B0" style="left:60px; height:4px; background:#DAFF3C;"></div><p class="val num B0v" style="left:20px; bottom:76px; color:#DAFF3C;">0 次</p><p class="lab" style="left:20px;">A*＋循跡</p><div class="bar B0" style="left:260px; height:213px; background:#5f8288;"></div><p class="val num B0v" style="left:220px; bottom:285px; color:#8FB3B8;">2 次</p><p class="lab" style="left:220px;">move_base</p></div>
+<div class="abs ch C1" style="left:720px; top:430px; width:480px; height:560px;"><p style="font-size:36px; font-weight:900;">覆蓋時間</p><p class="mute" style="font-size:22px;">平均（分鐘）</p><div class="base"></div><div class="bar B1" style="left:60px; height:86px; background:#DAFF3C;"></div><p class="val num B1v" style="left:20px; bottom:158px; color:#DAFF3C;">3.2 分</p><p class="lab" style="left:20px;">A*＋循跡</p><div class="bar B1" style="left:260px; height:269px; background:#5f8288;"></div><p class="val num B1v" style="left:220px; bottom:341px; color:#8FB3B8;">10.1 分</p><p class="lab" style="left:220px;">move_base</p></div>
+<div class="abs ch C2" style="left:1290px; top:430px; width:480px; height:560px;"><p style="font-size:36px; font-weight:900;">覆蓋率</p><p class="mute" style="font-size:22px;">平均</p><div class="base"></div><div class="bar B2" style="left:60px; height:291px; background:#DAFF3C;"></div><p class="val num B2v" style="left:20px; bottom:363px; color:#DAFF3C;">90.9%</p><p class="lab" style="left:20px;">A*＋循跡</p><div class="bar B2" style="left:260px; height:265px; background:#5f8288;"></div><p class="val num B2v" style="left:220px; bottom:337px; color:#8FB3B8;">82.7%</p><p class="lab" style="left:220px;">move_base</p></div>
+<p class="abs mute" id="note" style="left:150px; top:1004px; font-size:24px;">A*＋循跡 3 次全部跑完；move_base 只跑完 1 次，另 2 次受困提早結束，實際所需時間更長</p>
 </div>
 <script>
 const d = SCENES.cover, M = MapSVG;

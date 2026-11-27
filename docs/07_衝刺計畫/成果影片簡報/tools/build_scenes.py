@@ -511,18 +511,20 @@ Scene({ duration: 11, steps: [2.4, 6.0], tracks: [
 .dt.w { fill:#DAFF3C; } .dt.big { fill:#F2F7F5; font-size:3.6px; }
 .ok { fill:#DAFF3C; font-size:3.6px; font-weight:900; text-anchor:middle; }''')
 
-# ═══ 13 問題四：DWA → A*（含數據總表）═══════════════════════
-# 三張長條圖：受困次數、覆蓋時間、覆蓋率；A*（本專題）黃綠、DWA 灰。每按一下出一張
-charts = [('受困次數', '3 次實驗中', [('A*', 0, '0 次'), ('DWA', 2, '2 次')], 3),
-          ('覆蓋時間', '平均（分鐘）', [('A*', 3.24, '3.2 分'), ('DWA', 10.07, '10.1 分')], 12),
-          ('覆蓋率', '平均', [('A*', 90.9, '90.9%'), ('DWA', 82.7, '82.7%')], 100)]
+# ═══ 13 問題四：move_base → 自寫 A*＋直線循跡（含數據總表）═══════════════════════
+# 三張長條圖：受困次數、覆蓋時間、覆蓋率；自寫 A*＋循跡（本專題）黃綠、move_base（navfn＋DWA）灰。每按一下出一張
+# 兩層（算路線、開車）一起換掉，所以比較對象是兩套完整導航，不寫成「A* vs DWA」
+A_, M_ = 'A*＋循跡', 'move_base'
+charts = [('受困次數', '3 次實驗中', [(A_, 0, '0 次'), (M_, 2, '2 次')], 3),
+          ('覆蓋時間', '平均（分鐘）', [(A_, 3.24, '3.2 分'), (M_, 10.07, '10.1 分')], 12),
+          ('覆蓋率', '平均', [(A_, 90.9, '90.9%'), (M_, 82.7, '82.7%')], 100)]
 body = '''<svg id="corner" class="abs"></svg>
 <p class="abs kicker" id="kick" style="left:96px; top:64px;">問題四</p>
-<h1 class="abs k title" id="t" style="left:96px; top:108px;">DWA 在牆邊卡住</h1>
-<p class="abs" id="pp" style="left:96px; top:228px; font-size:32px;"><span class="pill p">問題</span>移動交給 ROS 的 DWA，牆邊找不到路就卡住，覆蓋拖很久甚至停擺。</p>
-<p class="abs" id="ps" style="left:96px; top:290px; font-size:32px;"><span class="pill s">解法</span>改用自寫 <span class="acid">A* 規劃路線＋直線循跡</span>。</p>
+<h1 class="abs k title" id="t" style="left:96px; top:108px;">move_base 在牆邊卡住</h1>
+<p class="abs" id="pp" style="left:96px; top:228px; font-size:32px;"><span class="pill p">問題</span>移動交給 ROS 的 move_base，它負責開車的 DWA 在牆邊找不到路就卡住，覆蓋拖很久甚至停擺。</p>
+<p class="abs" id="ps" style="left:96px; top:290px; font-size:32px;"><span class="pill s">解法</span>算路線、開車兩層一起換掉：自寫 <span class="acid">A* 規劃路線＋直線循跡開車</span>。</p>
 <p class="abs" id="pr" style="left:96px; top:352px; font-size:32px;"><span class="pill r">結果</span>同一場地各跑 3 次：</p>
-<p class="abs" id="lg" style="left:1300px; top:362px; font-size:26px;"><span class="sw" style="background:#DAFF3C;"></span>A*（本專題）　<span class="sw" style="background:#5f8288;"></span><span class="mute">DWA</span></p>
+<p class="abs" id="lg" style="left:960px; top:362px; font-size:26px;"><span class="sw" style="background:#DAFF3C;"></span>自寫 A*＋直線循跡（本專題）　<span class="sw" style="background:#5f8288;"></span><span class="mute">move_base（navfn＋DWA）</span></p>
 '''
 for c, (name, sub, bars, vmax) in enumerate(charts):
     x0 = 150 + c * 570
@@ -536,8 +538,8 @@ for c, (name, sub, bars, vmax) in enumerate(charts):
                  f'<p class="val num B{c}v" style="left:{20 + b * 200}px; bottom:{max(h, 4) + 72:.0f}px; color:{"#DAFF3C" if b == 0 else "#8FB3B8"};">{txt}</p>'
                  f'<p class="lab" style="left:{20 + b * 200}px;">{lab}</p>')
     body += '</div>\n'
-body += '<p class="abs mute" id="note" style="left:150px; top:1004px; font-size:24px;">A* 3 次全部跑完；DWA 只跑完 1 次，另 2 次受困提早結束，實際所需時間更長</p>\n'
-scene('13-p4-dwa', '13 問題四：DWA → A*', body, '''
+body += '<p class="abs mute" id="note" style="left:150px; top:1004px; font-size:24px;">A*＋循跡 3 次全部跑完；move_base 只跑完 1 次，另 2 次受困提早結束，實際所需時間更長</p>\n'
+scene('13-p4-dwa', '13 問題四：move_base → 自寫 A*＋循跡', body, '''
 const d = SCENES.cover, M = MapSVG;
 document.getElementById('corner').outerHTML = M.open(d.bounds, 0.1, 'id="corner" class="abs" style="left:1500px; top:-1180px; width:1560px; height:1560px; opacity:.35;"')
   + M.cells(d.wall, d.res, 'wall') + M.route(d.plan) + M.close();
@@ -558,13 +560,13 @@ Scene({ duration: 10.4, steps: [1.4, 2.2, 3.0, 5.0, 7.2, 9.4], tracks: [
 ''', css='''.ch .base { position:absolute; left:20px; right:20px; bottom:70px; height:2px; background:#2a4a50; }
 .ch .bar { position:absolute; bottom:72px; width:120px; border-radius:6px 6px 0 0; }
 .ch .val { position:absolute; width:200px; text-align:center; font-size:44px; }
-.ch .lab { position:absolute; bottom:18px; width:200px; text-align:center; font-size:30px; font-weight:700; }
+.ch .lab { position:absolute; bottom:18px; width:200px; text-align:center; font-size:26px; font-weight:700; white-space:nowrap; }
 .sw { display:inline-block; width:22px; height:22px; border-radius:4px; vertical-align:-3px; margin-right:10px; }''')
 
 # ═══ 14 結論與未來規劃（與海報「五、結果與討論」一致）═══════
 concl = [('自動建圖', '開機後自主探索建圖，實測 <span class="num acid">6 / 6</span> 次建出完整地圖'),
          ('覆蓋規劃', 'PCA 主軸對齊＋cell 分解；6 次實測規劃，<span class="num acid">331</span> 段掃描線全在可走區內'),
-         ('循跡執行', '自寫 A*＋直線循跡取代 DWA：受困 <span class="num acid">2 → 0</span> 次、覆蓋時間 <span class="num acid">10.1 → 3.2</span> 分、覆蓋率 <span class="num acid">82.7 → 90.9%</span>')]
+         ('循跡執行', '自寫 A*＋直線循跡取代 move_base：受困 <span class="num acid">2 → 0</span> 次、覆蓋時間 <span class="num acid">10.1 → 3.2</span> 分、覆蓋率 <span class="num acid">82.7 → 90.9%</span>')]
 future = [('A* 牆邊原地轉向仍偶有擦撞', '3 次實驗推估 3 次', '改善定位、加強轉向前的空間檢查'),
           ('只驗證單一長方形空間', 'L 形、多房間時 PCA 只給一個方向', '先分區，再各自規劃'),
           ('要先建完圖才能規劃', '大空間要等整張地圖建好', '邊建圖邊覆蓋')]

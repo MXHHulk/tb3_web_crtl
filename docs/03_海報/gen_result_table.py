@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-產生海報「四、成果展示」的 A* vs DWA 對照圖（640×340 海報 px）（三個並排小圖：受困、平均覆蓋率、覆蓋時間）。
+產生海報「四、成果展示」的 自寫 A*＋直線循跡 vs move_base 對照圖（640×340 海報 px）（三個並排小圖：受困、平均覆蓋率、覆蓋時間）。
 Canva 回傳超過 100k 字元會截斷、拿不到新文字元素 ID，故以圖片放入。
 
 形式：emphasis（本專題 A* 用強調藍、對照組 DWA 用灰），三個量級不同的指標各自一張小圖、各自從 0 起算（不共用軸）。
@@ -50,10 +50,11 @@ def cross(cx, cy, q, w=3):
 
 
 # 第一行：標題＋說明；第二行：圖例（≥ 2 個系列一定有圖例）
-d.text((p(0), p(0)), 'A* 與 DWA 實測對照', font=f_title, fill=NAVY)
-d.text((p(300), p(14)), '同一場地、同一版本，各 3 次', font=f_note, fill=MUTED, anchor='lm')
+# 兩層（算路線 A*／navfn、開車 循跡／DWA）一起換掉，所以比的是兩套完整導航，標籤不寫成「A* vs DWA」
+d.text((p(0), p(0)), '自寫導航與 move_base 實測對照', font=f_title, fill=NAVY)
+d.text((p(432), p(14)), '同一場地、同一版本，各 3 次', font=f_note, fill=MUTED, anchor='lm')
 lx = p(0)
-for col, name in ((ACC, 'A*＋直線循跡（本專題）'), (GRAY, 'DWA（ROS move_base）')):
+for col, name in ((ACC, '自寫 A*＋直線循跡（本專題）'), (GRAY, 'ROS move_base（navfn＋DWA）')):
     d.rounded_rectangle([lx, p(48), lx + p(15), p(63)], radius=p(3), fill=col)
     d.text((lx + p(21), p(56)), name, font=f_lab, fill=INK, anchor='lm')
     lx += p(21) + d.textlength(name, font=f_lab) + p(24)
@@ -66,17 +67,17 @@ for k, t in enumerate(('受困次數', '平均覆蓋率', '覆蓋時間（分）
     d.line([p(x0), p(PT + 32), p(x0 + PW - 10), p(PT + 32)], fill=RULE, width=p(1.5))
 
 # ── ① 受困：每次實驗一個點（實心＝跑完、空心＋✕＝受困停止） ──
-for j, (key, col, name) in enumerate((('A', ACC, 'A*'), ('D', GRAY, 'DWA'))):
+for j, (key, col, name) in enumerate((('A', ACC, 'A*＋循跡'), ('D', GRAY, 'move_base'))):
     cy = p(160 + j * 64)
-    d.text((p(0), cy), name, font=f_val, fill=INK, anchor='lm')
+    d.text((p(0), cy), name, font=f_note, fill=INK, anchor='lm')
     for i, s_ in enumerate(stuck[key]):
-        cx, r = p(74 + i * 27), p(10)
+        cx, r = p(97 + i * 23), p(10)
         if s_:
             d.ellipse([cx - r, cy - r, cx + r, cy + r], outline=col, width=p(3), fill='white')
             cross(cx, cy, p(5))
         else:
             d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=col)
-    d.text((p(194), cy), f"{sum(stuck[key])} 次", font=f_val, fill=INK, anchor="rm")
+    d.text((p(198), cy), f"{sum(stuck[key])} 次", font=f_val, fill=INK, anchor="rm")
 ly = p(BOT + 18)
 d.ellipse([p(0), ly - p(6), p(12), ly + p(6)], fill=MUTED)
 d.text((p(17), ly), '跑完', font=f_note, fill=MUTED, anchor='lm')
@@ -88,7 +89,7 @@ d.text((p(79), ly), '受困停止', font=f_note, fill=MUTED, anchor='lm')
 def bars(x0, vals, vmax, fmt, ranges=None):
     """單軸長條：0 起算、上端 4 px 圓角，兩條之間留白；數值直接標在長條（或範圍線）上方。"""
     base, top = p(BOT), p(TOPB)
-    bw, gap = 54, 22
+    bw, gap = 54, 30
     d.line([p(x0), base, p(x0 + PW - 10), base], fill=RULE, width=p(1.5))
     for i, (key, col) in enumerate((('A', ACC), ('D', GRAY))):
         bx = x0 + 24 + i * (bw + gap)
@@ -105,13 +106,13 @@ def bars(x0, vals, vmax, fmt, ranges=None):
             d.line([cx, ylo, cx, yhi], fill=INK, width=p(2))
             ytxt = min(ytxt, yhi)
         d.text((p(bx + bw / 2), ytxt - p(5)), fmt(vals[key]), font=f_val, fill=INK, anchor='md')
-        d.text((p(bx + bw / 2), base + p(4)), 'A*' if key == 'A' else 'DWA', font=f_lab, fill=INK, anchor='mt')
+        d.text((p(bx + bw / 2), base + p(4)), 'A*＋循跡' if key == 'A' else 'move_base', font=f_note, fill=INK, anchor='mt')
 
 
 bars(PW + GAP, cov, 100, lambda v: f'{v:.1f}%')
 mean_t = {k: st.mean(v) for k, v in tmin.items()}
 bars(2 * (PW + GAP), mean_t, 12, lambda v: f'{v:.1f}', ranges=tmin)
-d.text((p(0), p(BOT + 42)), '長條＝平均，細線＝最短～最長；DWA 有 2 次受困提早結束，實際所需時間更長',
+d.text((p(0), p(BOT + 42)), '長條＝平均，細線＝最短～最長；move_base 有 2 次受困提早結束，實際所需時間更長',
        font=f_note, fill=MUTED, anchor='lm')
 
 img.save(OUT)
