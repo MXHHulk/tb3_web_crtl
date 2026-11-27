@@ -9,7 +9,7 @@
 <iframe id="f" allow="fullscreen"></iframe>
 <p id="hud"></p>
 <script>
-const S = [["01-cover", "01 開場"], ["02-layers", "02 系統三層"], ["03-flow", "03 一鍵流程"], ["04-mapping", "04 自動建圖"], ["05-tilted", "05 地圖是斜的"], ["06-pca", "06 PCA 找主軸"], ["07-cells", "07 cell 分解"], ["08-problem1", "08 問題一：穿過障礙"], ["09-problem2", "09 問題二：假障礙"], ["10-problem3", "10 問題三：DWA → 自寫循跡"], ["11-demo", "11 實機展示：擺正 vs 斜放"], ["12-table", "12 數據總表"], ["13-end", "13 結尾"]];
+const S = [["01-cover", "01 開場"], ["02-layers", "02 系統三層"], ["03-flow", "03 一鍵流程"], ["04-mapping", "04 自動建圖"], ["05-tilted", "05 地圖是斜的"], ["06-pca", "06 PCA 找主軸"], ["07-cells", "07 cell 分解"], ["08-problem1", "08 問題一：穿過障礙"], ["09-problem2", "09 問題二：假障礙"], ["10-problem3", "10 問題三：DWA → A*"], ["11-table", "11 數據總表"], ["12-demo", "12 實機展示"]];
 let i = +(localStorage.getItem('ccpp-scene') || 0), hideT = null;
 const f = document.getElementById('f'), hud = document.getElementById('hud');
 function go(k, atEnd) {

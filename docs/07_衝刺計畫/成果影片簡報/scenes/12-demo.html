@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<title>12 實機展示</title>
+<link rel="stylesheet" href="base.css">
+<link rel="stylesheet" href="map.css">
+<style></style>
+<script src="../assets/scenes.js"></script>
+<script src="map.js"></script>
+<script src="engine.js"></script>
+</head>
+<body>
+<div class="stage">
+<div class="abs" id="line" style="left:0; top:538px; width:1920px; height:4px; background:#DAFF3C; box-shadow:0 0 22px #DAFF3C;"></div>
+<p class="abs kicker" id="kick" style="left:0; top:250px; width:1920px; text-align:center;">接下來播放實車錄影</p>
+<h1 class="abs k" id="t" style="left:0; top:300px; width:1920px; text-align:center; font-size:150px;">實機展示</h1>
+<p class="abs lede" id="l1" style="left:0; top:580px; width:1920px; text-align:center;">開機 → 自動建圖 → 規劃 → <span class="acid">A* 覆蓋</span></p>
+<p class="abs" id="n1" style="left:0; top:700px; width:1920px; text-align:center; font-size:40px; font-weight:700;">陳紹桓　陳柏屹</p>
+<p class="abs mute" id="n2" style="left:0; top:770px; width:1920px; text-align:center; font-size:30px;">指導老師　卓世明</p>
+<p class="abs mute" id="n3" style="left:0; top:860px; width:1920px; text-align:center; font-size:26px;">牛耕式演算法——以 TurtleBot3 實作</p>
+</div>
+<script>
+Scene({ duration: 8, steps: [3.6], tracks: [
+  { sel: '#line', at: 0, dur: 1.2, fx: 'grow', origin: 'center center' },
+  { sel: '#kick', at: 0.6, dur: 0.5, fx: 'fade' },
+  { sel: '#t', at: 1.0, dur: 0.7, fx: 'up', dy: 40 },
+  { sel: '#l1', at: 1.7, dur: 0.5, fx: 'up' },
+  { sel: '#n1', at: 2.2, dur: 0.5, fx: 'up' }, { sel: '#n2', at: 2.5, dur: 0.5, fx: 'up' },
+  { sel: '#n3', at: 2.9, dur: 0.6, fx: 'fade' },
+]});
+</script>
+</body>
+</html>

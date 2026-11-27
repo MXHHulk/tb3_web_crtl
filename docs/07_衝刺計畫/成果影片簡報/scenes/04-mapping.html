@@ -16,10 +16,10 @@
 <p class="abs src" id="cap" style="left:96px; top:1010px;">畫面：2026-06-27 實測 gmapping 建圖快照 47 張（每格 5 cm）；實機建圖快轉待拍</p>
 <p class="abs kicker" id="kick" style="left:1120px; top:120px;">自動建圖</p>
 <h1 class="abs k" id="t" style="left:1120px; top:166px; font-size:68px; line-height:1.25; width:760px;">自己找路建完地圖，<br>再開回起點</h1>
-<div class="abs st" style="left:1120px; top:440px;"><p class="num" style="font-size:110px; line-height:1;"><span id="s1">55</span><span style="font-size:44px;"> 秒</span></p><p class="mute" style="font-size:26px;">建完整張地圖</p></div>
-<div class="abs st" style="left:1520px; top:440px;"><p class="num" style="font-size:110px; line-height:1;"><span id="s2">4.1</span><span style="font-size:44px;"> m</span></p><p class="mute" style="font-size:26px;">行走距離</p></div>
-<div class="abs st" style="left:1120px; top:680px;"><p class="num acid" style="font-size:150px; line-height:1;"><span id="s3">3</span><span style="font-size:56px;"> cm</span></p><p style="font-size:30px; font-weight:700;">回到起點的誤差</p></div>
-<p class="abs src st" style="left:1120px; top:920px; width:740px;">scan matching 163 次僅 1 次失敗｜實車 1 次（開發日誌 2026-11-11）</p>
+<div class="abs st" style="left:1120px; top:440px;"><p class="num" style="font-size:110px; line-height:1;"><span id="s1">80</span><span style="font-size:44px;"> 秒</span></p><p class="mute" style="font-size:26px;">建完地圖（中位數）</p></div>
+<div class="abs st" style="left:1560px; top:440px;"><p class="num" style="font-size:110px; line-height:1;"><span id="s2">1.9</span><span style="font-size:44px;"> m²</span></p><p class="mute" style="font-size:26px;">地圖面積</p></div>
+<div class="abs st" style="left:1120px; top:680px;"><p class="num acid" style="font-size:150px; line-height:1;"><span id="s3">4</span><span style="font-size:56px;"> / 6 次</span></p><p style="font-size:30px; font-weight:700;">自己開回起點（誤差 4～8 cm）</p></div>
+<p class="abs src st" style="left:1120px; top:920px; width:740px;">實車 6 次（正式實驗 2026-11-26，v1.2.0）：建圖 49～108 秒、面積 1.90～1.95 m²；另 2 次回起點失敗，由覆蓋前的自寫 A* 開回</p>
 </div>
 <script>
 const N = 47, imgs = [];
@@ -28,9 +28,9 @@ Scene({ duration: 14, steps: [6.2, 11.0], tracks: [
   { sel: '#flip', at: 0.0, dur: 0.6, fx: 'fade' },
   { sel: '#kick', at: 0.3, dur: 0.4, fx: 'up' }, { sel: '#t', at: 0.5, dur: 0.6, fx: 'up' },
   { sel: '.st', at: 6.4, dur: 0.5, fx: 'up', stagger: 1.1 },
-  { sel: '#s1', at: 6.4, dur: 1.2, fx: 'count', from: 0, to: 55 },
-  { sel: '#s2', at: 7.5, dur: 1.2, fx: 'count', from: 0, to: 4.1, dec: 1 },
-  { sel: '#s3', at: 8.6, dur: 1.0, fx: 'count', from: 40, to: 3 },
+  { sel: '#s1', at: 6.4, dur: 1.2, fx: 'count', from: 0, to: 80 },
+  { sel: '#s2', at: 7.5, dur: 1.2, fx: 'count', from: 0, to: 1.9, dec: 1 },
+  { sel: '#s3', at: 8.6, dur: 1.0, fx: 'count', from: 0, to: 4 },
   { sel: '#cap', at: 1.0, dur: 0.6, fx: 'fade' },
 ], onTime: (t, u) => {
   const i = Math.round(u.clamp((t - 0.6) / 5.4) * (N - 1));

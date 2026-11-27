@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-產生 scenes/NN-*.html（13 鏡）與 index.html。每鏡的版面、文字、時間軸都在這支檔案裡，改這裡再重跑。
+產生 scenes/NN-*.html（12 鏡）與 index.html。每鏡的版面、文字、時間軸都在這支檔案裡，改這裡再重跑。
 數據與出處以 ../簡報生成.md 為準；【待填】不得填假設值。
 
 用法：python tools/build_scenes.py
@@ -77,10 +77,11 @@ Scene({ duration: 10, steps: [10], tracks: [
 # ═══ 02 系統三層 ═══════════════════════════════════════
 layers = [
     # (y, 標籤, 標籤 class, [(主字, 小字, 行數 or None)], 字色)
-    (280, '我們寫的', 'acid', [('覆蓋規劃', 'coverage_planner.py', 488), ('執行與循跡', 'map_server.py', 1783),
-                             ('手機控制台', 'launcher.py', 493), ('網頁監控', 'web/index.html', 704)], '#F2F7F5'),
+    (280, '我們寫的', 'acid', [('覆蓋規劃', 'coverage_planner.py', 505), ('A* 導航', 'astar.py', 151),
+                             ('執行與循跡', 'map_server.py', 2290), ('手機控制台', 'launcher.py', 493),
+                             ('網頁監控', 'web/index.html', 715)], '#F2F7F5'),
     (600, 'ROS 現成套件', 'mute', [('gmapping', '建圖（SLAM）', None), ('explore_lite', '找還沒看過的邊界', None),
-                                  ('move_base', '全域路徑（備援）', None)], '#8FB3B8'),
+                                  ('move_base', '建圖時導航・對照組 DWA', None)], '#8FB3B8'),
     (830, '硬體', 'mute', [('TurtleBot3', 'Burger 差速輪式機器人', None), ('LDS 光達', '360° 雷射測距', None)], '#8FB3B8'),
 ]
 body = '''<p class="abs kicker" id="kick" style="left:96px; top:64px;">系統架構</p>
@@ -89,15 +90,16 @@ body = '''<p class="abs kicker" id="kick" style="left:96px; top:64px;">系統架
 for li, (y, lab, cls, items, col) in enumerate(layers):
     body += f'<div class="abs rule L{li}" style="left:0; top:{y - 26}px; width:1920px; height:2px; background:{"#DAFF3C" if li == 0 else "#2a4a50"};"></div>\n'
     body += f'<p class="abs lab L{li}t {cls}" style="left:96px; top:{y}px; font-size:34px; font-weight:700;">{lab}</p>\n'
+    step = 300 if len(items) > 4 else 380
     for k, (main, sub, n) in enumerate(items):
-        x = 400 + k * 380
-        body += f'<div class="abs it L{li}i" style="left:{x}px; top:{y - 8}px; width:350px;">'
+        x = 400 + k * step
+        body += f'<div class="abs it L{li}i" style="left:{x}px; top:{y - 8}px; width:{step - 30}px;">'
         body += f'<p style="font-size:{52 if li == 0 else 44}px; font-weight:{900 if li == 0 else 700}; color:{col}; line-height:1.15;">{main}</p>'
         body += f'<p class="mute" style="font-size:26px; margin-top:6px;">{sub}</p>'
         if n:
             body += f'<p class="num acid" style="font-size:64px; line-height:1.1; margin-top:8px;"><span class="cnt" data-n="{n}">{n}</span> <span style="font-size:28px;">行</span></p>'
         body += '</div>\n'
-body += '<p class="abs src" id="src" style="left:96px; top:1000px;">行數：wc -l，2026-11-25</p>\n'
+body += '<p class="abs src" id="src" style="left:96px; top:1000px;">行數：wc -l，2026-11-27（v1.2.0）</p>\n'
 scene('02-layers', '02 系統三層', body, '''
 const tr = [
   { sel: '#kick', at: 0.2, dur: 0.4, fx: 'up' },
@@ -119,7 +121,7 @@ Scene({ duration: 14, steps: [2.9, 4.9, 9.0], tracks: tr });
 
 # ═══ 03 一鍵流程 ═══════════════════════════════════════
 nodes = [('手機一鍵開始', '手機網頁控制台'), ('自動建圖', 'gmapping＋explore_lite'), ('覆蓋規劃', 'PCA＋cell 分解'),
-         ('循跡執行', '自寫直線循跡'), ('留下紀錄', '覆蓋率・軌跡・時間')]
+         ('循跡執行', '自寫 A*＋直線循跡'), ('留下紀錄', '覆蓋率・軌跡・時間')]
 body = '''<p class="abs kicker" id="kick" style="left:96px; top:64px;">操作流程</p>
 <h1 class="abs k title" id="t" style="left:96px; top:108px;">按一個鍵，車子自己跑完全程</h1>
 <div class="abs" id="track" style="left:260px; top:600px; width:1400px; height:3px; background:#2a4a50;"></div>
@@ -158,10 +160,10 @@ scene('04-mapping', '04 自動建圖', '''
 <p class="abs src" id="cap" style="left:96px; top:1010px;">畫面：2026-06-27 實測 gmapping 建圖快照 47 張（每格 5 cm）；實機建圖快轉待拍</p>
 <p class="abs kicker" id="kick" style="left:1120px; top:120px;">自動建圖</p>
 <h1 class="abs k" id="t" style="left:1120px; top:166px; font-size:68px; line-height:1.25; width:760px;">自己找路建完地圖，<br>再開回起點</h1>
-<div class="abs st" style="left:1120px; top:440px;"><p class="num" style="font-size:110px; line-height:1;"><span id="s1">55</span><span style="font-size:44px;"> 秒</span></p><p class="mute" style="font-size:26px;">建完整張地圖</p></div>
-<div class="abs st" style="left:1520px; top:440px;"><p class="num" style="font-size:110px; line-height:1;"><span id="s2">4.1</span><span style="font-size:44px;"> m</span></p><p class="mute" style="font-size:26px;">行走距離</p></div>
-<div class="abs st" style="left:1120px; top:680px;"><p class="num acid" style="font-size:150px; line-height:1;"><span id="s3">3</span><span style="font-size:56px;"> cm</span></p><p style="font-size:30px; font-weight:700;">回到起點的誤差</p></div>
-<p class="abs src st" style="left:1120px; top:920px; width:740px;">scan matching 163 次僅 1 次失敗｜實車 1 次（開發日誌 2026-11-11）</p>
+<div class="abs st" style="left:1120px; top:440px;"><p class="num" style="font-size:110px; line-height:1;"><span id="s1">80</span><span style="font-size:44px;"> 秒</span></p><p class="mute" style="font-size:26px;">建完地圖（中位數）</p></div>
+<div class="abs st" style="left:1560px; top:440px;"><p class="num" style="font-size:110px; line-height:1;"><span id="s2">1.9</span><span style="font-size:44px;"> m²</span></p><p class="mute" style="font-size:26px;">地圖面積</p></div>
+<div class="abs st" style="left:1120px; top:680px;"><p class="num acid" style="font-size:150px; line-height:1;"><span id="s3">4</span><span style="font-size:56px;"> / 6 次</span></p><p style="font-size:30px; font-weight:700;">自己開回起點（誤差 4～8 cm）</p></div>
+<p class="abs src st" style="left:1120px; top:920px; width:740px;">實車 6 次（正式實驗 2026-11-26，v1.2.0）：建圖 49～108 秒、面積 1.90～1.95 m²；另 2 次回起點失敗，由覆蓋前的自寫 A* 開回</p>
 ''', '''
 const N = 47, imgs = [];
 for (let i = 0; i < N; i++) { const im = new Image(); im.src = `../assets/mapflip/${String(i).padStart(2, '0')}.png`; imgs.push(im); }
@@ -169,9 +171,9 @@ Scene({ duration: 14, steps: [6.2, 11.0], tracks: [
   { sel: '#flip', at: 0.0, dur: 0.6, fx: 'fade' },
   { sel: '#kick', at: 0.3, dur: 0.4, fx: 'up' }, { sel: '#t', at: 0.5, dur: 0.6, fx: 'up' },
   { sel: '.st', at: 6.4, dur: 0.5, fx: 'up', stagger: 1.1 },
-  { sel: '#s1', at: 6.4, dur: 1.2, fx: 'count', from: 0, to: 55 },
-  { sel: '#s2', at: 7.5, dur: 1.2, fx: 'count', from: 0, to: 4.1, dec: 1 },
-  { sel: '#s3', at: 8.6, dur: 1.0, fx: 'count', from: 40, to: 3 },
+  { sel: '#s1', at: 6.4, dur: 1.2, fx: 'count', from: 0, to: 80 },
+  { sel: '#s2', at: 7.5, dur: 1.2, fx: 'count', from: 0, to: 1.9, dec: 1 },
+  { sel: '#s3', at: 8.6, dur: 1.0, fx: 'count', from: 0, to: 4 },
   { sel: '#cap', at: 1.0, dur: 0.6, fx: 'fade' },
 ], onTime: (t, u) => {
   const i = Math.round(u.clamp((t - 0.6) / 5.4) * (N - 1));
@@ -187,7 +189,7 @@ scene('05-tilted', '05 地圖是斜的', '''
 <p class="abs kicker" id="kick" style="left:96px; top:200px;">為什麼要 PCA</p>
 <h1 class="abs k" id="t" style="left:96px; top:250px; font-size:76px; line-height:1.25; width:720px;">車子沒擺正，<br>地圖就是斜的</h1>
 <p class="abs lede" id="l1" style="left:96px; top:520px; width:700px;">SLAM 地圖的方向，<br>跟著車子開機時的朝向。</p>
-<p class="abs lede" id="l2" style="left:96px; top:660px; width:700px;">沿地圖座標軸掃，掃描線會被斜牆切得<span class="pink">又短又碎</span>，轉彎變多。</p>
+<p class="abs lede" id="l2" style="left:96px; top:660px; width:700px;">沿地圖座標軸掃，掃描線會被斜牆切得<span class="pink">又短又碎</span>。</p>
 <p class="abs src" id="cap" style="left:96px; top:960px;">示意：同一張可走格地圖、沿地圖 x 軸切線（未用 PCA）</p>
 ''', '''
 const d = SCENES.tilt, M = MapSVG;
@@ -366,24 +368,24 @@ Scene({ duration: 12, steps: [4.4, 8.2], tracks: [
 .dotn { fill:#DAFF3C; }''')
 
 # ═══ 10 問題三 ═══════════════════════════════════════════
-rows = [('執行時間', '436 → 322 s'), ('受困次數', '3 → 1'), ('DWA 規劃失敗', '1127 → 209'), ('實走／規劃距離', '1.38 → 1.23')]
+rows = [('受困次數', '2 → 0 次'), ('全部跑完', '1 → 3 次'), ('覆蓋時間', '10.1 → 3.2 分')]
 body = '''<svg id="corner" class="abs"></svg>
-<p class="vtext" style="top:760px;">BEFORE / AFTER</p>
+<p class="vtext" style="top:760px;">DWA / A*</p>
 <p class="abs kicker" id="kick" style="left:96px; top:76px;">問題三</p>
-<h1 class="abs k" id="t" style="left:96px; top:120px; font-size:68px;">導航套件卡在牆邊，我們改成自己開</h1>
-<p class="abs src" id="src" style="left:96px; top:228px;">實車・同一場地 1.06 × 1.47 m・兩種方式各 1 次（開發日誌 2026-11-11）；重複 3 次的平均待補</p>
-<p class="abs num" id="ghost" style="left:76px; top:250px; font-size:420px; line-height:1.15; color:transparent; -webkit-text-stroke:3px rgba(143,179,184,.5); font-stretch:condensed;">71%</p>
-<p class="abs mute" id="bl" style="left:104px; top:630px; font-size:32px;">改善前　ROS 內建 DWA</p>
+<h1 class="abs k" id="t" style="left:96px; top:120px; font-size:68px;">導航套件會卡在牆邊，我們改成 A* 自己開</h1>
+<p class="abs src" id="src" style="left:96px; top:228px;">實車・同一場地・同一版本・兩種方式各 3 次（正式實驗 2026-11-26，v1.2.0）</p>
+<p class="abs num" id="ghost" style="left:76px; top:250px; font-size:420px; line-height:1.15; color:transparent; -webkit-text-stroke:3px rgba(143,179,184,.5); font-stretch:condensed;">82.7%</p>
+<p class="abs mute" id="bl" style="left:104px; top:630px; font-size:32px;">ROS 內建 DWA</p>
 <div class="abs" id="after" style="left:760px; top:332px; width:1100px; text-align:right;">
-  <p style="font-size:36px; font-weight:700;">改善後　自寫直線循跡</p>
-  <p class="num acid" style="font-size:372px; line-height:1; letter-spacing:-6px;"><span id="big">97.7</span>%</p>
-  <p class="mute" style="font-size:30px; margin-top:12px;">同一場地的實際覆蓋率（改善前 71%）</p>
+  <p style="font-size:36px; font-weight:700;">自寫 A*＋直線循跡</p>
+  <p class="num acid" style="font-size:372px; line-height:1; letter-spacing:-6px;"><span id="big">90.9</span>%</p>
+  <p class="mute" style="font-size:30px; margin-top:12px;">平均實際覆蓋率（DWA 82.7%）</p>
 </div>
 '''
 for k, (a, b) in enumerate(rows):
     y = 720 + k * 68
     body += f'<div class="abs row" style="left:104px; top:{y}px; width:620px;"><p class="mute" style="position:absolute; top:10px; font-size:28px;">{a}</p><p class="num" style="position:absolute; left:256px; font-size:44px;">{b}</p></div>\n'
-scene('10-problem3', '10 問題三：DWA → 自寫循跡', body, '''
+scene('10-problem3', '10 問題三：DWA → A*', body, '''
 const d = SCENES.cover, M = MapSVG;
 document.getElementById('corner').outerHTML = M.open(d.bounds, 0.1, 'id="corner" class="abs" style="left:1300px; top:-1120px; width:1560px; height:1560px; opacity:.55;"')
   + M.cells(d.wall, d.res, 'wall') + M.route(d.plan) + M.close();
@@ -393,85 +395,65 @@ Scene({ duration: 14, steps: [2.6, 5.5, 7.6], tracks: [
   { sel: '#src', at: 1.0, dur: 0.6, fx: 'fade' },
   { sel: '#ghost', at: 1.6, dur: 0.8, fx: 'fade' }, { sel: '#bl', at: 1.9, dur: 0.5, fx: 'up' },
   { sel: '#after', at: 3.4, dur: 0.5, fx: 'up' },
-  { sel: '#big', at: 3.5, dur: 1.8, fx: 'count', from: 71, to: 97.7, dec: 1 },
+  { sel: '#big', at: 3.5, dur: 1.8, fx: 'count', from: 82.7, to: 90.9, dec: 1 },
   { sel: '.row', at: 6.0, dur: 0.45, fx: 'up', stagger: 0.3 },
 ]});
 ''')
 
-# ═══ 11 實機展示 ═══════════════════════════════════════
-scene('11-demo', '11 實機展示：擺正 vs 斜放', '''
-<div class="ph" id="p0" style="left:0; top:0; width:952px; height:1080px;"><div class="scan" id="s0"></div>
-  <p class="rec"><b>REC</b>待拍 S2：車子擺正，完整覆蓋（俯拍＋手機畫面，8 倍快轉）</p></div>
-<div class="ph" id="p1" style="left:968px; top:0; width:952px; height:1080px;"><div class="scan" id="s1"></div>
-  <p class="rec"><b>REC</b>待拍 S3：車子斜放約 30°，完整覆蓋</p></div>
-<p class="abs num" id="a0" style="left:56px; top:150px; font-size:240px; line-height:1; color:rgba(242,247,245,.9);">0°</p>
-<p class="abs num acid" id="a1" style="left:1024px; top:150px; font-size:240px; line-height:1;">30°</p>
-<div class="abs" id="tbar" style="left:0; top:0; width:1920px; height:130px; background:linear-gradient(180deg, rgba(8,22,27,.95), rgba(8,22,27,0));"></div>
-<h1 class="abs k" id="t" style="left:56px; top:36px; font-size:60px;">同一個房間，擺法不同，路徑一樣貼著牆平行掃</h1>
-''', '''
-Scene({ duration: 22, steps: [3.0], tracks: [
-  { sel: '.ph', at: 0, dur: 0.6, fx: 'fade', stagger: 0.2 },
-  { sel: '#t', at: 0.5, dur: 0.6, fx: 'up' },
-  { sel: '#a0', at: 1.2, dur: 0.5, fx: 'up' }, { sel: '#a1', at: 1.6, dur: 0.5, fx: 'up' },
-  { sel: '.rec', at: 2.2, dur: 0.6, fx: 'fade', stagger: 0.2 },
-], onTime: (t, u) => {
-  for (let k = 0; k < 2; k++) document.getElementById('s' + k).style.top = (((u.wall * 140) + k * 400) % 1080) + 'px';
-}});
-''')
-
-# ═══ 12 數據總表 ═══════════════════════════════════════
-cols = [('實驗', 250), ('條件', 470), ('覆蓋率', 190), ('時間', 170), ('受困', 150), ('轉彎數', 170), ('類型', 330)]
-data = [('執行方式', 'DWA vs 自寫循跡', '【待填】', '【待填】', '【待填】', '—', '實車，各 ≥3 次平均'),
-        ('掃描方向', 'PCA vs 沿地圖軸（斜放 0/15/30/45°）', '—', '—', '—', '【待填】', '離線，修 cell 碎裂後重跑'),
-        ('擺放角度', '0° vs 30°', '【待填】', '【待填】', '【待填】', '【待填】', '實車')]
-body = '''<p class="abs kicker" id="kick" style="left:96px; top:64px;">數據總表</p>
-<h1 class="abs k title" id="t" style="left:96px; top:108px;">每組實驗重複三次以上</h1>
+# ═══ 11 數據總表（A* vs DWA，正式實驗）═══════════════════
+cols = [('方式', 400), ('全部跑完', 200), ('受困', 150), ('平均覆蓋率', 240), ('覆蓋時間', 360), ('碰牆（推估）', 230)]
+data = [('自寫 A*＋直線循跡', '3 / 3', '0 次', '90.9%', '3.1～3.5 分', '3 次'),
+        ('ROS 內建 DWA', '1 / 3', '2 次', '82.7%', '8.0～11.1 分', '2 次')]
+body = """<p class="abs kicker" id="kick" style="left:96px; top:64px;">數據總表</p>
+<h1 class="abs k title" id="t" style="left:96px; top:108px;">同一場地、同一版本，各跑三次</h1>
 <div class="abs rule" id="r0" style="left:96px; top:330px; width:1730px; height:3px; background:#DAFF3C;"></div>
-'''
+"""
 x = 96
 for name, w in cols:
     body += f'<p class="abs mute th" style="left:{x}px; top:280px; width:{w}px; font-size:26px;">{name}</p>\n'
     x += w
 for r, row in enumerate(data):
-    y = 370 + r * 150
+    y = 380 + r * 170
     x = 96
     for c, ((name, w), val) in enumerate(zip(cols, row)):
-        cls = 'pend' if val == '【待填】' else ''
-        size = 34 if c < 2 else 32
-        weight = 900 if c == 0 else 500
-        color = '#8FB3B8' if c == 6 else '#F2F7F5'
-        body += f'<p class="abs cell R{r} {cls}" style="left:{x}px; top:{y}px; width:{w - 20}px; font-size:{size if c != 6 else 24}px; font-weight:{weight}; color:{color}; line-height:1.35;">{val}</p>\n'
+        hl = ' acid' if r == 0 and c > 0 else ''
+        size = 40 if c == 0 else 52
+        weight = 900 if c == 0 else 700
+        color = '#F2F7F5' if r == 0 else '#8FB3B8'
+        body += f'<p class="abs cell R{r}{hl}" style="left:{x}px; top:{y + (8 if c == 0 else 0)}px; width:{w - 20}px; font-size:{size}px; font-weight:{weight}; color:{color}; line-height:1.2;">{val}</p>\n'
         x += w
-    body += f'<div class="abs rule R{r}r" style="left:96px; top:{y + 118}px; width:1730px; height:1px; background:#2a4a50;"></div>\n'
-body += '<p class="abs lede" id="sum" style="left:96px; top:850px; width:1700px; font-size:36px;">自寫循跡讓覆蓋率穩定在 <span class="acid">【待填】</span> 以上，車子斜放時轉彎數也比沿地圖座標軸少 <span class="acid">【待填】</span>。</p>\n'
-body += '<p class="abs src" id="src" style="left:96px; top:990px;">【待填】＝實驗完成後才填，不放假設值</p>\n'
-scene('12-table', '12 數據總表', body, '''
-Scene({ duration: 14, steps: [5.2, 7.8], tracks: [
+    body += f'<div class="abs rule R{r}r" style="left:96px; top:{y + 120}px; width:1730px; height:1px; background:#2a4a50;"></div>\n'
+body += '<p class="abs lede" id="sum" style="left:96px; top:760px; width:1730px; font-size:38px;">A* 三次全部跑完、<span class="acid">零受困</span>；覆蓋率高約 8 個百分點，時間約 DWA 的<span class="acid">三分之一</span>。</p>\n'
+body += '<p class="abs src" id="src" style="left:96px; top:940px; width:1730px;">正式實驗 2026-11-26（v1.2.0）。DWA 有 2 次受困提早結束，實際所需時間更長；碰牆以規劃當下地圖＋官方車身尺寸推估，兩者相近</p>\n'
+scene('11-table', '11 數據總表', body, """
+Scene({ duration: 12, steps: [4.2, 6.6], tracks: [
   { sel: '#kick', at: 0.2, dur: 0.4, fx: 'up' }, { sel: '#t', at: 0.4, dur: 0.6, fx: 'up' },
   { sel: '#r0', at: 1.0, dur: 0.6, fx: 'grow' }, { sel: '.th', at: 1.2, dur: 0.4, fx: 'fade', stagger: 0.06 },
-  { sel: '.R0', at: 2.0, dur: 0.4, fx: 'up', stagger: 0.07 }, { sel: '.R0r', at: 2.3, dur: 0.5, fx: 'grow' },
-  { sel: '.R1', at: 3.2, dur: 0.4, fx: 'up', stagger: 0.07 }, { sel: '.R1r', at: 3.5, dur: 0.5, fx: 'grow' },
-  { sel: '.R2', at: 4.4, dur: 0.4, fx: 'up', stagger: 0.07 }, { sel: '.R2r', at: 4.7, dur: 0.5, fx: 'grow' },
-  { sel: '#sum', at: 6.0, dur: 0.5, fx: 'up' }, { sel: '#src', at: 6.6, dur: 0.6, fx: 'fade' },
-  { sel: '.pend', at: 7.4, dur: 0.3, fx: 'pulse' },
+  { sel: '.R1', at: 2.0, dur: 0.4, fx: 'up', stagger: 0.07 }, { sel: '.R1r', at: 2.3, dur: 0.5, fx: 'grow' },
+  { sel: '.R0', at: 3.0, dur: 0.4, fx: 'up', stagger: 0.07 }, { sel: '.R0r', at: 3.3, dur: 0.5, fx: 'grow' },
+  { sel: '#sum', at: 4.6, dur: 0.5, fx: 'up' }, { sel: '#src', at: 5.4, dur: 0.6, fx: 'fade' },
 ]});
-''', css='.pend { color:#DAFF3C !important; }')
+""", css='.cell.acid { color:#DAFF3C !important; }')
 
-# ═══ 13 結尾 ═══════════════════════════════════════════
-scene('13-end', '13 結尾', '''
+# ═══ 12 實機展示（最後一頁；之後接實機影片）═══════════════
+scene('12-demo', '12 實機展示', """
 <div class="abs" id="line" style="left:0; top:538px; width:1920px; height:4px; background:#DAFF3C; box-shadow:0 0 22px #DAFF3C;"></div>
-<h1 class="abs k" id="t" style="left:0; top:330px; width:1920px; text-align:center; font-size:150px;">謝謝觀看</h1>
-<p class="abs" id="n1" style="left:0; top:600px; width:1920px; text-align:center; font-size:40px; font-weight:700;">陳紹桓　陳柏屹</p>
-<p class="abs mute" id="n2" style="left:0; top:670px; width:1920px; text-align:center; font-size:30px;">指導老師　卓世明</p>
-<p class="abs mute" id="n3" style="left:0; top:760px; width:1920px; text-align:center; font-size:26px;">牛耕式演算法——以 TurtleBot3 實作</p>
-''', '''
-Scene({ duration: 8, steps: [3.4], tracks: [
+<p class="abs kicker" id="kick" style="left:0; top:250px; width:1920px; text-align:center;">接下來播放實車錄影</p>
+<h1 class="abs k" id="t" style="left:0; top:300px; width:1920px; text-align:center; font-size:150px;">實機展示</h1>
+<p class="abs lede" id="l1" style="left:0; top:580px; width:1920px; text-align:center;">開機 → 自動建圖 → 規劃 → <span class="acid">A* 覆蓋</span></p>
+<p class="abs" id="n1" style="left:0; top:700px; width:1920px; text-align:center; font-size:40px; font-weight:700;">陳紹桓　陳柏屹</p>
+<p class="abs mute" id="n2" style="left:0; top:770px; width:1920px; text-align:center; font-size:30px;">指導老師　卓世明</p>
+<p class="abs mute" id="n3" style="left:0; top:860px; width:1920px; text-align:center; font-size:26px;">牛耕式演算法——以 TurtleBot3 實作</p>
+""", """
+Scene({ duration: 8, steps: [3.6], tracks: [
   { sel: '#line', at: 0, dur: 1.2, fx: 'grow', origin: 'center center' },
+  { sel: '#kick', at: 0.6, dur: 0.5, fx: 'fade' },
   { sel: '#t', at: 1.0, dur: 0.7, fx: 'up', dy: 40 },
-  { sel: '#n1', at: 1.8, dur: 0.5, fx: 'up' }, { sel: '#n2', at: 2.1, dur: 0.5, fx: 'up' },
-  { sel: '#n3', at: 2.6, dur: 0.6, fx: 'fade' },
+  { sel: '#l1', at: 1.7, dur: 0.5, fx: 'up' },
+  { sel: '#n1', at: 2.2, dur: 0.5, fx: 'up' }, { sel: '#n2', at: 2.5, dur: 0.5, fx: 'up' },
+  { sel: '#n3', at: 2.9, dur: 0.6, fx: 'fade' },
 ]});
-''')
+""")
 
 
 # ═══ index.html：全部場景依序播放 ═════════════════════════
