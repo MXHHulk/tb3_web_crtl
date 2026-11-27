@@ -4,6 +4,15 @@
 
 ---
 
+## 2026-11-27　docs(planner)：MARGIN 註解補上實際膨脹距離
+
+- **類型**：docs（只改註解，程式行為不變）
+- **做了什麼**：`coverage_planner.py` 的 MARGIN 註解補充：`apply_safety_margin` 換格數時四捨五入（0.13/0.05→3 格）且為正方形膨脹，
+  實際往四周擴 0.15 m，單格雜點變 35 cm 見方；END_TRIM 註解的端點離障礙距離改為約 0.24 m；`apply_safety_margin` docstring 註明取整規則。
+- **驗證**：語法檢查通過；使用者決定只改註解、不改 MARGIN 數值。
+
+---
+
 ## 2026-11-27　docs(slides)：成果動畫簡報第三次修改（13 頁，依使用者八點意見）
 
 - **類型**：docs
