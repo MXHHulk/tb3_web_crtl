@@ -4,6 +4,16 @@
 
 ---
 
+## 2026-11-27　fix(slides)：簡報打開全黑——記住的頁碼超出範圍
+
+- **類型**：fix
+- **問題**：`index.html` 用 localStorage 記住上次看到第幾頁；頁數從 14 改為 13 後，停在舊第 14 頁的瀏覽器讀到頁碼 13，
+  `go()` 判斷超出範圍直接 return，iframe 沒載入任何頁 → 整個畫面全黑。
+- **做了什麼**：`build_scenes.py` 產生的 index.html 讀頁碼時檢查範圍，超出就從第 1 頁開始；localStorage 讀寫包 try/catch。
+- **驗證**：Edge（playwright）先寫入舊頁碼 13 再重新整理，載入 01-cover、畫面正常。
+
+---
+
 ## 2026-11-27　docs(planner)：MARGIN 註解補上實際膨脹距離
 
 - **類型**：docs（只改註解，程式行為不變）

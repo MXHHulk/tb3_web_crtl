@@ -538,11 +538,13 @@ idx = '''<!DOCTYPE html>
 <p id="hud"></p>
 <script>
 const S = __S__;
-let i = +(localStorage.getItem('ccpp-scene') || 0), hideT = null;
+let i = 0, hideT = null;
+// 記住上次看到第幾頁；頁數變少時（例如 14→13 頁）舊頁碼會超出範圍、畫面全黑，所以超出就從第 1 頁開始
+try { const k = parseInt(localStorage.getItem('ccpp-scene'), 10); if (k >= 0 && k < S.length) i = k; } catch (e) {}
 const f = document.getElementById('f'), hud = document.getElementById('hud');
 function go(k, atEnd) {
   if (k < 0 || k >= S.length) return;
-  i = k; localStorage.setItem('ccpp-scene', i);
+  i = k; try { localStorage.setItem('ccpp-scene', i); } catch (e) {}
   f.src = 'scenes/' + S[i][0] + '.html' + (atEnd ? '#end' : '');
   hud.textContent = (i + 1) + ' / ' + S.length + '　' + S[i][1] + '　｜ → 或點一下：下一段　← ：上一段　R：重播　F：全螢幕';
   hud.classList.remove('hide'); clearTimeout(hideT); hideT = setTimeout(() => hud.classList.add('hide'), 2500);
