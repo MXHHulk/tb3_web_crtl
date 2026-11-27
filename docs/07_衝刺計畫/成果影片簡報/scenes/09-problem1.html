@@ -2,7 +2,7 @@
 <html lang="zh-Hant">
 <head>
 <meta charset="UTF-8">
-<title>08 問題一：穿過障礙</title>
+<title>09 問題一：穿過障礙</title>
 <link rel="stylesheet" href="base.css">
 <link rel="stylesheet" href="map.css">
 <style>.old { fill:none; stroke:#FF4FD8; stroke-width:.03; stroke-linecap:round; filter:url(#glow); }</style>
@@ -15,7 +15,7 @@
 <p class="abs kicker" id="kick" style="left:96px; top:64px;">問題一</p>
 <h1 class="abs k title" id="t" style="left:96px; top:108px;">掃描線直接穿過障礙物</h1>
 <div id="mapbox" class="abs" style="left:40px; top:300px; width:1220px; height:640px;"></div>
-<p class="abs src" id="cap" style="left:96px; top:1000px;"><span class="pink">粉：舊版做法示意</span>　<span class="acid">黃：cell 分解後的真實規劃輸出</span>（2.0 × 1.0 m 場地，離線）</p>
+<p class="abs mute" id="cap" style="left:96px; top:1000px; font-size:24px;"><span class="pink">粉：舊版的掃描線</span>　<span class="acid">黃：cell 分解後的路徑</span></p>
 <div class="abs" id="old" style="left:1340px; top:330px; width:520px;">
   <p class="mute" style="font-size:28px; font-weight:700;">舊版</p>
   <p class="num pink" style="font-size:150px; line-height:1;">0%</p>
@@ -23,10 +23,9 @@
 </div>
 <div class="abs" id="new" style="left:1340px; top:700px; width:520px;">
   <p class="mute" style="font-size:28px; font-weight:700;">cell 分解後</p>
-  <p class="num acid" style="font-size:110px; line-height:1;">穿牆 0 次</p>
-  <p class="mute" style="font-size:24px;">離線評估 14 種場地</p>
+  <p class="num acid" style="font-size:110px; line-height:1; margin-top:14px;">穿牆 0 次</p>
+  <p class="mute" style="font-size:26px;">6 次實測規劃，331 段掃描線全部在可走區內</p>
 </div>
-<p class="abs src" id="src" style="left:1340px; top:960px; width:540px;">開發日誌 2026-08-16（200 × 100 cm 含障礙場地，實機觀察）</p>
 </div>
 <script>
 const d = SCENES.field, M = MapSVG;
@@ -43,7 +42,7 @@ Scene({ duration: 12, steps: [4.2, 10.6], tracks: [
   { sel: '.rt-move', at: 9.2, dur: 0.4, fx: 'fade' },
   { sel: '.rt-ring', at: 9.4, dur: 0.9, fx: 'draw' },
   { sel: '#new', at: 7.0, dur: 0.5, fx: 'up' },
-  { sel: '#cap', at: 1.6, dur: 0.6, fx: 'fade' }, { sel: '#src', at: 3.4, dur: 0.6, fx: 'fade' },
+  { sel: '#cap', at: 1.6, dur: 0.6, fx: 'fade' },
 ], onTime: (t) => {
   // 舊線先完整亮著，5.6 s 後退成暗影
   const g = document.getElementById('oldg');

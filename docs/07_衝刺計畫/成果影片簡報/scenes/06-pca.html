@@ -19,16 +19,16 @@
 <h1 class="abs k" id="t" style="left:96px; top:250px; font-size:76px; line-height:1.25; width:720px;">用 PCA 找出<br>房間的長邊</h1>
 <p class="abs lede" id="l1" style="left:96px; top:520px; width:700px;">把可走的格子當成一團點，變化最大的方向就是房間長邊。</p>
 <p class="abs lede" id="l2" style="left:96px; top:700px; width:700px;">掃描線沿著它走，<span class="acid">永遠平行牆面</span>。</p>
-<p class="abs src" id="cap" style="left:96px; top:960px;">規劃程式真實輸出（coverage_planner.plan()）</p>
+<p class="abs mute" id="lg" style="left:96px; top:900px; width:720px; font-size:28px; line-height:1.6;"><span class="acid">黃</span>：沿長邊來回掃<br><span class="cyan">青</span>：最後沿牆補走一圈，補掃描線頭尾照不到的牆邊</p>
 </div>
 <script>
-const d = SCENES.tilt, M = MapSVG, ax = d.plan.axes, L = 1.7, Lb = 0.9;
+const d = SCENES.tilt, M = MapSVG, ax = d.plan.axes, E = ax.ext;   // E＝可走格在長軸、短軸上的投影範圍
 const c = ax.c, a = ax.a, b = ax.b;
-const arrow = (v, len, cls) => M.poly([[c[0] - v[0] * len, c[1] - v[1] * len], [c[0] + v[0] * len, c[1] + v[1] * len]], cls);
+const seg = (v, lo, hi, cls) => M.poly([[c[0] + v[0] * lo, c[1] + v[1] * lo], [c[0] + v[0] * hi, c[1] + v[1] * hi]], cls);
 document.getElementById('mapbox').innerHTML = M.open(d.bounds, 0.1, 'style="left:0; top:0; width:100%; height:100%;"')
   + M.cells(d.wall, d.res, 'wall')
   + `<g id="pts">${d.points.map(p => `<circle cx="${p[0]}" cy="${p[1]}" r="0.011" class="pt"/>`).join('')}</g>`
-  + arrow(a, L, 'axA') + arrow(b, Lb, 'axB') + M.route(d.plan) + M.close();
+  + seg(a, E[0], E[1], 'axA') + seg(b, E[2], E[3], 'axB') + M.route(d.plan) + M.close();
 Scene({ duration: 12, steps: [2.1, 4.2, 10.2], tracks: [
   { sel: '.wall', at: 0, dur: 0.6, fx: 'fade' },
   { sel: '#kick', at: 0.2, dur: 0.4, fx: 'up' }, { sel: '#t', at: 0.4, dur: 0.6, fx: 'up' },
@@ -40,7 +40,7 @@ Scene({ duration: 12, steps: [2.1, 4.2, 10.2], tracks: [
   { sel: '.rt-sweep', at: 4.8, dur: 4.2, fx: 'draw', ease: 'lin' },
   { sel: '.rt-ring', at: 9.0, dur: 0.9, fx: 'draw' },
   { sel: '#l2', at: 5.4, dur: 0.5, fx: 'up' },
-  { sel: '#cap', at: 5.8, dur: 0.6, fx: 'fade' },
+  { sel: '#lg', at: 9.2, dur: 0.6, fx: 'fade' },
 ]});
 </script>
 </body>

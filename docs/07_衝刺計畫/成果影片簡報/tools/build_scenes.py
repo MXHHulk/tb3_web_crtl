@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-產生 scenes/NN-*.html（12 鏡）與 index.html。每鏡的版面、文字、時間軸都在這支檔案裡，改這裡再重跑。
+產生 scenes/NN-*.html（14 鏡）與 index.html。每鏡的版面、文字、時間軸都在這支檔案裡，改這裡再重跑。
 數據與出處以 ../簡報生成.md 為準；【待填】不得填假設值。
 
 用法：python tools/build_scenes.py
@@ -55,7 +55,7 @@ scene('01-cover', '01 開場', '''
   <p class="lede l">自動建圖之後，走遍每一寸地面。</p>
 </div>
 <p class="abs mute" id="names" style="left:96px; top:930px; font-size:26px;">指導老師 卓世明　｜　陳紹桓、陳柏屹</p>
-<p class="abs mute" id="legend" style="left:96px; top:978px; font-size:22px;">背景路徑為規劃程式真實輸出（3.0×2.6 m 合成場地斜放 30°）：<span class="acid">黃 掃描</span>・<span class="cyan">青 外圈</span>・<span class="pink">粉 障礙物</span></p>
+<p class="abs mute" id="legend" style="left:96px; top:978px; font-size:22px;"><span class="acid">黃 來回掃描</span>・<span class="cyan">青 最後沿牆補走一圈</span>・<span class="pink">粉 障礙物</span></p>
 ''', '''
 const d = SCENES.cover, M = MapSVG;
 document.getElementById('map').outerHTML = M.open(d.bounds, 0.1, 'id="map" class="abs" style="left:700px; top:-250px; width:1560px; height:1560px;"')
@@ -77,9 +77,9 @@ Scene({ duration: 10, steps: [10], tracks: [
 # ═══ 02 系統三層 ═══════════════════════════════════════
 layers = [
     # (y, 標籤, 標籤 class, [(主字, 小字, 行數 or None)], 字色)
-    (280, '我們寫的', 'acid', [('覆蓋規劃', 'coverage_planner.py', 505), ('A* 導航', 'astar.py', 151),
-                             ('執行與循跡', 'map_server.py', 2290), ('手機控制台', 'launcher.py', 493),
-                             ('網頁監控', 'web/index.html', 715)], '#F2F7F5'),
+    (280, '我們寫的', 'acid', [('覆蓋規劃', 'PCA＋cell 分解', None), ('A* 導航', '繞障路線', None),
+                             ('執行與循跡', '直線循跡・脫困・紀錄', None), ('手機控制台', '一鍵開始', None),
+                             ('網頁監控', '即時地圖與進度', None)], '#F2F7F5'),
     (600, 'ROS 現成套件', 'mute', [('gmapping', '建圖（SLAM）', None), ('explore_lite', '找還沒看過的邊界', None),
                                   ('move_base', '建圖時導航・對照組 DWA', None)], '#8FB3B8'),
     (830, '硬體', 'mute', [('TurtleBot3', 'Burger 差速輪式機器人', None), ('LDS 光達', '360° 雷射測距', None)], '#8FB3B8'),
@@ -99,7 +99,6 @@ for li, (y, lab, cls, items, col) in enumerate(layers):
         if n:
             body += f'<p class="num acid" style="font-size:64px; line-height:1.1; margin-top:8px;"><span class="cnt" data-n="{n}">{n}</span> <span style="font-size:28px;">行</span></p>'
         body += '</div>\n'
-body += '<p class="abs src" id="src" style="left:96px; top:1000px;">行數：wc -l，2026-11-27（v1.2.0）</p>\n'
 scene('02-layers', '02 系統三層', body, '''
 const tr = [
   { sel: '#kick', at: 0.2, dur: 0.4, fx: 'up' },
@@ -111,11 +110,7 @@ const tr = [
   { sel: '.L1i', at: 3.6, dur: 0.45, fx: 'up', stagger: 0.18 },
   { sel: '.L0', at: 5.4, dur: 0.7, fx: 'grow' }, { sel: '.L0t', at: 5.6, dur: 0.4, fx: 'up' },
   { sel: '.L0i', at: 5.8, dur: 0.5, fx: 'up', stagger: 0.25 },
-  { sel: '#src', at: 8.0, dur: 0.6, fx: 'fade' },
 ];
-document.querySelectorAll('.cnt').forEach((el, k) => {
-  el.id = 'c' + k; tr.push({ sel: '#c' + k, at: 6.0 + k * 0.25, dur: 1.4, fx: 'count', from: 0, to: +el.dataset.n });
-});
 Scene({ duration: 14, steps: [2.9, 4.9, 9.0], tracks: tr });
 ''')
 
@@ -134,20 +129,24 @@ for k, (a, b) in enumerate(nodes):
     body += f'<p class="abs nd" id="n{k}" style="left:{x - 200}px; top:476px; width:400px; text-align:center; font-size:48px; font-weight:900; font-style:italic; color:#4d6f75;">{a}</p>\n'
     body += f'<p class="abs mute ns" style="left:{x - 200}px; top:650px; width:400px; text-align:center; font-size:26px;">{b}</p>\n'
 scene('03-flow', '03 一鍵流程', body, '''
-const X0 = 260, X1 = 1660, A = 1.8, B = 7.8;
-Scene({ duration: 10, steps: [1.7, 8.2], tracks: [
+const X0 = 260, X1 = 1660, P = [2.0, 4.0, 6.0, 8.0, 10.0], MV = 1.4;   // 每段停在 P[k]：第 k 個步驟亮起
+Scene({ duration: 10.4, steps: P, tracks: [
   { sel: '#kick', at: 0.2, dur: 0.4, fx: 'up' }, { sel: '#t', at: 0.4, dur: 0.6, fx: 'up' },
   { sel: '#track', at: 0.8, dur: 0.6, fx: 'grow' },
   { sel: '.ns', at: 0.8, dur: 0.4, fx: 'fade', stagger: 0.1 },
 ], onTime: (t, u) => {
-  const p = u.clamp((t - A) / (B - A));
-  const q = u.E.inout(p);
+  // 第 k 段（k ≥ 1）：P[k] − MV 到 P[k] 之間，光點從第 k−1 個步驟移到第 k 個
+  let q = 0;
+  for (let k = 1; k < 5; k++) {
+    if (t >= P[k]) q = k / 4;
+    else { if (t > P[k] - MV) q = (k - 1) / 4 + u.E.inout((t - (P[k] - MV)) / MV) / 4; break; }
+  }
   document.getElementById('lit').style.transform = `scaleX(${q})`;
   const sp = document.getElementById('spark');
   sp.style.left = (X0 + (X1 - X0) * q) + 'px';
-  sp.style.opacity = t < A ? 0 : (p >= 1 ? 0.6 : 1);
+  sp.style.opacity = t < P[0] - 0.5 ? 0 : u.clamp((t - (P[0] - 0.5)) / 0.5);
   for (let k = 0; k < 5; k++) {
-    const on = q >= k / 4 - 0.001 && t >= A;
+    const on = t >= P[k] - 0.05;
     document.getElementById('n' + k).style.color = on ? (k === 0 || k === 4 ? '#F2F7F5' : '#DAFF3C') : '#4d6f75';
     document.getElementById('d' + k).style.background = on ? '#DAFF3C' : '#2a4a50';
   }
@@ -157,24 +156,18 @@ Scene({ duration: 10, steps: [1.7, 8.2], tracks: [
 # ═══ 04 自動建圖 ═══════════════════════════════════════
 scene('04-mapping', '04 自動建圖', '''
 <img id="flip" class="abs" src="../assets/mapflip/00.png" style="left:60px; top:110px; width:960px; height:909px; image-rendering:pixelated;">
-<p class="abs src" id="cap" style="left:96px; top:1010px;">畫面：2026-06-27 實測 gmapping 建圖快照 47 張（每格 5 cm）；實機建圖快轉待拍</p>
 <p class="abs kicker" id="kick" style="left:1120px; top:120px;">自動建圖</p>
-<h1 class="abs k" id="t" style="left:1120px; top:166px; font-size:68px; line-height:1.25; width:760px;">自己找路建完地圖，<br>再開回起點</h1>
-<div class="abs st" style="left:1120px; top:440px;"><p class="num" style="font-size:110px; line-height:1;"><span id="s1">80</span><span style="font-size:44px;"> 秒</span></p><p class="mute" style="font-size:26px;">建完地圖（中位數）</p></div>
-<div class="abs st" style="left:1560px; top:440px;"><p class="num" style="font-size:110px; line-height:1;"><span id="s2">1.9</span><span style="font-size:44px;"> m²</span></p><p class="mute" style="font-size:26px;">地圖面積</p></div>
-<div class="abs st" style="left:1120px; top:680px;"><p class="num acid" style="font-size:150px; line-height:1;"><span id="s3">4</span><span style="font-size:56px;"> / 6 次</span></p><p style="font-size:30px; font-weight:700;">自己開回起點（誤差 4～8 cm）</p></div>
-<p class="abs src st" style="left:1120px; top:920px; width:740px;">實車 6 次（正式實驗 2026-11-26，v1.2.0）：建圖 49～108 秒、面積 1.90～1.95 m²；另 2 次回起點失敗，由覆蓋前的自寫 A* 開回</p>
+<h1 class="abs k" id="t" style="left:1120px; top:166px; font-size:68px; line-height:1.25; width:760px;">自己找路，<br>建完整張地圖</h1>
+<p class="abs lede st" style="left:1120px; top:420px; width:740px;">按一下開始，車子自己去還沒看過的地方，<br>看完就停下、存好地圖。</p>
+<div class="abs st" style="left:1120px; top:640px;"><p class="num acid" style="font-size:150px; line-height:1;"><span id="s1">6</span><span style="font-size:56px;"> / 6 次</span></p><p style="font-size:30px; font-weight:700;">實測都自己建出完整地圖</p></div>
 ''', '''
 const N = 47, imgs = [];
 for (let i = 0; i < N; i++) { const im = new Image(); im.src = `../assets/mapflip/${String(i).padStart(2, '0')}.png`; imgs.push(im); }
-Scene({ duration: 14, steps: [6.2, 11.0], tracks: [
+Scene({ duration: 10, steps: [6.2], tracks: [
   { sel: '#flip', at: 0.0, dur: 0.6, fx: 'fade' },
   { sel: '#kick', at: 0.3, dur: 0.4, fx: 'up' }, { sel: '#t', at: 0.5, dur: 0.6, fx: 'up' },
-  { sel: '.st', at: 6.4, dur: 0.5, fx: 'up', stagger: 1.1 },
-  { sel: '#s1', at: 6.4, dur: 1.2, fx: 'count', from: 0, to: 80 },
-  { sel: '#s2', at: 7.5, dur: 1.2, fx: 'count', from: 0, to: 1.9, dec: 1 },
-  { sel: '#s3', at: 8.6, dur: 1.0, fx: 'count', from: 0, to: 4 },
-  { sel: '#cap', at: 1.0, dur: 0.6, fx: 'fade' },
+  { sel: '.st', at: 6.4, dur: 0.5, fx: 'up', stagger: 0.9 },
+  { sel: '#s1', at: 7.3, dur: 1.0, fx: 'count', from: 0, to: 6 },
 ], onTime: (t, u) => {
   const i = Math.round(u.clamp((t - 0.6) / 5.4) * (N - 1));
   const el = document.getElementById('flip');
@@ -190,7 +183,6 @@ scene('05-tilted', '05 地圖是斜的', '''
 <h1 class="abs k" id="t" style="left:96px; top:250px; font-size:76px; line-height:1.25; width:720px;">車子沒擺正，<br>地圖就是斜的</h1>
 <p class="abs lede" id="l1" style="left:96px; top:520px; width:700px;">SLAM 地圖的方向，<br>跟著車子開機時的朝向。</p>
 <p class="abs lede" id="l2" style="left:96px; top:660px; width:700px;">沿地圖座標軸掃，掃描線會被斜牆切得<span class="pink">又短又碎</span>。</p>
-<p class="abs src" id="cap" style="left:96px; top:960px;">示意：同一張可走格地圖、沿地圖 x 軸切線（未用 PCA）</p>
 ''', '''
 const d = SCENES.tilt, M = MapSVG;
 document.getElementById('mapbox').innerHTML = M.open(d.bounds, 0.1, 'id="map" style="left:0; top:0; width:100%; height:100%;"')
@@ -201,7 +193,6 @@ Scene({ duration: 10, steps: [3.2, 7.0], tracks: [
   { sel: '#l1', at: 1.3, dur: 0.5, fx: 'up' },
   { sel: '.axl', at: 4.0, dur: 0.5, fx: 'draw', stagger: 0.08 },
   { sel: '#l2', at: 4.6, dur: 0.5, fx: 'up' },
-  { sel: '#cap', at: 5.0, dur: 0.6, fx: 'fade' },
 ], onTime: (t, u) => {
   // 房間先是正的，再轉成斜 30°（模擬車子沒擺正）
   const p = u.E.inout(u.clamp((t - 1.2) / 1.8));
@@ -216,15 +207,15 @@ scene('06-pca', '06 PCA 找主軸', '''
 <h1 class="abs k" id="t" style="left:96px; top:250px; font-size:76px; line-height:1.25; width:720px;">用 PCA 找出<br>房間的長邊</h1>
 <p class="abs lede" id="l1" style="left:96px; top:520px; width:700px;">把可走的格子當成一團點，變化最大的方向就是房間長邊。</p>
 <p class="abs lede" id="l2" style="left:96px; top:700px; width:700px;">掃描線沿著它走，<span class="acid">永遠平行牆面</span>。</p>
-<p class="abs src" id="cap" style="left:96px; top:960px;">規劃程式真實輸出（coverage_planner.plan()）</p>
+<p class="abs mute" id="lg" style="left:96px; top:900px; width:720px; font-size:28px; line-height:1.6;"><span class="acid">黃</span>：沿長邊來回掃<br><span class="cyan">青</span>：最後沿牆補走一圈，補掃描線頭尾照不到的牆邊</p>
 ''', '''
-const d = SCENES.tilt, M = MapSVG, ax = d.plan.axes, L = 1.7, Lb = 0.9;
+const d = SCENES.tilt, M = MapSVG, ax = d.plan.axes, E = ax.ext;   // E＝可走格在長軸、短軸上的投影範圍
 const c = ax.c, a = ax.a, b = ax.b;
-const arrow = (v, len, cls) => M.poly([[c[0] - v[0] * len, c[1] - v[1] * len], [c[0] + v[0] * len, c[1] + v[1] * len]], cls);
+const seg = (v, lo, hi, cls) => M.poly([[c[0] + v[0] * lo, c[1] + v[1] * lo], [c[0] + v[0] * hi, c[1] + v[1] * hi]], cls);
 document.getElementById('mapbox').innerHTML = M.open(d.bounds, 0.1, 'style="left:0; top:0; width:100%; height:100%;"')
   + M.cells(d.wall, d.res, 'wall')
   + `<g id="pts">${d.points.map(p => `<circle cx="${p[0]}" cy="${p[1]}" r="0.011" class="pt"/>`).join('')}</g>`
-  + arrow(a, L, 'axA') + arrow(b, Lb, 'axB') + M.route(d.plan) + M.close();
+  + seg(a, E[0], E[1], 'axA') + seg(b, E[2], E[3], 'axB') + M.route(d.plan) + M.close();
 Scene({ duration: 12, steps: [2.1, 4.2, 10.2], tracks: [
   { sel: '.wall', at: 0, dur: 0.6, fx: 'fade' },
   { sel: '#kick', at: 0.2, dur: 0.4, fx: 'up' }, { sel: '#t', at: 0.4, dur: 0.6, fx: 'up' },
@@ -236,7 +227,7 @@ Scene({ duration: 12, steps: [2.1, 4.2, 10.2], tracks: [
   { sel: '.rt-sweep', at: 4.8, dur: 4.2, fx: 'draw', ease: 'lin' },
   { sel: '.rt-ring', at: 9.0, dur: 0.9, fx: 'draw' },
   { sel: '#l2', at: 5.4, dur: 0.5, fx: 'up' },
-  { sel: '#cap', at: 5.8, dur: 0.6, fx: 'fade' },
+  { sel: '#lg', at: 9.2, dur: 0.6, fx: 'fade' },
 ]});
 ''', css='''.pt { fill:#39E6FF; opacity:.75; }
 .axA { fill:none; stroke:#F2F7F5; stroke-width:.03; stroke-dasharray:.08 .05; }
@@ -248,7 +239,6 @@ scene('07-cells', '07 cell 分解', '''
 <h1 class="abs k title" id="t" style="left:96px; top:108px;">有障礙物，就把空間切成幾塊各自掃</h1>
 <p class="abs lede" id="l1" style="left:96px; top:230px; width:1700px; font-size:34px;">障礙物前後，同一條掃描線會從一段變成兩段，那裡就是切點。每個 cell 內部來回掃，再由近到遠串起來。</p>
 <div id="mapbox" class="abs" style="left:160px; top:340px; width:1600px; height:700px;"></div>
-<p class="abs src" id="cap" style="left:96px; top:1010px;">規劃程式真實輸出・2.0 × 1.0 m 場地＋中央障礙（離線）</p>
 ''', '''
 const d = SCENES.field, M = MapSVG, cols = ['#DAFF3C', '#39E6FF', '#C9B6FF', '#F2F7F5'];
 let g = M.open(d.bounds, 0.08, 'style="left:0; top:0; width:100%; height:100%;"') + M.cells(d.wall, d.res, 'wall')
@@ -266,7 +256,6 @@ const tr = [
   { sel: '#kick', at: 0.2, dur: 0.4, fx: 'up' }, { sel: '#t', at: 0.4, dur: 0.6, fx: 'up' },
   { sel: '.obsg', at: 1.2, dur: 0.4, fx: 'pop' },
   { sel: '#l1', at: 1.6, dur: 0.5, fx: 'up' },
-  { sel: '#cap', at: 2.0, dur: 0.6, fx: 'fade' },
 ];
 const per = 7.5 / cells.length;
 cells.forEach((cl, i) => {
@@ -280,12 +269,55 @@ Scene({ duration: 14, steps: [2.6, 11.0], tracks: tr });
 .mv { fill:none; stroke:#F2F7F5; stroke-width:.012; stroke-dasharray:.03 .03; opacity:.8; }
 .cl { font-family:Bahnschrift, sans-serif; font-weight:700; font-size:.075px; }''')
 
-# ═══ 08 問題一 ═══════════════════════════════════════════
-scene('08-problem1', '08 問題一：穿過障礙', '''
+# ═══ 08 安全邊距 ═════════════════════════════════════════
+# 圖解：障礙物往外擴 13 cm（車身半寬 10.5＋半格 2.5）；車子中心只走擴完剩下的空地，車身就碰不到
+scene('08-margin', '08 安全邊距', '''
+<svg id="dia" class="abs" style="left:60px; top:150px; width:900px; height:840px;" viewBox="0 0 90 84"></svg>
+<p class="abs kicker" id="kick" style="left:1040px; top:150px;">安全邊距</p>
+<h1 class="abs k" id="t" style="left:1040px; top:196px; font-size:68px; line-height:1.25; width:820px;">障礙物往外擴 13 cm，<br>車子就撞不到</h1>
+<p class="abs lede" id="l1" style="left:1040px; top:440px; width:820px;">車身半寬 <span class="num">10.5 cm</span>，<br>加上地圖格子邊緣的誤差 <span class="num">2.5 cm</span>，<br>合計 <span class="num acid">13 cm</span>。</p>
+<p class="abs lede" id="l2" style="left:1040px; top:650px; width:820px;">路徑只規劃在擴完之後剩下的空地上：<br>車子中心走在線上，車身剛好碰不到。</p>
+<div class="abs" id="d1" style="left:1040px; top:860px;"><p class="num acid" style="font-size:90px; line-height:1;">約 4 成</p><p class="mute" style="font-size:28px;">實測地圖的空地，扣掉安全邊距後車子中心能走的比例</p></div>
+''', '''
+// 單位：公分。障礙物 30×20 cm（粉），外擴 13 cm 的禁區（圓角＝往四周等距外擴），右側放一台車（官方車身：輪軸往後 10.5、往前 4.1、左右 10.5）
+const g = [];
+for (let x = 0; x <= 90; x += 5) g.push(`<line x1="${x}" y1="0" x2="${x}" y2="84" class="gd"/>`);
+for (let y = 0; y <= 84; y += 5) g.push(`<line x1="0" y1="${y}" x2="90" y2="${y}" class="gd"/>`);
+const bx = 15, by = 32, bw = 30, bh = 20, M = 13, cx = bx + bw + M, cy = 42;
+document.getElementById('dia').innerHTML = g.join('')
+  + `<rect class="zone" x="${bx - M}" y="${by - M}" width="${bw + 2 * M}" height="${bh + 2 * M}" rx="${M}"/>`
+  + `<rect class="box" x="${bx}" y="${by}" width="${bw}" height="${bh}"/>`
+  + `<g class="dim"><line x1="${bx + bw}" y1="${by - M - 5}" x2="${cx}" y2="${by - M - 5}" class="dl"/>`
+  + `<line x1="${bx + bw}" y1="${by - M - 7}" x2="${bx + bw}" y2="${by - M - 3}" class="dl"/><line x1="${cx}" y1="${by - M - 7}" x2="${cx}" y2="${by - M - 3}" class="dl"/>`
+  + `<text x="${bx + bw + M / 2}" y="${by - M - 7}" class="dt">13 cm</text></g>`
+  + `<g class="car"><rect x="${cx - 10.5}" y="${cy - 4.1}" width="21" height="14.6" class="body"/>`
+  + `<circle cx="${cx}" cy="${cy}" r="1.3" class="ctr"/><line x1="${cx}" y1="${cy}" x2="${cx}" y2="${cy - 8}" class="hd"/></g>`
+  + `<text x="${bx + bw / 2}" y="${by + bh / 2 + 1.6}" class="bt">障礙物</text>`
+  + `<text x="${cx + 13}" y="${cy + 1.5}" class="ct">車子中心</text>`;
+Scene({ duration: 10, steps: [2.4, 5.6], tracks: [
+  { sel: '.gd', at: 0, dur: 0.6, fx: 'fade', max: 1 },
+  { sel: '.box', at: 0.4, dur: 0.4, fx: 'pop' }, { sel: '.bt', at: 0.6, dur: 0.4, fx: 'fade' },
+  { sel: '#kick', at: 0.2, dur: 0.4, fx: 'up' }, { sel: '#t', at: 0.4, dur: 0.6, fx: 'up' },
+  { sel: '.zone', at: 2.6, dur: 1.0, fx: 'pop' }, { sel: '.dim', at: 3.4, dur: 0.5, fx: 'fade' },
+  { sel: '#l1', at: 3.0, dur: 0.5, fx: 'up' },
+  { sel: '.car', at: 5.8, dur: 0.6, fx: 'up', dy: 20 }, { sel: '.ct', at: 6.2, dur: 0.4, fx: 'fade' },
+  { sel: '#l2', at: 6.2, dur: 0.5, fx: 'up' }, { sel: '#d1', at: 7.2, dur: 0.5, fx: 'up' },
+]});
+''', css='''.gd { stroke:rgba(120,170,178,.18); stroke-width:.15; }
+.box { fill:#FF4FD8; }
+.zone { fill:rgba(255,79,216,.22); stroke:#FF4FD8; stroke-width:.3; stroke-dasharray:1 .8; }
+.body { fill:rgba(57,230,255,.18); stroke:#39E6FF; stroke-width:.45; }
+.ctr { fill:#DAFF3C; } .hd { stroke:#DAFF3C; stroke-width:.5; }
+.dl { stroke:#DAFF3C; stroke-width:.35; } .dt { fill:#DAFF3C; font-size:3.2px; font-weight:700; text-anchor:middle; font-family:Bahnschrift, sans-serif; }
+.bt { fill:#08161b; font-size:3.4px; font-weight:900; text-anchor:middle; }
+.ct { fill:#DAFF3C; font-size:3px; font-weight:700; }''')
+
+# ═══ 09 問題一 ═══════════════════════════════════════════
+scene('09-problem1', '09 問題一：穿過障礙', '''
 <p class="abs kicker" id="kick" style="left:96px; top:64px;">問題一</p>
 <h1 class="abs k title" id="t" style="left:96px; top:108px;">掃描線直接穿過障礙物</h1>
 <div id="mapbox" class="abs" style="left:40px; top:300px; width:1220px; height:640px;"></div>
-<p class="abs src" id="cap" style="left:96px; top:1000px;"><span class="pink">粉：舊版做法示意</span>　<span class="acid">黃：cell 分解後的真實規劃輸出</span>（2.0 × 1.0 m 場地，離線）</p>
+<p class="abs mute" id="cap" style="left:96px; top:1000px; font-size:24px;"><span class="pink">粉：舊版的掃描線</span>　<span class="acid">黃：cell 分解後的路徑</span></p>
 <div class="abs" id="old" style="left:1340px; top:330px; width:520px;">
   <p class="mute" style="font-size:28px; font-weight:700;">舊版</p>
   <p class="num pink" style="font-size:150px; line-height:1;">0%</p>
@@ -293,10 +325,9 @@ scene('08-problem1', '08 問題一：穿過障礙', '''
 </div>
 <div class="abs" id="new" style="left:1340px; top:700px; width:520px;">
   <p class="mute" style="font-size:28px; font-weight:700;">cell 分解後</p>
-  <p class="num acid" style="font-size:110px; line-height:1;">穿牆 0 次</p>
-  <p class="mute" style="font-size:24px;">離線評估 14 種場地</p>
+  <p class="num acid" style="font-size:110px; line-height:1; margin-top:14px;">穿牆 0 次</p>
+  <p class="mute" style="font-size:26px;">6 次實測規劃，331 段掃描線全部在可走區內</p>
 </div>
-<p class="abs src" id="src" style="left:1340px; top:960px; width:540px;">開發日誌 2026-08-16（200 × 100 cm 含障礙場地，實機觀察）</p>
 ''', '''
 const d = SCENES.field, M = MapSVG;
 document.getElementById('mapbox').innerHTML = M.open(d.bounds, 0.08, 'style="left:0; top:0; width:100%; height:100%;"')
@@ -312,7 +343,7 @@ Scene({ duration: 12, steps: [4.2, 10.6], tracks: [
   { sel: '.rt-move', at: 9.2, dur: 0.4, fx: 'fade' },
   { sel: '.rt-ring', at: 9.4, dur: 0.9, fx: 'draw' },
   { sel: '#new', at: 7.0, dur: 0.5, fx: 'up' },
-  { sel: '#cap', at: 1.6, dur: 0.6, fx: 'fade' }, { sel: '#src', at: 3.4, dur: 0.6, fx: 'fade' },
+  { sel: '#cap', at: 1.6, dur: 0.6, fx: 'fade' },
 ], onTime: (t) => {
   // 舊線先完整亮著，5.6 s 後退成暗影
   const g = document.getElementById('oldg');
@@ -320,87 +351,86 @@ Scene({ duration: 12, steps: [4.2, 10.6], tracks: [
 }});
 ''', css='.old { fill:none; stroke:#FF4FD8; stroke-width:.03; stroke-linecap:round; filter:url(#glow); }')
 
-# ═══ 09 問題二 ═══════════════════════════════════════════
-scene('09-problem2', '09 問題二：假障礙', '''
-<div id="mapbox" class="abs" style="left:120px; top:80px; width:700px; height:920px;"></div>
-<p class="abs src" id="cap" style="left:120px; top:1010px;">示意：1.06 × 1.47 m 房間、5 cm 格</p>
+# ═══ 10 問題二 ═══════════════════════════════════════════
+scene('10-problem2', '10 問題二：假障礙', '''
+<svg id="dia" class="abs" style="left:100px; top:150px; width:760px; height:760px;" viewBox="0 0 60 60"></svg>
 <p class="abs kicker" id="kick" style="left:960px; top:120px;">問題二</p>
 <h1 class="abs k" id="t" style="left:960px; top:166px; font-size:72px; line-height:1.25; width:880px;">光達雜點，被當成障礙物</h1>
-<p class="abs lede" id="l1" style="left:960px; top:380px; width:880px;">一顆 <span class="num">5 cm</span> 的雜點，加上安全距離，會變成 <span class="num pink">25 cm</span> 的禁區。</p>
-<p class="abs lede" id="l2" style="left:960px; top:540px; width:880px;">把 3 格以下的小團塊過濾掉：</p>
-<div class="abs" id="area" style="left:960px; top:640px;">
-  <p class="num" style="font-size:130px; line-height:1;"><span class="mute" style="font-size:70px;">1.08 → </span><span id="a2" class="acid">1.16</span><span style="font-size:52px;"> m²</span></p>
-  <p style="font-size:32px; font-weight:700; margin-top:8px;">可規劃面積 <span class="acid">+7%</span></p>
+<p class="abs lede" id="l1" style="left:960px; top:380px; width:880px;">一顆 <span class="num">5 cm</span> 的雜點，四周各擴 <span class="num">13 cm</span>，<br>就變成 <span class="num pink">31 cm</span> 寬的禁區。</p>
+<p class="abs lede" id="l2" style="left:960px; top:560px; width:880px;">把 3 格以下的小團塊過濾掉：</p>
+<div class="abs" id="area" style="left:960px; top:650px;">
+  <p class="num" style="font-size:130px; line-height:1;"><span class="mute" style="font-size:70px;">0.69 → </span><span id="a2" class="acid">0.82</span><span style="font-size:52px;"> m²</span></p>
+  <p style="font-size:32px; font-weight:700; margin-top:8px;">可規劃面積 <span class="acid">+18%</span><span class="mute" style="font-size:26px; font-weight:500;">（實測 6 次中雜點最多的一次）</span></p>
 </div>
-<p class="abs src" id="src" style="left:960px; top:960px;">離線比較：11/11 第一次實測地圖（開發日誌 2026-11-11）</p>
 ''', '''
-// 示意房間：1.06 × 1.47 m，散落 4 顆雜點；禁區＝雜點外擴 10 cm（方形膨脹）
-const W = 1.06, H = 1.47, R = 0.05, noise = [[0.30, 0.42], [0.72, 0.95], [0.55, 0.22], [0.25, 1.12]];
-let g = MapSVG.open([0, 0, W, H], 0.06, 'style="left:0; top:0; width:100%; height:100%;"');
-g += `<rect x="0" y="0" width="${W}" height="${H}" class="room"/>`;
-noise.forEach(([x, y], i) => {
-  g += `<rect class="zone z${i}" x="${x - 0.1}" y="${y - 0.1}" width="${0.25}" height="${0.25}"/>`;
-  g += `<rect class="dotn n${i}" x="${x}" y="${y}" width="${R}" height="${R}"/>`;
-});
-document.getElementById('mapbox').innerHTML = g + MapSVG.close();
-Scene({ duration: 12, steps: [4.4, 8.2], tracks: [
-  { sel: '.room', at: 0, dur: 0.6, fx: 'fade' },
+// 單位：公分。5 cm 雜點在正中央，往四周各擴 13 cm → 5 + 13 + 13 = 31 cm
+const g = [];
+for (let x = 0; x <= 60; x += 5) g.push(`<line x1="${x}" y1="0" x2="${x}" y2="60" class="gd"/>`);
+for (let y = 0; y <= 60; y += 5) g.push(`<line x1="0" y1="${y}" x2="60" y2="${y}" class="gd"/>`);
+const a = 27.5, M = 13, z0 = a - M, z1 = a + 5 + M, yd = z1 + 5;
+const tick = x => `<line x1="${x}" y1="${yd - 1.5}" x2="${x}" y2="${yd + 1.5}" class="dl"/>`;
+document.getElementById('dia').innerHTML = g.join('')
+  + `<rect class="zone" x="${z0}" y="${z0}" width="${z1 - z0}" height="${z1 - z0}" rx="${M}"/>`
+  + `<rect class="dotn" x="${a}" y="${a}" width="5" height="5"/>`
+  + `<g class="dim"><line x1="${z0}" y1="${yd}" x2="${z1}" y2="${yd}" class="dl"/>${tick(z0)}${tick(a)}${tick(a + 5)}${tick(z1)}`
+  + `<text x="${z0 + M / 2}" y="${yd - 2.2}" class="dt">13</text><text x="${a + 2.5}" y="${yd - 2.2}" class="dt w">5</text>`
+  + `<text x="${a + 5 + M / 2}" y="${yd - 2.2}" class="dt">13</text>`
+  + `<text x="${(z0 + z1) / 2}" y="${yd + 6}" class="dt big">= 31 cm</text></g>`;
+Scene({ duration: 11, steps: [2.4, 6.0], tracks: [
+  { sel: '.gd', at: 0, dur: 0.6, fx: 'fade', max: 1 },
   { sel: '#kick', at: 0.2, dur: 0.4, fx: 'up' }, { sel: '#t', at: 0.4, dur: 0.6, fx: 'up' },
-  { sel: '.dotn', at: 1.2, dur: 0.3, fx: 'pop', stagger: 0.15 },
-  { sel: '#l1', at: 2.0, dur: 0.5, fx: 'up' },
-  { sel: '#l2', at: 5.6, dur: 0.5, fx: 'up' },
-  { sel: '#area', at: 6.4, dur: 0.5, fx: 'up' },
-  { sel: '#a2', at: 6.6, dur: 1.4, fx: 'count', from: 1.08, to: 1.16, dec: 2 },
-  { sel: '#cap', at: 1.0, dur: 0.6, fx: 'fade' }, { sel: '#src', at: 7.4, dur: 0.6, fx: 'fade' },
+  { sel: '.dotn', at: 1.2, dur: 0.4, fx: 'pop' },
+  { sel: '.zone', at: 2.6, dur: 1.2, fx: 'pop' }, { sel: '.dim', at: 3.6, dur: 0.6, fx: 'fade' },
+  { sel: '#l1', at: 3.0, dur: 0.5, fx: 'up' },
+  { sel: '#l2', at: 6.2, dur: 0.5, fx: 'up' },
+  { sel: '#area', at: 7.0, dur: 0.5, fx: 'up' },
+  { sel: '#a2', at: 7.2, dur: 1.4, fx: 'count', from: 0.69, to: 0.82, dec: 2 },
 ], onTime: (t, u) => {
-  // 2.6–4.2 s 禁區由雜點長大到 25 cm；5.8–6.8 s 過濾掉（禁區與雜點一起消失）
-  const grow = u.E.out3(u.clamp((t - 2.6) / 1.6)), gone = u.clamp((t - 5.8) / 1.0);
-  document.querySelectorAll('.zone').forEach((z, i) => {
-    const [x, y] = noise[i], s = 0.05 + 0.2 * grow, c = 0.025;
-    z.setAttribute('x', x + c - s / 2); z.setAttribute('y', y + c - s / 2);
-    z.setAttribute('width', s); z.setAttribute('height', s);
-    z.style.opacity = t < 2.6 ? 0 : 1 - gone;
-  });
-  if (t > 5.8) document.querySelectorAll('.dotn').forEach(n => n.style.opacity = 1 - gone);
+  // 過濾：6.2 s 起禁區與雜點一起淡掉
+  const gone = u.clamp((t - 6.2) / 0.8);
+  if (t > 6.2) ['.zone', '.dotn', '.dim'].forEach(q => document.querySelector(q).style.opacity = 1 - gone * 0.85);
 }});
-''', css='''.room { fill:#12333a; stroke:rgba(120,170,178,.8); stroke-width:.02; }
-.zone { fill:rgba(255,79,216,.28); stroke:#FF4FD8; stroke-width:.006; }
-.dotn { fill:#DAFF3C; }''')
+''', css='''.gd { stroke:rgba(120,170,178,.2); stroke-width:.12; }
+.zone { fill:rgba(255,79,216,.25); stroke:#FF4FD8; stroke-width:.25; stroke-dasharray:.9 .7; }
+.dotn { fill:#DAFF3C; }
+.dl { stroke:#F2F7F5; stroke-width:.3; }
+.dt { fill:#FF4FD8; font-size:2.8px; font-weight:700; text-anchor:middle; font-family:Bahnschrift, sans-serif; }
+.dt.w { fill:#DAFF3C; } .dt.big { fill:#F2F7F5; font-size:3.6px; }''')
 
-# ═══ 10 問題三 ═══════════════════════════════════════════
-rows = [('受困次數', '2 → 0 次'), ('全部跑完', '1 → 3 次'), ('覆蓋時間', '10.1 → 3.2 分')]
+# ═══ 11 問題三 ═══════════════════════════════════════════
+rows = [('覆蓋時間', '10.1 → 3.2 分'), ('全部跑完', '1 → 3 次'), ('覆蓋率（附帶）', '82.7 → 90.9%')]
 body = '''<svg id="corner" class="abs"></svg>
 <p class="vtext" style="top:760px;">DWA / A*</p>
 <p class="abs kicker" id="kick" style="left:96px; top:76px;">問題三</p>
-<h1 class="abs k" id="t" style="left:96px; top:120px; font-size:68px;">導航套件會卡在牆邊，我們改成 A* 自己開</h1>
-<p class="abs src" id="src" style="left:96px; top:228px;">實車・同一場地・同一版本・兩種方式各 3 次（正式實驗 2026-11-26，v1.2.0）</p>
-<p class="abs num" id="ghost" style="left:76px; top:250px; font-size:420px; line-height:1.15; color:transparent; -webkit-text-stroke:3px rgba(143,179,184,.5); font-stretch:condensed;">82.7%</p>
-<p class="abs mute" id="bl" style="left:104px; top:630px; font-size:32px;">ROS 內建 DWA</p>
-<div class="abs" id="after" style="left:760px; top:332px; width:1100px; text-align:right;">
-  <p style="font-size:36px; font-weight:700;">自寫 A*＋直線循跡</p>
-  <p class="num acid" style="font-size:372px; line-height:1; letter-spacing:-6px;"><span id="big">90.9</span>%</p>
-  <p class="mute" style="font-size:30px; margin-top:12px;">平均實際覆蓋率（DWA 82.7%）</p>
+<h1 class="abs k" id="t" style="left:96px; top:120px; font-size:64px;">DWA 在牆邊卡住，覆蓋拖很久甚至停擺</h1>
+<p class="abs lede" id="sub" style="left:96px; top:220px; font-size:34px;">改用自寫 <span class="acid">A* 規劃路線＋直線循跡</span>，同一場地各跑 3 次：</p>
+<p class="abs num" id="ghost" style="left:76px; top:270px; font-size:420px; line-height:1.15; color:transparent; -webkit-text-stroke:3px rgba(143,179,184,.5); font-stretch:condensed;">2</p>
+<p class="abs mute" id="bl" style="left:104px; top:650px; font-size:32px;">DWA 受困次數</p>
+<div class="abs" id="after" style="left:760px; top:300px; width:1100px; text-align:right;">
+  <p style="font-size:36px; font-weight:700;">A* 受困次數</p>
+  <p class="num acid" style="font-size:372px; line-height:1; letter-spacing:-6px;"><span id="big">0</span></p>
+  <p class="mute" style="font-size:30px; margin-top:12px;">3 次全部跑完，沒有一次卡住</p>
 </div>
 '''
 for k, (a, b) in enumerate(rows):
-    y = 720 + k * 68
-    body += f'<div class="abs row" style="left:104px; top:{y}px; width:620px;"><p class="mute" style="position:absolute; top:10px; font-size:28px;">{a}</p><p class="num" style="position:absolute; left:256px; font-size:44px;">{b}</p></div>\n'
-scene('10-problem3', '10 問題三：DWA → A*', body, '''
+    y = 730 + k * 68
+    body += f'<div class="abs row" style="left:104px; top:{y}px; width:720px;"><p class="mute" style="position:absolute; top:10px; font-size:28px;">{a}</p><p class="num" style="position:absolute; left:256px; font-size:44px;">{b}</p></div>\n'
+scene('11-problem3', '11 問題三：DWA → A*', body, '''
 const d = SCENES.cover, M = MapSVG;
 document.getElementById('corner').outerHTML = M.open(d.bounds, 0.1, 'id="corner" class="abs" style="left:1300px; top:-1120px; width:1560px; height:1560px; opacity:.55;"')
   + M.cells(d.wall, d.res, 'wall') + M.route(d.plan) + M.close();
-Scene({ duration: 14, steps: [2.6, 5.5, 7.6], tracks: [
+Scene({ duration: 14, steps: [2.6, 5.5, 7.8], tracks: [
   { sel: '.rt-sweep', at: 0, dur: 3.0, fx: 'draw', ease: 'lin' }, { sel: '.rt-ring', at: 2.6, dur: 0.6, fx: 'draw' },
   { sel: '#kick', at: 0.2, dur: 0.4, fx: 'up' }, { sel: '#t', at: 0.4, dur: 0.6, fx: 'up' },
-  { sel: '#src', at: 1.0, dur: 0.6, fx: 'fade' },
+  { sel: '#sub', at: 1.0, dur: 0.5, fx: 'up' },
   { sel: '#ghost', at: 1.6, dur: 0.8, fx: 'fade' }, { sel: '#bl', at: 1.9, dur: 0.5, fx: 'up' },
   { sel: '#after', at: 3.4, dur: 0.5, fx: 'up' },
-  { sel: '#big', at: 3.5, dur: 1.8, fx: 'count', from: 82.7, to: 90.9, dec: 1 },
-  { sel: '.row', at: 6.0, dur: 0.45, fx: 'up', stagger: 0.3 },
+  { sel: '#big', at: 3.5, dur: 1.2, fx: 'count', from: 2, to: 0 },
+  { sel: '.row', at: 6.0, dur: 0.45, fx: 'up', stagger: 0.4 },
 ]});
 ''')
 
-# ═══ 11 數據總表（A* vs DWA，正式實驗）═══════════════════
+# ═══ 12 數據總表（A* vs DWA，正式實驗）═══════════════════
 cols = [('方式', 400), ('全部跑完', 200), ('受困', 150), ('平均覆蓋率', 240), ('覆蓋時間', 360), ('碰牆（推估）', 230)]
 data = [('自寫 A*＋直線循跡', '3 / 3', '0 次', '90.9%', '3.1～3.5 分', '3 次'),
         ('ROS 內建 DWA', '1 / 3', '2 次', '82.7%', '8.0～11.1 分', '2 次')]
@@ -423,9 +453,9 @@ for r, row in enumerate(data):
         body += f'<p class="abs cell R{r}{hl}" style="left:{x}px; top:{y + (8 if c == 0 else 0)}px; width:{w - 20}px; font-size:{size}px; font-weight:{weight}; color:{color}; line-height:1.2;">{val}</p>\n'
         x += w
     body += f'<div class="abs rule R{r}r" style="left:96px; top:{y + 120}px; width:1730px; height:1px; background:#2a4a50;"></div>\n'
-body += '<p class="abs lede" id="sum" style="left:96px; top:760px; width:1730px; font-size:38px;">A* 三次全部跑完、<span class="acid">零受困</span>；覆蓋率高約 8 個百分點，時間約 DWA 的<span class="acid">三分之一</span>。</p>\n'
-body += '<p class="abs src" id="src" style="left:96px; top:940px; width:1730px;">正式實驗 2026-11-26（v1.2.0）。DWA 有 2 次受困提早結束，實際所需時間更長；碰牆以規劃當下地圖＋官方車身尺寸推估，兩者相近</p>\n'
-scene('11-table', '11 數據總表', body, """
+body += '<p class="abs lede" id="sum" style="left:96px; top:760px; width:1730px; font-size:38px;">A* 三次全部跑完、<span class="acid">零受困</span>，時間約 DWA 的<span class="acid">三分之一</span>；覆蓋率也高約 8 個百分點。</p>\n'
+body += '<p class="abs src" id="src" style="left:96px; top:940px; width:1730px;">DWA 有 2 次受困提早結束，實際所需時間更長；碰牆為推估值</p>\n'
+scene('12-table', '12 數據總表', body, """
 Scene({ duration: 12, steps: [4.2, 6.6], tracks: [
   { sel: '#kick', at: 0.2, dur: 0.4, fx: 'up' }, { sel: '#t', at: 0.4, dur: 0.6, fx: 'up' },
   { sel: '#r0', at: 1.0, dur: 0.6, fx: 'grow' }, { sel: '.th', at: 1.2, dur: 0.4, fx: 'fade', stagger: 0.06 },
@@ -435,8 +465,33 @@ Scene({ duration: 12, steps: [4.2, 6.6], tracks: [
 ]});
 """, css='.cell.acid { color:#DAFF3C !important; }')
 
-# ═══ 12 實機展示（最後一頁；之後接實機影片）═══════════════
-scene('12-demo', '12 實機展示', """
+# ═══ 13 限制與未來規劃 ═════════════════════════════════════
+items = [('A* 在牆邊轉向，仍偶爾擦撞', '3 次實驗推估共碰觸 3 次；主因是定位跳動與轉向空間不足',
+          '更準的定位（固定地圖＋AMCL）、轉向前的空間檢查再加強'),
+         ('只驗證單一長方形空間、方形障礙物', '斜牆、L 形、多房間時 PCA 只能給一個方向',
+          '先把空間分區，再各自規劃'),
+         ('建完圖才規劃路徑', '大空間要等整張地圖建好才開始掃',
+          '邊建圖邊覆蓋')]
+body = '''<p class="abs kicker" id="kick" style="left:96px; top:64px;">限制與未來規劃</p>
+<h1 class="abs k title" id="t" style="left:96px; top:108px;">還沒做好的地方</h1>
+'''
+for k, (a, b, c) in enumerate(items):
+    y = 290 + k * 240
+    body += f'<p class="abs num acid it{k}" style="left:96px; top:{y - 6}px; font-size:72px; line-height:1;">0{k + 1}</p>\n'
+    body += f'<p class="abs it{k}" style="left:240px; top:{y}px; width:1600px; font-size:44px; font-weight:900;">{a}</p>\n'
+    body += f'<p class="abs mute it{k}" style="left:240px; top:{y + 70}px; width:1600px; font-size:28px;">{b}</p>\n'
+    body += f'<p class="abs it{k}" style="left:240px; top:{y + 118}px; width:1600px; font-size:30px;"><span class="cyan">未來</span>　{c}</p>\n'
+scene('13-limits', '13 限制與未來規劃', body, '''
+Scene({ duration: 8, steps: [2.0, 4.0, 6.0], tracks: [
+  { sel: '#kick', at: 0.2, dur: 0.4, fx: 'up' }, { sel: '#t', at: 0.4, dur: 0.6, fx: 'up' },
+  { sel: '.it0', at: 1.2, dur: 0.45, fx: 'up', stagger: 0.12 },
+  { sel: '.it1', at: 3.2, dur: 0.45, fx: 'up', stagger: 0.12 },
+  { sel: '.it2', at: 5.2, dur: 0.45, fx: 'up', stagger: 0.12 },
+]});
+''')
+
+# ═══ 14 實機展示（最後一頁；之後接實機影片）═══════════════
+scene('14-demo', '14 實機展示', """
 <div class="abs" id="line" style="left:0; top:538px; width:1920px; height:4px; background:#DAFF3C; box-shadow:0 0 22px #DAFF3C;"></div>
 <p class="abs kicker" id="kick" style="left:0; top:250px; width:1920px; text-align:center;">接下來播放實車錄影</p>
 <h1 class="abs k" id="t" style="left:0; top:300px; width:1920px; text-align:center; font-size:150px;">實機展示</h1>

@@ -45,11 +45,15 @@ def free_of(data):
 def plan_json(free, ox, oy):
     r = plan(free, RES, ox, oy)
     c, a, b, ev = r['axes']
+    ys, xs = np.where(free)
+    P = np.column_stack([ox + xs * RES, oy + ys * RES]) - c
+    pa, pb = P @ a, P @ b                       # 可走格在長軸、短軸上的投影：軸線畫到房間兩端為止
     return {
         'waypoints': [pt(p) + [k] for p, k in zip(r['waypoints'], r['kind'])],
         'cells': [[pt(p) for p in cell] for cell in r['cells']],
         'perimeter': [pt(p) for p in r['perimeter']],
-        'axes': {'c': pt(c), 'a': pt(a), 'b': pt(b), 'ratio': r3(max(ev) / min(ev))},
+        'axes': {'c': pt(c), 'a': pt(a), 'b': pt(b), 'ratio': r3(max(ev) / min(ev)),
+                 'ext': [r3(pa.min()), r3(pa.max()), r3(pb.min()), r3(pb.max())]},
     }
 
 
@@ -127,7 +131,8 @@ def main():
               'old' if 'oldLines' in v else '', len(v.get('oldLines', v.get('axisLines', []))))
 
     # 04：6/27 實測建圖快照 → 放大 8 倍、上色（自由＝深青、佔據＝黃綠、未知＝透明）
-    src = sorted(glob.glob(os.path.join(HERE, '..', '..', '..', '..', 'turtlebot3_ccpp', 'maps',
+    # 原在 turtlebot3_ccpp/maps/（車上產生、不進版控），2026-11-26 整理後備份於 experiments/robot/maps/
+    src = sorted(glob.glob(os.path.join(HERE, '..', '..', '..', '..', 'experiments', 'robot', 'maps',
                                         '20260627_150914', '*.png')))
     dst = os.path.join(OUT, 'mapflip'); os.makedirs(dst, exist_ok=True)
     W = max(Image.open(p).size[0] for p in src); H = max(Image.open(p).size[1] for p in src)

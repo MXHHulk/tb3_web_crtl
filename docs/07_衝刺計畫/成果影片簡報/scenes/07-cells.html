@@ -18,7 +18,6 @@
 <h1 class="abs k title" id="t" style="left:96px; top:108px;">有障礙物，就把空間切成幾塊各自掃</h1>
 <p class="abs lede" id="l1" style="left:96px; top:230px; width:1700px; font-size:34px;">障礙物前後，同一條掃描線會從一段變成兩段，那裡就是切點。每個 cell 內部來回掃，再由近到遠串起來。</p>
 <div id="mapbox" class="abs" style="left:160px; top:340px; width:1600px; height:700px;"></div>
-<p class="abs src" id="cap" style="left:96px; top:1010px;">規劃程式真實輸出・2.0 × 1.0 m 場地＋中央障礙（離線）</p>
 </div>
 <script>
 const d = SCENES.field, M = MapSVG, cols = ['#DAFF3C', '#39E6FF', '#C9B6FF', '#F2F7F5'];
@@ -37,7 +36,6 @@ const tr = [
   { sel: '#kick', at: 0.2, dur: 0.4, fx: 'up' }, { sel: '#t', at: 0.4, dur: 0.6, fx: 'up' },
   { sel: '.obsg', at: 1.2, dur: 0.4, fx: 'pop' },
   { sel: '#l1', at: 1.6, dur: 0.5, fx: 'up' },
-  { sel: '#cap', at: 2.0, dur: 0.6, fx: 'fade' },
 ];
 const per = 7.5 / cells.length;
 cells.forEach((cl, i) => {

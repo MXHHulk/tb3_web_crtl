@@ -34,20 +34,24 @@
 <p class="abs mute ns" style="left:1460px; top:650px; width:400px; text-align:center; font-size:26px;">覆蓋率・軌跡・時間</p>
 </div>
 <script>
-const X0 = 260, X1 = 1660, A = 1.8, B = 7.8;
-Scene({ duration: 10, steps: [1.7, 8.2], tracks: [
+const X0 = 260, X1 = 1660, P = [2.0, 4.0, 6.0, 8.0, 10.0], MV = 1.4;   // 每段停在 P[k]：第 k 個步驟亮起
+Scene({ duration: 10.4, steps: P, tracks: [
   { sel: '#kick', at: 0.2, dur: 0.4, fx: 'up' }, { sel: '#t', at: 0.4, dur: 0.6, fx: 'up' },
   { sel: '#track', at: 0.8, dur: 0.6, fx: 'grow' },
   { sel: '.ns', at: 0.8, dur: 0.4, fx: 'fade', stagger: 0.1 },
 ], onTime: (t, u) => {
-  const p = u.clamp((t - A) / (B - A));
-  const q = u.E.inout(p);
+  // 第 k 段（k ≥ 1）：P[k] − MV 到 P[k] 之間，光點從第 k−1 個步驟移到第 k 個
+  let q = 0;
+  for (let k = 1; k < 5; k++) {
+    if (t >= P[k]) q = k / 4;
+    else { if (t > P[k] - MV) q = (k - 1) / 4 + u.E.inout((t - (P[k] - MV)) / MV) / 4; break; }
+  }
   document.getElementById('lit').style.transform = `scaleX(${q})`;
   const sp = document.getElementById('spark');
   sp.style.left = (X0 + (X1 - X0) * q) + 'px';
-  sp.style.opacity = t < A ? 0 : (p >= 1 ? 0.6 : 1);
+  sp.style.opacity = t < P[0] - 0.5 ? 0 : u.clamp((t - (P[0] - 0.5)) / 0.5);
   for (let k = 0; k < 5; k++) {
-    const on = q >= k / 4 - 0.001 && t >= A;
+    const on = t >= P[k] - 0.05;
     document.getElementById('n' + k).style.color = on ? (k === 0 || k === 4 ? '#F2F7F5' : '#DAFF3C') : '#4d6f75';
     document.getElementById('d' + k).style.background = on ? '#DAFF3C' : '#2a4a50';
   }
